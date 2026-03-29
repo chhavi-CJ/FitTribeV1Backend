@@ -66,6 +66,9 @@ public class UserController {
         if (request.weightKg() != null)    user.setWeightKg(request.weightKg());
         if (request.heightCm() != null)    user.setHeightCm(request.heightCm());
         if (request.weeklyGoal() != null)  user.setWeeklyGoal(request.weeklyGoal());
+        if (request.healthConditions() != null) {
+            user.setHealthConditions(request.healthConditions().toArray(new String[0]));
+        }
 
         return ResponseEntity.ok(ApiResponse.success(userRepository.save(user)));
     }
