@@ -1,0 +1,644 @@
+
+FitTribe
+
+Complete Feature Spec — AI Coach + Emotional Hooks
+
+
+
+Version 2.0  ·  March 2026  ·  Ready for development
+
+Two features. One document. Complete build commands at the end.
+
+Contents
+PART A — AI Coach (Post-Workout Insight)
+  1.  Feature Overview
+  2.  Data Requirements
+  3.  Two Insight Modes
+  4.  The Prompt — Most Important Section
+  5.  Backend Implementation
+  6.  Frontend Implementation
+  7.  Cost Controls
+
+PART B — Emotional Hooks (Social Feed Upgrade)
+  8.  What is an Emotional Hook
+  9.  Indian Apps That Nailed It
+  10. The 5 Hooks for FitTribe
+       Hook 1 — Streak Anxiety
+       Hook 2 — The Poke That Hurts a Little
+       Hook 3 — The Near Miss
+       Hook 4 — The PR Moment
+       Hook 5 — Group Milestone Drama
+  11. Build Priority
+  12. The Core Principle
+
+PART C — Master Build Commands
+  13. Full command to paste into Claude
+  14. Step-by-step breakdown
+  15. Pre-build checklist
+
+  PART A — AI COACH  
+
+1. Feature Overview
+GOAL
+After every completed workout, FitTribe shows a personalised AI insight on the Summary screen. The insight uses the user's actual profile data and session history — making it feel like advice from a real coach who knows them.
+
+This is Feature 1 of the AI roadmap — the MVP AI feature. It works from day 1 of a user's account and gets smarter with every session they log.
+
+1.1  Why This Feature
+	•	No Indian gym app has personalised AI tied to real session data
+	•	Hevy and Strong have no AI — only generic tips
+	•	Works from day 1, gets smarter with every session
+	•	Cost: ₹0.01 per session — negligible at any scale
+	•	Fails silently — core app never breaks if OpenAI is down
+
+1.2  What the User Sees
+On the Summary screen, after finishing a workout, a card appears below the stats grid. Two versions — Day 1 vs Session 5+:
+
+🤖  AI Coach  ·  Session 1
+
+"At 55 kg body weight, 10 kg shoulder press is strong for a beginner
+woman. Focus on form over weight for the first 4 weeks — injuries
+at this stage set beginners back by months."
+
+🤖  AI Coach  ·  Session 5+
+
+"Your shoulder press has gone from 8 kg to 12 kg in 4 sessions —
+excellent progression. Weekly volume is up 38%. Make sure you're
+eating enough protein to support this growth rate."
+
+2. Data Requirements
+CRITICAL
+The AI is only as good as the data you pass it. All fields below must exist in the database before the AI feature activates.
+
+2.1  User Profile (from onboarding)
+Field
+DB Column
+Used For
+Full name
+display_name
+Personalising the response ("Great session, Priya")
+Age
+age
+Age-appropriate advice and recovery times
+Gender
+gender
+Strength standards differ significantly by gender
+Height (cm)
+height_cm
+Body proportion context for exercise selection
+Weight (kg)
+weight_kg
+Ratio of lifted weight to body weight — key metric
+Fitness level
+fitness_level
+BEGINNER / INTERMEDIATE / ADVANCED
+Goal
+goal
+Lose fat / Build muscle / changes advice focus
+
+2.2  Session Data (from workout logging)
+Field
+Source Table
+Why AI Needs It
+Exercise name
+exercises.name
+References specific lifts in the response
+Weight (kg)
+set_logs.weight_kg
+Core metric — absolute weight lifted
+Reps
+set_logs.reps
+Volume calculation and intensity assessment
+Sets
+set_logs.set_number
+Total sets per exercise
+Duration
+workout_sessions.duration_minutes
+Workout efficiency analysis
+Total volume
+workout_sessions.total_volume_kg
+Trend comparison across sessions
+Is PR
+set_logs.is_pr
+Celebrate records, note plateaus
+Date
+workout_sessions.started_at
+Frequency and recovery analysis
+
+2.3  New DB Column Required
+Migration
+Create: src/main/resources/db/migration/V8__add_ai_insight.sql
+
+ALTER TABLE workout_sessions
+  ADD COLUMN ai_insight                TEXT,
+  ADD COLUMN ai_insight_generated_at   TIMESTAMPTZ;
+
+3. Two Insight Modes
+
+Sessions 1-2 — Profile Mode
+Sessions 3+ — Progress Mode
+Data used
+Profile + today only
+Profile + last 10 sessions + trends
+AI focus
+Appropriate weights, form, safety, encouragement
+Trends, plateaus, volume change, one specific tip
+Example
+10 kg shoulder press is solid for your level. Focus on form.
+Stalled at 12 kg for 3 sessions. Try pyramid sets to break it.
+DB check
+COUNT(sessions) < 3
+COUNT(sessions) >= 3
+
+Placeholder
+Sessions 1-2 still call OpenAI but get profile-based (not progress-based) insights. The placeholder text is only the fallback if the API call fails.
+
+4. The Prompt — Most Important Section
+KEY INSIGHT
+The API call is 20 lines. The prompt is the product. A bad prompt gives generic tips. A good prompt gives advice that feels like a personal trainer who has been watching for weeks.
+
+4.1  Full Prompt Template
+SYSTEM PROMPT
+
+You are an expert fitness coach inside FitTribe, an Indian gym app.
+Be specific — never generic. Always reference their actual numbers.
+Max 2-3 sentences. Tone: knowledgeable friend. No emojis.
+
+USER PROMPT (built per session)
+
+USER PROFILE:
+Name: {display_name} | Age: {age} | Gender: {gender}
+Height: {height_cm}cm | Weight: {weight_kg}kg
+Level: {fitness_level} | Goal: {goal}
+Sessions completed so far: {session_count}
+
+TODAY'S SESSION ({date}):
+Duration: {duration} min | Total volume: {total_volume_kg} kg
+- {exercise_name}: {weight}kg x {reps} reps x {sets} sets
+- {exercise_name}: {weight}kg x {reps} reps x {sets} sets
+PRs today: {pr_list or "none"}
+
+[INCLUDE ONLY IF session_count >= 3]
+LAST 3 SESSIONS:
+  {date}: volume {X}kg | {exercise} {kg}kg ...
+  {date}: volume {X}kg | {exercise} {kg}kg ...
+Volume trend: {vol_1} -> {vol_2} -> {today_vol} kg
+[END BLOCK]
+
+[IF session_count < 3]
+INSTRUCTION: Check if weights suit body weight + level.
+Give form/safety advice. Be encouraging.
+
+[IF session_count >= 3]
+INSTRUCTION: Identify trends or plateaus. Reference actual numbers.
+Give one specific actionable tip. Max 2-3 sentences.
+
+4.2  Good vs Bad Examples
+❌  Bad — User ignores after session 2
+✅  Good — User screenshots and shares
+"Great workout! Keep pushing yourself and stay consistent!"
+"At 55 kg, 10 kg shoulder press is above average for a beginner woman. Add one rep per session rather than jumping weight."
+"You hit some personal records today! Remember to rest and recover."
+"New bench PR at 82.5 kg — 2.5 kg above last week. Chest volume up 22% this month. Watch shoulder health at this pace."
+"Keep tracking your workouts to see progress. You're doing great!"
+"Stuck at 95 kg squat for 3 sessions. Drop to 87.5 kg next week, nail 4x8, then ramp back. Plateaus like this break in 2 sessions."
+
+5. Backend Implementation
+5.1  New Files
+File
+Purpose
+db/migration/V8__add_ai_insight.sql
+Adds ai_insight columns
+com.fittribe.service.AiService
+Builds prompt, calls OpenAI, stores result
+com.fittribe.controller.AiController
+GET /api/v1/ai/insight/{sessionId}
+com.fittribe.dto.response.AiInsightResponse
+DTO returned to frontend
+
+5.2  application.yml Keys to Add
+openai:
+  api-key: ${OPENAI_API_KEY}     # env variable — never hardcode
+  model: gpt-4o-mini             # cheapest, sufficient
+  max-tokens: 150
+  insight-min-sets: 8            # skip very short sessions
+
+5.3  AiService.java — Core Logic
+@Service @Slf4j @RequiredArgsConstructor
+public class AiService {
+  @Value("${openai.api-key}") private String apiKey;
+  @Value("${openai.model}")   private String model;
+  @Value("${openai.max-tokens}") private int maxTokens;
+  @Value("${openai.insight-min-sets}") private int minSets;
+  private final WorkoutSessionRepository sessionRepo;
+  private final UserRepository userRepo;
+  private final RestTemplate restTemplate;
+  private static final String URL = "https://api.openai.com/v1/chat/completions";
+
+  @Async
+  public void generateAndSaveInsight(UUID userId, UUID sessionId) {
+    try {
+      var session = sessionRepo.findById(sessionId).orElseThrow();
+      if (session.getSetLogs().size() < minSets) return;
+      String prompt  = buildPrompt(userId, session);
+      String insight = callOpenAI(prompt);
+      if (insight != null) {
+        session.setAiInsight(insight);
+        session.setAiInsightGeneratedAt(Instant.now());
+        sessionRepo.save(session);
+      }
+    } catch (Exception e) {
+      log.warn("AI insight failed for {}: {}", sessionId, e.getMessage());
+    }
+  }
+  // buildPrompt() and callOpenAI() — see Section 4.1 for prompt logic
+}
+
+5.4  Wire Into Session Finish
+// In SessionController.java — add ONE line after session is marked COMPLETED:
+aiService.generateAndSaveInsight(userId, id);  // async, non-blocking
+
+5.5  API Endpoint
+GET  /api/v1/ai/insight/{sessionId}   — returns 200 with insight or 204 if not ready
+
+6. Frontend Implementation
+6.1  AiInsightCard.jsx  (new file)
+// src/components/AiInsightCard.jsx
+// Props: sessionId (UUID string)
+// Polls /api/v1/ai/insight/{sessionId} every 2s, max 10 attempts
+// Shows 'Analysing your session...' while loading
+// Hides completely if no insight after timeout
+// Styled with existing FitTribe CSS variables
+
+6.2  Summary.jsx  (one line update)
+// ADD import:
+import { AiInsightCard } from '../components/AiInsightCard';
+
+// ADD in JSX, below the stgrid stats cards:
+<AiInsightCard sessionId={lastSession?.id} />
+
+7. Cost Controls
+Guard
+Rule
+Why
+Min sets
+Skip if < 8 sets
+Short sessions produce poor insights
+Session status
+COMPLETED only
+Discarded sessions get no AI
+Token cap
+max_tokens: 150
+Keeps cost at ₹0.01 per call
+Async
+@Async annotation
+Never blocks session finish response
+Fail silently
+try-catch, log only
+API downtime must not break the app
+No retry
+One attempt only
+Retries multiply cost during outages
+
+Users
+Sessions/mo
+AI Cost
+Revenue (₹99 Pro)
+50
+200
+₹20
+₹4,950
+200
+800
+₹80
+₹19,800
+500
+2,000
+₹200
+₹49,500
+1,000
+4,000
+₹400
+₹99,000
+
+AI cost is under 1% of revenue at every scale.
+
+  PART B — EMOTIONAL HOOKS  
+
+8. What is an Emotional Hook
+An emotional hook is a moment in an app that makes you feel something — pride, fear, urgency, or belonging — strongly enough that you take action or come back tomorrow.
+
+It is not a feature. It is a feeling triggered by a specific design decision.
+
+THE TEST
+Does the user feel something when they see this? If the answer is no, it is information. Not a hook.
+
+8.1  Why Your Current Feed is Weak
+Right now your feed shows:
+
+Group Feed
+
+Rahul crushed Leg Day — 6,200 kg volume, new squat PR
+🦵 Leg Day   🏆 95 kg squat   🔥 22-streak
+🔥 8    💪 3
+
+This is information. It tells you what Rahul did. It does not make you feel anything about it. You read it and scroll past.
+
+The difference is not the data. It is personal relevance. The feed needs to show what things mean FOR THE PERSON READING IT — not just what happened.
+
+9. Indian Apps That Nailed Emotional Hooks
+App
+The Hook
+The Feeling
+FitTribe Equivalent
+Dream11
+"Virat is in 94% of teams. Missing out?"
+FOMO — fear of making a wrong decision
+Group streak breaking tonight — you could save it
+CRED
+Paying a bill feels like joining a private club
+Status and exclusivity
+FitCoins, group crown, verified badge
+ShareChat
+Content from people who look and talk like you
+Belonging — these are my people
+Your 6 real friends, not strangers
+Duolingo
+11pm: your 47-day streak ends in 1 hour
+Streak anxiety — mild dread
+FitTribe streak at risk notification
+
+10. The 5 Emotional Hooks for FitTribe
+Hook 1 — Streak Anxiety
+FEELING
+Mild dread. The fear of losing something you worked hard for.
+
+Notification — fires at 8pm if user has not logged
+Push Notification
+
+🔥 Your 17-day streak ends in 4 hours.
+Mumbai crew needs 1 more person today.
+That person could be you.
+
+Home screen card — changes at 8pm for users who have not logged
+Home Screen — Streak at Risk State
+
+⚠️  Streak at risk
+17 days. Tonight by midnight.
+
+[Log workout →]
+
+The card border pulses. The card animates gently when the app opens if less than 2 hours remain.
+
+What to build
+	•	New home state: streakAtRisk — shows when isActive=false, hasStreak=true, time > 8pm
+	•	Push notification scheduled daily at 8pm via Spring @Scheduled
+	•	Pulsing CSS animation on the at-risk card border
+	•	New AppContext state: streakAtRisk boolean
+
+Hook 2 — The Poke That Hurts a Little
+FEELING
+Playful shame. The social awkwardness of being called out by friends.
+
+Notification received by the person who has not logged
+Push Notification
+
+Priya poked you 👋
+She has already logged today.
+You haven't. Mumbai crew is watching.
+
+Feed card for a member who has not logged
+Feed Card — Not Logged State
+
+Vikas — No activity today
+🧊 Last logged 2 days ago
+
+[Poke 👋]   Already poked by 2 people
+
+"Already poked by 2 people" — this is the hook. Nobody wants to be poked by 3 friends and still not go to the gym. Social visibility creates action.
+
+What to build
+	•	Track poke count per member per day in a new DB column: group_members.poke_count_today
+	•	Show poke count on feed card if > 0
+	•	Push notification copy change — personalise with poker name and their logged status
+	•	Reset poke count at midnight daily
+
+Hook 3 — The Near Miss
+FEELING
+Competitive urgency. The specific pain of almost winning.
+
+Borrowed from gaming — finishing #2 hurts more than #10. The near miss is more motivating than a comfortable lead or a comfortable loss.
+
+Leaderboard — Near Miss View
+
+🏋️  This week's effort leaderboard
+
+1.  Rahul     94 pts  ████████████
+2.  You       88 pts  ██████████░░  ← only 6 pts behind
+3.  Priya     71 pts
+
+You are 6 points behind the top spot.
+One solid session could flip this.
+
+Show the gap in small, specific units. Not "you are losing" — "you are THIS CLOSE to winning." The specificity of the gap is the hook.
+
+What to build
+	•	Calculate gap to #1 in real time from effort scores
+	•	Show gap prominently below user's row: "X points behind the top spot"
+	•	Only show if gap is <= 15 points — larger gaps feel hopeless, not motivating
+	•	Add message: "One solid session could flip this" when gap <= 10
+
+Hook 4 — The PR Moment
+FEELING
+Pure pride. The specific joy of hitting a personal best.
+
+Right now PRs are a small chip in the feed. That is not enough. When a user hits a PR, interrupt the logging screen — stop everything.
+
+PR Celebration — Full Screen Interrupt
+
+                    🏆
+
+         NEW PERSONAL RECORD
+
+           Bench Press
+         85 kg × 5 reps
+
+       Up from 82.5 kg last week
+
+  [Share to Mumbai crew →]   [Continue workout]
+
+Group feed PR card — looks visually different from regular workout cards
+🏆  PR ALERT
+
+Arjun just hit a new bench press record
+85 kg — up 3% from last week
+
+[🔥 React]   [💪 React]   [Send a message]
+
+The gold border and PR ALERT label make group members feel like they witnessed something. They want to react.
+
+What to build
+	•	PR detection already exists in set_logs.is_pr — surface it dramatically
+	•	Full-screen PR modal in Logging.jsx — fires when is_pr is true on any set tick
+	•	Confetti animation using a lightweight library (canvas-confetti — 3kb)
+	•	Auto-post to group feed with gold border card variant
+	•	Different feed card component: PRFeedCard — gold border, 🏆 header, larger text
+
+Hook 5 — Group Milestone Drama
+FEELING
+Collective pride. The specific feeling of being part of something that succeeded together.
+
+When the group hits a streak milestone — 7, 14, 30 days — do not just update a number. Make it a moment.
+
+Notification — every group member at the same time
+Push Notification — Milestone
+
+Mumbai crew just hit 14 days 🔥
+All 6 members contributed this week.
+You are the longest-running group on FitTribe right now.
+
+"The longest-running group on FitTribe right now" — this line is the hook. Competitive, specific, exclusive. People screenshot this.
+
+Group screen banner — temporary, shown for 24 hours after milestone
+Group Screen — Milestone Banner
+
+🔥  14-day group streak!
+Mumbai crew · All 6 logged ✓
+Longest active streak on FitTribe
+
+What to build
+	•	Milestone check in GroupStreakService after every session logged
+	•	Milestones: 7, 14, 21, 30, 60, 100 days
+	•	Push notification to all group members simultaneously via FCM
+	•	Group rank query: SELECT COUNT(*) FROM groups WHERE streak > this_group_streak
+	•	Banner component in Group.jsx — visible for 24 hours after milestone hit
+
+11. Build Priority
+Hook
+Build effort
+Impact
+When
+Streak Anxiety
+Low — notification + card
+⭐⭐⭐⭐⭐
+MVP Day 1
+PR Moment
+Medium — modal + feed card
+⭐⭐⭐⭐⭐
+MVP Day 1
+Poke with shame
+Low — feed card + notification copy
+⭐⭐⭐⭐
+MVP Day 1
+Near Miss
+Low — show gap in points
+⭐⭐⭐⭐
+Month 2
+Group Milestone
+Medium — notification + banner
+⭐⭐⭐⭐⭐
+Month 2
+
+12. The Core Principle
+RULE
+Make it about the user, not about what someone else did. Same data. Different framing. That is what an emotional hook is.
+
+❌  Information (weak)
+✅  Emotional (hook)
+Rahul logged a workout
+Rahul is beating you by 6 points
+Priya hit a PR
+The whole group reacted — you haven't yet
+Group streak is at 14 days
+Group streak breaks tonight if you don't log
+You were poked by Priya
+Priya already logged. Mumbai crew is watching.
+
+  PART C — MASTER BUILD COMMANDS  
+
+13. Full Master Command
+HOW TO USE
+Open a new Claude session. Share this document. Paste this entire block as your first message. Then follow the step-by-step in Section 14.
+
+I am building FitTribe — a social gym accountability app.
+Tech stack: Java 17 + Spring Boot 3.2 + PostgreSQL + Flyway +
+JWT (JJWT 0.12.3) + React 18 + Vite + React Router v6.
+
+I have attached the FitTribe Complete Feature Spec document.
+It contains everything you need for both features below.
+
+Build the following in this exact order.
+Wait for my confirmation after each step before proceeding.
+
+━━━ PHASE 1 — AI Coach (Part A of the spec) ━━━
+
+STEP 1: Create V8__add_ai_insight.sql migration (Section 2.3)
+STEP 2: Create AiService.java — full implementation (Section 5.3)
+STEP 3: Create AiController.java — endpoint (Section 5.5)
+STEP 4: Update SessionController.java — wire async call (Section 5.4)
+STEP 5: Create AiInsightCard.jsx (Section 6.1)
+STEP 6: Update Summary.jsx — one line only (Section 6.2)
+STEP 7: Show me the application.yml keys (Section 5.2)
+
+━━━ PHASE 2 — Emotional Hooks (Part B of the spec) ━━━
+
+STEP 8:  Streak anxiety — new home state + 8pm notification
+STEP 9:  PR moment — full screen modal in Logging.jsx + PRFeedCard
+STEP 10: Poke upgrade — poke count on feed card + notification copy
+STEP 11: Near miss — gap display on leaderboard
+STEP 12: Group milestone — banner + group rank query + notification
+
+━━━ Rules for all steps ━━━
+
+- Do NOT rewrite any existing file unless the step requires it
+- Follow existing package structure: com.fittribe.service / .controller
+- Follow existing API response envelope pattern
+- Keep all styling consistent with FitTribe dark theme CSS variables
+- AI must fail silently — core app never breaks if OpenAI is down
+- Emotional hook notifications must be skippable by user in settings
+
+Start with STEP 1 now.
+
+14. Step-by-Step Breakdown
+After confirming each step, paste the relevant continuation command:
+
+After Step 7 — confirm Phase 1 working
+Phase 1 confirmed. The AI insight is generating correctly in production.
+Please proceed to Phase 2, STEP 8 — streak anxiety feature.
+Refer to Section 10, Hook 1 of the spec for full requirements.
+
+After Step 9 — if PR modal needs adjustment
+The PR modal needs to be adjusted.
+[Describe what is wrong — e.g., "it fires too early" or "styling is off"]
+Fix only the PR modal. Do not change any other file.
+
+If any step fails
+Step [X] is not working. Here is the error:
+[paste error]
+Fix only this. Do not move to the next step yet.
+
+15. Pre-Build Checklist
+Verify all of these before starting. Missing any will cause build failures.
+
+15.1  Backend
+	•	OPENAI_API_KEY is set as environment variable in Railway / Render (never hardcoded)
+	•	Your User entity has: age, gender, heightCm, weightKg, fitnessLevel, goal fields
+	•	SessionController already has a POST /sessions/{id}/finish endpoint
+	•	@EnableAsync annotation on FitTribeApplication.java main class
+	•	FCM (Firebase Cloud Messaging) set up for push notifications (Hooks 1, 2, 5)
+
+15.2  Frontend
+	•	axios instance configured with base URL and JWT auth header
+	•	lastSession.id available in AppContext after finishWorkout()
+	•	canvas-confetti installed: npm install canvas-confetti (for Hook 4 PR moment)
+
+15.3  OpenAI Account
+	•	Account created at platform.openai.com
+	•	API key generated — starts with sk-
+	•	Credit added — ₹500 lasts months at FitTribe usage levels
+	•	Key added to deployment environment — NOT hardcoded anywhere in code
+
+
+FitTribe Complete Spec v2.0  ·  AI Coach + Emotional Hooks  ·  Internal document
+
+When ready: open Claude → share this document → paste Section 13 command → confirm each step

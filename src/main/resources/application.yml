@@ -1,0 +1,59 @@
+spring:
+  application:
+    name: fittribe-api
+
+  # ── Database ──────────────────────────────────────────────────────────
+  datasource:
+    url: ${DB_URL}
+    username: ${DB_USERNAME}
+    password: ${DB_PASSWORD}
+    driver-class-name: org.postgresql.Driver
+
+  # ── JPA ───────────────────────────────────────────────────────────────
+  jpa:
+    hibernate:
+      ddl-auto: validate          # Flyway owns the schema — never let Hibernate alter it
+    properties:
+      hibernate:
+        dialect: org.hibernate.dialect.PostgreSQLDialect
+        format_sql: true
+    show-sql: false
+    open-in-view: false
+
+  # ── Flyway ────────────────────────────────────────────────────────────
+  flyway:
+    enabled: true
+    locations: classpath:db/migration
+    baseline-on-migrate: false
+
+# ── JWT ───────────────────────────────────────────────────────────────
+jwt:
+  secret: ${JWT_SECRET}
+  expiration-ms: 2592000000  # 30 days
+
+# ── Firebase ──────────────────────────────────────────────────────────
+firebase:
+  project-id: ${FIREBASE_PROJECT_ID:placeholder}
+  service-account-path: ${FIREBASE_SA_PATH:firebase-service-account.json}
+
+# ── OpenAI (Phase 2 – AI Coach) ───────────────────────────────────────
+openai:
+  api-key: ${OPENAI_API_KEY:}
+  model: gpt-4o-mini
+  max-tokens: 150
+  insight-min-sets: 8
+
+# ── Error responses ───────────────────────────────────────────────────
+# Ensure Spring Boot's /error endpoint never leaks stack traces or internal
+# exception messages to the client, regardless of environment.
+server:
+  error:
+    include-stacktrace: never
+    include-message: never
+    include-binding-errors: never
+
+# ── Logging ───────────────────────────────────────────────────────────
+logging:
+  level:
+    com.fittribe: DEBUG
+    org.flywaydb: INFO

@@ -31,3 +31,18 @@ build/
 
 ### VS Code ###
 .vscode/
+
+# Secrets — never commit these
+.env
+serviceAccountKey.json
+firebase-service-account.json
+application-local.yml
+
+# Local dev notes — not part of the codebase
+dump.txt
+
+# Personal notes — not part of the codebase
+feature.txt
+
+CLAUDE.md
+FitTribe_AI_Phase2_Spec_v2.docx
