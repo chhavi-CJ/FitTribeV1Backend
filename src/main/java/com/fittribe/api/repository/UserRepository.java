@@ -40,4 +40,7 @@ public interface UserRepository extends JpaRepository<User, UUID> {
 
     /** Batch load: fetch multiple users by ID in one query. */
     List<User> findByIdIn(Collection<UUID> ids);
+
+    /** All users with an active streak — used by the daily streak reset job. */
+    List<User> findAllByStreakGreaterThan(int streak);
 }

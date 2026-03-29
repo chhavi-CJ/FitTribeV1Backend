@@ -200,8 +200,8 @@ public class SessionController {
         session.setWeeklyGoalHit(weeklyGoalHit);
         sessionRepo.save(session);
 
-        // Update user streak + coins
-        user.setStreak(user.getStreak() + 1);
+        // Update user streak + coins (floor at 0 — streak must never go negative)
+        user.setStreak(Math.max(0, user.getStreak() + 1));
         user.setCoins(user.getCoins() + COINS_PER_SESSION);
         userRepo.save(user);
 
