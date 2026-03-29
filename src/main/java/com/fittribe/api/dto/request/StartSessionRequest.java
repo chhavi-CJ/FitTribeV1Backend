@@ -1,3 +1,5 @@
 package com.fittribe.api.dto.request;
 
-public record StartSessionRequest(String name, String badge) {}
+import jakarta.validation.constraints.NotBlank;
+
+public record StartSessionRequest(@NotBlank String name, String badge) {}

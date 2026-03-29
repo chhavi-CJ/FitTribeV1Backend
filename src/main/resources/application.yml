@@ -26,6 +26,16 @@ spring:
     locations: classpath:db/migration
     baseline-on-migrate: false
 
+  # ── MVC ───────────────────────────────────────────────────────────────
+  mvc:
+    # Throw NoHandlerFoundException for unknown paths instead of forwarding to /error.
+    # Requires web.resources.add-mappings=false — otherwise the default static resource
+    # handler matches everything and NoHandlerFoundException is never raised.
+    throw-exception-if-no-handler-found: true
+  web:
+    resources:
+      add-mappings: false
+
 # ── JWT ───────────────────────────────────────────────────────────────
 jwt:
   secret: ${JWT_SECRET}

@@ -3,13 +3,16 @@ package com.fittribe.api.exception;
 import com.fittribe.api.dto.ApiResponse;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.http.converter.HttpMessageNotReadableException;
+import org.springframework.web.HttpRequestMethodNotSupportedException;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 import org.springframework.web.method.annotation.MethodArgumentTypeMismatchException;
+import org.springframework.web.servlet.NoHandlerFoundException;
 
 import java.util.stream.Collectors;
 
@@ -60,6 +63,39 @@ public class GlobalExceptionHandler {
         return ResponseEntity
                 .badRequest()
                 .body(ApiResponse.error("Invalid parameter: " + ex.getName() + ".", "BAD_REQUEST"));
+    }
+
+    /** Wrong HTTP method for an existing endpoint (e.g. GET where POST is required). */
+    @ExceptionHandler(HttpRequestMethodNotSupportedException.class)
+    public ResponseEntity<ApiResponse<Void>> handleMethodNotSupported(
+            HttpRequestMethodNotSupportedException ex) {
+        log.debug("Method not supported: {}", ex.getMessage());
+        return ResponseEntity
+                .status(HttpStatus.METHOD_NOT_ALLOWED)
+                .body(ApiResponse.error(
+                        "Request method '" + ex.getMethod() + "' is not supported.", "METHOD_NOT_ALLOWED"));
+    }
+
+    /** No route matched the request path at all. Requires throw-exception-if-no-handler-found=true. */
+    @ExceptionHandler(NoHandlerFoundException.class)
+    public ResponseEntity<ApiResponse<Void>> handleNoHandler(NoHandlerFoundException ex) {
+        log.debug("No handler found: {} {}", ex.getHttpMethod(), ex.getRequestURL());
+        return ResponseEntity
+                .status(HttpStatus.NOT_FOUND)
+                .body(ApiResponse.error("No endpoint found for "
+                        + ex.getHttpMethod() + " " + ex.getRequestURL(), "NOT_FOUND"));
+    }
+
+    /**
+     * Database constraint violations (unique key, not-null, check constraint, null byte in text).
+     * ex.getMessage() contains internal SQL/table detail — never forwarded to client.
+     */
+    @ExceptionHandler(DataIntegrityViolationException.class)
+    public ResponseEntity<ApiResponse<Void>> handleDataIntegrity(DataIntegrityViolationException ex) {
+        log.warn("Data integrity violation: {}", ex.getMessage());
+        return ResponseEntity
+                .badRequest()
+                .body(ApiResponse.error("Request contains invalid data.", "BAD_REQUEST"));
     }
 
     /**
