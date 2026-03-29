@@ -1,0 +1,21 @@
+-- V3: seed 19 exercises
+INSERT INTO exercises (id, name, muscle_group, equipment, icon) VALUES
+  ('bench-press',         'Bench Press',          'CHEST',       'BARBELL',     '🏋️'),
+  ('shoulder-press',      'Shoulder Press',        'SHOULDERS',   'BARBELL',     '💪'),
+  ('incline-db-press',    'Incline DB Press',      'CHEST',       'DUMBBELL',    '🏋️'),
+  ('lateral-raises',      'Lateral Raises',        'SHOULDERS',   'DUMBBELL',    '💪'),
+  ('tricep-pushdowns',    'Tricep Pushdowns',      'TRICEPS',     'CABLE',       '💪'),
+  ('squat',               'Squat',                 'LEGS',        'BARBELL',     '🦵'),
+  ('leg-press',           'Leg Press',             'LEGS',        'MACHINE',     '🦵'),
+  ('romanian-deadlift',   'Romanian Deadlift',     'HAMSTRINGS',  'BARBELL',     '🏋️'),
+  ('leg-curl',            'Leg Curl',              'HAMSTRINGS',  'MACHINE',     '🦵'),
+  ('pull-ups',            'Pull Ups',              'BACK',        'BODYWEIGHT',  '🏅'),
+  ('barbell-row',         'Barbell Row',           'BACK',        'BARBELL',     '🏋️'),
+  ('lat-pulldown',        'Lat Pulldown',          'BACK',        'CABLE',       '💪'),
+  ('bicep-curl',          'Bicep Curl',            'BICEPS',      'DUMBBELL',    '💪'),
+  ('cable-flyes',         'Cable Flyes',           'CHEST',       'CABLE',       '🏋️'),
+  ('push-ups',            'Push Ups',              'CHEST',       'BODYWEIGHT',  '🏅'),
+  ('dips',                'Dips',                  'TRICEPS',     'BODYWEIGHT',  '🏅'),
+  ('overhead-press',      'Overhead Press',        'SHOULDERS',   'BARBELL',     '🏋️'),
+  ('plank',               'Plank',                 'CORE',        'BODYWEIGHT',  '🧘'),
+  ('crunches',            'Crunches',              'CORE',        'BODYWEIGHT',  '🧘');
