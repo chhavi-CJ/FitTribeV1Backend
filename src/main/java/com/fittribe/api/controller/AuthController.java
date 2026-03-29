@@ -10,6 +10,7 @@ import com.fittribe.api.service.AuthService;
 import com.fittribe.api.service.JwtService;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.Valid;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.transaction.annotation.Transactional;
@@ -23,6 +24,9 @@ import org.springframework.web.bind.annotation.RestController;
 public class AuthController {
 
     private static final String MOCK_PREFIX = "mock_";
+
+    @Value("${app.mock-auth-enabled:false}")
+    private boolean mockAuthEnabled;
 
     private final AuthService authService;
     private final UserRepository userRepository;
@@ -67,6 +71,10 @@ public class AuthController {
 
         // ── 1. Mock path — checked FIRST, no Firebase needed ─────────
         if (idToken.startsWith(MOCK_PREFIX)) {
+            if (!mockAuthEnabled) {
+                return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
+                        .body(ApiResponse.error("Invalid token.", "INVALID_FIREBASE_TOKEN"));
+            }
             String phone       = idToken.substring(MOCK_PREFIX.length()); // e.g. "+919876543210"
             String firebaseUid = MOCK_PREFIX + phone;                     // e.g. "mock_+919876543210"
 
