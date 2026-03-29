@@ -42,4 +42,8 @@ public interface WorkoutSessionRepository extends JpaRepository<WorkoutSession, 
 
     List<WorkoutSession> findByUserIdAndStatusAndFinishedAtBetween(
             UUID userId, String status, Instant from, Instant to);
+
+    /** Used by the streak reset job: did this user complete any session in a time window? */
+    boolean existsByUserIdAndStatusAndFinishedAtBetween(
+            UUID userId, String status, Instant from, Instant to);
 }
