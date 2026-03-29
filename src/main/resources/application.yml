@@ -67,3 +67,7 @@ logging:
   level:
     com.fittribe: DEBUG
     org.flywaydb: INFO
+
+# ── Mock auth (local dev only — never enable on Railway) ──────────────
+app:
+  mock-auth-enabled: false
