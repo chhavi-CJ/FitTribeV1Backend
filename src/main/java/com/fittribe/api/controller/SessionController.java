@@ -70,7 +70,7 @@ public class SessionController {
     @PostMapping("/start")
     @Transactional
     public ResponseEntity<ApiResponse<?>> startSession(
-            @RequestBody StartSessionRequest request,
+            @RequestBody @Valid StartSessionRequest request,
             Authentication auth) {
 
         UUID userId = userId(auth);
