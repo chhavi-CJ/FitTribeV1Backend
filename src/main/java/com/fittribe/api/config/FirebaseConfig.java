@@ -9,9 +9,11 @@ import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Configuration;
 
+import java.io.ByteArrayInputStream;
 import java.io.File;
 import java.io.FileInputStream;
 import java.io.IOException;
+import java.nio.charset.StandardCharsets;
 
 @Configuration
 public class FirebaseConfig {
@@ -38,8 +40,13 @@ public class FirebaseConfig {
 
         try {
             GoogleCredentials credentials;
+            String saJson = System.getenv("FIREBASE_SERVICE_ACCOUNT_JSON");
             File saFile = new File(serviceAccountPath);
-            if (saFile.exists()) {
+            if (saJson != null && !saJson.isBlank()) {
+                credentials = GoogleCredentials.fromStream(
+                        new ByteArrayInputStream(saJson.getBytes(StandardCharsets.UTF_8)));
+                log.info("Firebase: using service account from FIREBASE_SERVICE_ACCOUNT_JSON env var");
+            } else if (saFile.exists()) {
                 credentials = GoogleCredentials.fromStream(new FileInputStream(saFile));
                 log.info("Firebase: using service account at {}", serviceAccountPath);
             } else {
