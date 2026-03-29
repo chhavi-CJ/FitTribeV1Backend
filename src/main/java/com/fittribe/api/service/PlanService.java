@@ -38,6 +38,7 @@ public class PlanService {
 
     private static final Logger log = LoggerFactory.getLogger(PlanService.class);
 
+
     @Value("${openai.api-key:}")
     private String openAiKey;
 
@@ -166,11 +167,28 @@ public class PlanService {
         UserPlan plan = planRepo.findByUserIdAndWeekStartDate(userId, monday)
                 .orElseGet(() -> generatePlan(userId));
 
-        int weeklyGoal    = user.getWeeklyGoal() != null ? user.getWeeklyGoal() : 4;
-        int todayDayOfWeek = LocalDate.now(ZoneOffset.UTC).getDayOfWeek().getValue();
+        int weeklyGoal = user.getWeeklyGoal() != null ? user.getWeeklyGoal() : 4;
 
-        if (todayDayOfWeek > weeklyGoal) return restDayResponse(plan, weeklyGoal);
-        return dayResponse(plan, todayDayOfWeek, user);
+        // Count completed sessions since Monday 00:00 UTC
+        Instant weekStart = monday.atStartOfDay(ZoneOffset.UTC).toInstant();
+        Instant now       = Instant.now();
+        int completedThisWeek = sessionRepo.countByUserIdAndStatusAndFinishedAtBetween(
+                userId, "COMPLETED", weekStart, now);
+
+        if (completedThisWeek >= weeklyGoal) {
+            Map<String, Object> response = new LinkedHashMap<>();
+            response.put("planId",            plan.getPlanId());
+            response.put("weekNumber",         plan.getWeekNumber());
+            response.put("isGoalHit",          true);
+            response.put("completedThisWeek",  completedThisWeek);
+            response.put("weeklyGoal",         weeklyGoal);
+            response.put("message",            "Weekly goal hit! Rest or go for a bonus session.");
+            return response;
+        }
+
+        // Next workout is the day after however many are already done this week
+        int nextDayNumber = completedThisWeek + 1;
+        return dayResponse(plan, nextDayNumber, user, completedThisWeek, weeklyGoal);
     }
 
     public Map<String, Object> getWeekPlan(UUID userId) {
@@ -641,47 +659,36 @@ public class PlanService {
 
     // ── Plan reading helpers ──────────────────────────────────────────
 
-    private Map<String, Object> dayResponse(UserPlan plan, int dayNumber, User user) {
+    private Map<String, Object> dayResponse(UserPlan plan, int dayNumber, User user,
+                                             int completedThisWeek, int weeklyGoal) {
         try {
             List<Map<String, Object>> days = mapper.readValue(
                     plan.getDays(), new TypeReference<>() {});
             Map<String, Object> day = days.stream()
                     .filter(d -> Integer.valueOf(dayNumber).equals(d.get("dayNumber")))
-                    .findFirst().orElse(restDayResponse(plan, user.getWeeklyGoal()));
+                    .findFirst()
+                    .orElseThrow(() -> new RuntimeException("Day " + dayNumber + " not found in plan"));
 
             Map<String, Object> response = new LinkedHashMap<>();
-            response.put("planId",          plan.getPlanId());
-            response.put("weekNumber",       plan.getWeekNumber());
-            response.put("dayNumber",        dayNumber);
-            response.put("dayType",          day.get("dayType"));
-            response.put("sessionTitle",     day.get("sessionTitle"));
-            response.put("durationMins",     day.get("durationMins"));
-            response.put("fitnessLevel",     user.getFitnessLevel());
-            response.put("muscles",          day.get("muscles"));
-            response.put("exercises",        day.get("exercises"));
-            response.put("whyThisPlan",      day.get("aiRationale"));
-            response.put("sessionCoachTip",  day.get("sessionCoachTip"));
+            response.put("planId",            plan.getPlanId());
+            response.put("weekNumber",         plan.getWeekNumber());
+            response.put("isGoalHit",          false);
+            response.put("completedThisWeek",  completedThisWeek);
+            response.put("weeklyGoal",         weeklyGoal);
+            response.put("dayNumber",          dayNumber);
+            response.put("dayType",            day.get("dayType"));
+            response.put("sessionTitle",       day.get("sessionTitle"));
+            response.put("durationMins",       day.get("durationMins"));
+            response.put("fitnessLevel",       user.getFitnessLevel());
+            response.put("muscles",            day.get("muscles"));
+            response.put("exercises",          day.get("exercises"));
+            response.put("whyThisPlan",        day.get("aiRationale"));
+            response.put("sessionCoachTip",    day.get("sessionCoachTip"));
             return response;
         } catch (Exception e) {
             log.error("Failed to parse plan JSON: {}", e.getMessage());
             throw new RuntimeException("Could not read plan", e);
         }
-    }
-
-    private Map<String, Object> restDayResponse(UserPlan plan, int weeklyGoal) {
-        Map<String, Object> response = new LinkedHashMap<>();
-        response.put("planId",          plan.getPlanId());
-        response.put("weekNumber",       plan.getWeekNumber());
-        response.put("dayNumber",        null);
-        response.put("dayType",          "REST");
-        response.put("sessionTitle",     "Rest & Recovery");
-        response.put("durationMins",     0);
-        response.put("fitnessLevel",     null);
-        response.put("muscles",          List.of());
-        response.put("exercises",        List.of());
-        response.put("whyThisPlan",      "Recovery is where adaptation happens. Your muscles grow during rest, not during the workout.");
-        response.put("sessionCoachTip",  "Light walking, stretching, or yoga is ideal today. Aim for 7-9 hours of sleep.");
-        return response;
     }
 
     // ── Weight calculation ────────────────────────────────────────────
