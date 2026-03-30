@@ -820,8 +820,13 @@ When you change a weight from last week, explain why in that exercise's whyThisE
     // ── Plan reading helpers ──────────────────────────────────────────
 
     private List<Map<String, Object>> getSwapsFromDb(String exerciseId, String muscleGroup) {
-        if (muscleGroup == null || muscleGroup.isBlank()) return Collections.emptyList();
-        return exerciseRepo.findByMuscleGroupAndIdNot(muscleGroup, exerciseId)
+        if (muscleGroup == null || muscleGroup.isBlank()) {
+            log.info("Swap lookup skipped — no muscleGroup for exerciseId={}", exerciseId);
+            return Collections.emptyList();
+        }
+        log.info("Swap lookup: exerciseId={}, muscleGroup={}", exerciseId, muscleGroup);
+        List<Map<String, Object>> swaps = exerciseRepo
+                .findByMuscleGroupIgnoreCaseAndIdNot(muscleGroup, exerciseId)
                 .stream()
                 .limit(3)
                 .map(e -> {
@@ -833,6 +838,8 @@ When you change a weight from last week, explain why in that exercise's whyThisE
                     return swap;
                 })
                 .collect(Collectors.toList());
+        log.info("Swaps found: {} for exerciseId={}", swaps.size(), exerciseId);
+        return swaps;
     }
 
     private Map<String, Object> dayResponse(UserPlan plan, int dayNumber, User user,
