@@ -69,13 +69,11 @@ public final class AiPrompts {
             "Name: {name} | Gender: {gender} | Weight: {weightKg}kg | Height: {heightCm}cm | Level: {fitnessLevel}\n" +
             "Goal: {goal} | Training days: {weeklyGoal}/week\n" +
             "Health conditions: {healthConditions}\n" +
-            "{aiContextBlock}\n" +
-            "{feedbackBlock}" +
+            "{aiContext}\n\n" +
             "{historyBlock}\n\n" +
             "ADJUSTMENTS TO MAKE:\n" +
             "{adjustmentLines}\n" +
-            "Example: Increase bench press to 35kg / Substitute lat pulldown with pull-ups / " +
-            "Add extra pull session / Prioritise leg day\n\n" +
+            "{feedbackBlock}\n" +
             "RETURN a JSON plan with this structure:\n" +
             "{\n" +
             "  \"days\": [\n" +
@@ -93,15 +91,15 @@ public final class AiPrompts {
             "          \"reps\": 8,\n" +
             "          \"restSeconds\": 90,\n" +
             "          \"suggestedKg\": 35.0,\n" +
-            "          \"whyThisExercise\": \"2 sentence explanation specific to this user\",\n" +
+            "          \"whyThisExercise\": \"2 sentence explanation specific to this user's goal and level\",\n" +
             "          \"coachTip\": \"1 sentence actionable tip\"\n" +
             "        }\n" +
             "      ],\n" +
-            "      \"whyThisDay\": \"2 sentence explanation of this day ordering\"\n" +
+            "      \"whyThisDay\": \"2 sentence explanation why this workout today\"\n" +
             "    }\n" +
             "  ],\n" +
-            "  \"sessionCoachTip\": \"Overall session tip for the week\",\n" +
-            "  \"weekRationale\": \"2-3 sentence explanation of why this week is structured this way\"\n" +
+            "  \"sessionCoachTip\": \"One overall coaching tip for this week\",\n" +
+            "  \"weekRationale\": \"2-3 sentence explanation of the overall week structure\"\n" +
             "}\n\n" +
             "Return ONLY valid JSON. No markdown. No explanation outside the JSON.";
 }

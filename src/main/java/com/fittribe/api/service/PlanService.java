@@ -13,6 +13,7 @@ import com.fittribe.api.entity.WorkoutSession;
 import com.fittribe.api.exception.ApiException;
 import com.fittribe.api.repository.AiInsightRepository;
 import com.fittribe.api.repository.ExerciseRepository;
+import com.fittribe.api.entity.SessionFeedback;
 import com.fittribe.api.repository.SessionFeedbackRepository;
 import com.fittribe.api.repository.SetLogRepository;
 import com.fittribe.api.repository.UserPlanRepository;
@@ -147,8 +148,15 @@ public class PlanService {
             // Build rationale map
             Map<String, String> rationaleMap = new LinkedHashMap<>();
             for (int i = 0; i < days.size(); i++) {
-                rationaleMap.put(String.valueOf(i + 1),
-                        (String) days.get(i).getOrDefault("aiRationale", weekRationale));
+                String dayRationale;
+                if (days.get(i).get("whyThisDay") != null) {
+                    dayRationale = (String) days.get(i).get("whyThisDay");
+                } else if (days.get(i).get("aiRationale") != null) {
+                    dayRationale = (String) days.get(i).get("aiRationale");
+                } else {
+                    dayRationale = weekRationale;
+                }
+                rationaleMap.put(String.valueOf(i + 1), dayRationale);
             }
 
             UserPlan plan = new UserPlan();
@@ -450,24 +458,45 @@ public class PlanService {
         String adjustmentLines = buildAdjustmentLines(analysis, exMap);
 
         // Build feedback block from last 3 session ratings
-        DateTimeFormatter dateFmt = DateTimeFormatter.ofPattern("dd MMM").withZone(ZoneOffset.UTC);
-        List<String> feedbackLines = feedbackRepo
+        List<SessionFeedback> recentFeedback = feedbackRepo
                 .findByUserIdOrderByCreatedAtDesc(user.getId())
-                .stream()
-                .limit(3)
-                .map(fb -> {
-                    String date = fb.getCreatedAt() != null ? dateFmt.format(fb.getCreatedAt()) : "recent";
-                    String line = date + ": " + fb.getRating();
-                    if (fb.getNotes() != null && !fb.getNotes().isBlank()) {
-                        line += " — " + fb.getNotes();
-                    }
-                    return line;
-                })
-                .collect(Collectors.toList());
-        String feedbackBlock = feedbackLines.isEmpty() ? "" :
-                "RECENT SESSION FEEDBACK (use to adjust intensity — if sessions were TOO_EASY increase weights; " +
-                "if KILLED_ME reduce volume or add rest):\n" +
-                String.join("\n", feedbackLines) + "\n";
+                .stream().limit(3).collect(Collectors.toList());
+
+        String feedbackBlock = "";
+        if (!recentFeedback.isEmpty()) {
+            DateTimeFormatter fmt = DateTimeFormatter
+                    .ofPattern("EEE dd MMM")
+                    .withZone(ZoneId.of("Asia/Kolkata"));
+            StringBuilder fb = new StringBuilder("\nRECENT SESSION FEEDBACK:\n");
+            for (SessionFeedback f : recentFeedback) {
+                String date = f.getCreatedAt() != null ? fmt.format(f.getCreatedAt()) : "recent";
+                fb.append(date).append(": ").append(f.getRating());
+                if (f.getNotes() != null && !f.getNotes().isBlank()) {
+                    fb.append(" — ").append(f.getNotes());
+                }
+                fb.append("\n");
+            }
+            fb.append("""
+
+Use this feedback to adjust NEXT WEEK's suggestedKg only.
+Round all suggested weights to nearest real gym increment:
+- Barbell exercises: nearest 2.5kg (e.g. 35, 37.5, 40)
+- Dumbbell exercises: nearest 2kg (e.g. 8, 10, 12)
+- Machine exercises: nearest 5kg (e.g. 30, 35, 40)
+- Bodyweight exercises: adjust reps not weight
+
+Weekly progression rules:
+- TOO_EASY → increase suggestedKg by one increment
+- GOOD (3 consecutive weeks) → increase by one increment
+- HARD → keep same suggestedKg
+- KILLED_ME → decrease by one increment
+- Never increase more than one increment per week
+- Never go below starting weight for this fitness level
+
+When you change a weight from last week, explain why in that exercise's whyThisExercise field.
+""");
+            feedbackBlock = fb.toString();
+        }
 
         String aiContextBlock = (user.getAiContext() != null && !user.getAiContext().isBlank())
                 ? "PERSONAL CONTEXT FROM USER:\n" + user.getAiContext() + "\n" +
@@ -485,17 +514,21 @@ public class PlanService {
                 .replace("{fitnessLevel}",    user.getFitnessLevel() != null ? user.getFitnessLevel() : "INTERMEDIATE")
                 .replace("{goal}",            user.getGoal() != null ? user.getGoal() : "BUILD_MUSCLE")
                 .replace("{healthConditions}", formatHealthConditions(user.getHealthConditions()))
-                .replace("{aiContextBlock}",  aiContextBlock)
-                .replace("{feedbackBlock}",   feedbackBlock)
+                .replace("{aiContext}",        aiContextBlock)
                 .replace("{historyBlock}",    historyBlock)
-                .replace("{adjustmentLines}", adjustmentLines);
+                .replace("{adjustmentLines}", adjustmentLines)
+                .replace("{feedbackBlock}",   feedbackBlock);
 
         Map<String, Object> body = new LinkedHashMap<>();
         body.put("model", "gpt-4o-mini");
         body.put("max_tokens", 2000);
         body.put("temperature", 0.3);
         body.put("messages", List.of(
-                Map.of("role", "system", "content", AiPrompts.PLAN_RATIONALE_SYSTEM),
+                Map.of("role", "system", "content",
+                        "You are an expert fitness coach and personal trainer. " +
+                        "Generate structured workout plans in valid JSON format only. " +
+                        "Be specific to the user's profile, fitness level, and goals. " +
+                        "Return only the JSON object — no markdown, no explanation outside JSON."),
                 Map.of("role", "user",   "content", userPrompt)));
 
         HttpHeaders headers = new HttpHeaders();
@@ -742,7 +775,10 @@ public class PlanService {
             response.put("fitnessLevel",       user.getFitnessLevel());
             response.put("muscles",            day.get("muscles"));
             response.put("exercises",          day.get("exercises"));
-            response.put("whyThisPlan",        day.get("aiRationale"));
+            String whyThisPlan = day.get("whyThisDay") != null
+                    ? (String) day.get("whyThisDay")
+                    : (String) day.get("aiRationale");
+            response.put("whyThisPlan",        whyThisPlan);
             response.put("sessionCoachTip",    day.get("sessionCoachTip"));
             return response;
         } catch (Exception e) {
