@@ -7,6 +7,7 @@ import com.fittribe.api.entity.User;
 import com.fittribe.api.exception.ApiException;
 import com.fittribe.api.repository.UserRepository;
 import com.fittribe.api.util.PromptSanitiser;
+import jakarta.validation.Valid;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.Authentication;
@@ -40,7 +41,7 @@ public class UserController {
     // ── PUT /api/v1/users/me ──────────────────────────────────────────
     @PutMapping("/me")
     public ResponseEntity<ApiResponse<User>> updateProfile(
-            @RequestBody UpdateProfileRequest request,
+            @RequestBody @Valid UpdateProfileRequest request,
             Authentication auth) {
         User user = resolveUser(auth);
 
@@ -68,6 +69,12 @@ public class UserController {
         if (request.weeklyGoal() != null)  user.setWeeklyGoal(request.weeklyGoal());
         if (request.healthConditions() != null) {
             user.setHealthConditions(request.healthConditions().toArray(new String[0]));
+        }
+        if (request.aiContext() != null) {
+            String sanitized = request.aiContext()
+                    .replaceAll("(?i)(ignore previous|forget your|you are now|system prompt|jailbreak)", "")
+                    .trim();
+            user.setAiContext(sanitized);
         }
 
         return ResponseEntity.ok(ApiResponse.success(userRepository.save(user)));

@@ -444,13 +444,23 @@ public class PlanService {
         String historyBlock = buildHistoryBlock(analysis, exMap);
         String adjustmentLines = buildAdjustmentLines(analysis, exMap);
 
+        String aiContextBlock = (user.getAiContext() != null && !user.getAiContext().isBlank())
+                ? "PERSONAL CONTEXT FROM USER:\n" + user.getAiContext() + "\n" +
+                  "(Use this to personalise the plan. If it mentions a timeframe like 'wedding in 3 months', " +
+                  "adjust intensity and focus accordingly. If it mentions an injury not in health conditions, " +
+                  "treat it as a health condition.)"
+                : "";
+
         String userPrompt = AiPrompts.PLAN_GENERATION_USER
                 .replace("{weeklyGoal}",      String.valueOf(weeklyGoal))
                 .replace("{name}",            PromptSanitiser.sanitise(user.getDisplayName() != null ? user.getDisplayName() : "Athlete"))
+                .replace("{gender}",          user.getGender() != null ? user.getGender() : "Not specified")
                 .replace("{weightKg}",        user.getWeightKg() != null ? user.getWeightKg().toString() : "70")
+                .replace("{heightCm}",        user.getHeightCm() != null ? user.getHeightCm().toString() : "Not specified")
                 .replace("{fitnessLevel}",    user.getFitnessLevel() != null ? user.getFitnessLevel() : "INTERMEDIATE")
                 .replace("{goal}",            user.getGoal() != null ? user.getGoal() : "BUILD_MUSCLE")
                 .replace("{healthConditions}", formatHealthConditions(user.getHealthConditions()))
+                .replace("{aiContextBlock}",  aiContextBlock)
                 .replace("{historyBlock}",    historyBlock)
                 .replace("{adjustmentLines}", adjustmentLines);
 
