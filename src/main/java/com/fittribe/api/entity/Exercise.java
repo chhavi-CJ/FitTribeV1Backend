@@ -53,6 +53,9 @@ public class Exercise {
     @JdbcTypeCode(SqlTypes.ARRAY)
     private String[] swapAlternatives;
 
+    @Column(name = "is_bodyweight", nullable = false)
+    private boolean isBodyweight = false;
+
     // ── Required by JPA ──────────────────────────────────────────────
     public Exercise() {}
 
@@ -69,4 +72,5 @@ public class Exercise {
     public String getCoachTip()         { return coachTip; }
     public String[] getSecondaryMuscles(){ return secondaryMuscles; }
     public String[] getSwapAlternatives(){ return swapAlternatives; }
+    public boolean isBodyweight()        { return isBodyweight; }
 }
