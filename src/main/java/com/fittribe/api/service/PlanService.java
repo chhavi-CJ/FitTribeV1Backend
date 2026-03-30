@@ -359,9 +359,11 @@ public class PlanService {
                     resolvedId = ed.id(); // keep but flag in why
                 }
 
-                double kg = analysis.adjustedWeights().containsKey(resolvedId)
-                        ? analysis.adjustedWeights().get(resolvedId)
-                        : calcWeight(ed.formula(), bw, level);
+                boolean isBodyweight = "bodyweight".equals(ed.formula());
+                Double kg = isBodyweight ? null
+                        : analysis.adjustedWeights().containsKey(resolvedId)
+                                ? analysis.adjustedWeights().get(resolvedId)
+                                : calcWeight(ed.formula(), bw, level);
 
                 Map<String, Object> m = new LinkedHashMap<>();
                 m.put("exerciseId",       resolvedId);
@@ -370,6 +372,7 @@ public class PlanService {
                 m.put("reps",             ed.reps());
                 m.put("restSeconds",      ed.restSeconds());
                 m.put("suggestedKg",      kg);
+                m.put("isBodyweight",     isBodyweight);
                 m.put("equipment",        ex != null ? ex.getEquipment() : "BARBELL");
                 m.put("whyThisExercise",  buildWhyThisExercise(ed, analysis));
                 m.put("coachTip",         ex != null ? ex.getCoachTip() : null);
@@ -522,6 +525,10 @@ public class PlanService {
                                     ex.put("suggestedKg", analysis.adjustedWeights().get(id));
                                 }
                             }
+                            // Coerce "Bodyweight"/"BW"/null strings → null Double + isBodyweight flag
+                            Double parsedKg = parseSuggestedKg(ex.get("suggestedKg"));
+                            ex.put("suggestedKg",  parsedKg);
+                            ex.put("isBodyweight", parsedKg == null);
                         }
                     }
                 }
@@ -534,6 +541,23 @@ public class PlanService {
     }
 
     private record PlanParseResult(List<Map<String, Object>> days, String weekRationale, String sessionCoachTip) {}
+
+    /**
+     * Coerces the AI's suggestedKg value to a Double.
+     * Returns null for bodyweight exercises (AI returns "Bodyweight", "BW", or empty string).
+     */
+    private Double parseSuggestedKg(Object value) {
+        if (value == null) return null;
+        String str = value.toString().trim();
+        if (str.equalsIgnoreCase("Bodyweight") ||
+                str.equalsIgnoreCase("BW") ||
+                str.isEmpty()) return null;
+        try {
+            return Double.parseDouble(str);
+        } catch (NumberFormatException e) {
+            return null;
+        }
+    }
 
     // ── Insight saving ────────────────────────────────────────────────
 
