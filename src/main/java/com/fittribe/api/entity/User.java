@@ -56,6 +56,9 @@ public class User {
     @JdbcTypeCode(SqlTypes.ARRAY)
     private String[] healthConditions = new String[0];
 
+    @Column(name = "ai_context", length = 500)
+    private String aiContext;
+
     @Column(name = "created_at", insertable = false, updatable = false)
     private Instant createdAt;
 
@@ -101,6 +104,9 @@ public class User {
 
     public String[] getHealthConditions()                        { return healthConditions; }
     public void setHealthConditions(String[] healthConditions)   { this.healthConditions = healthConditions; }
+
+    public String getAiContext()               { return aiContext; }
+    public void setAiContext(String aiContext) { this.aiContext = aiContext; }
 
     public Instant getCreatedAt()    { return createdAt; }
 }

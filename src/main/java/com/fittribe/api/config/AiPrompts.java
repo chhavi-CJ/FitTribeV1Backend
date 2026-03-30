@@ -66,9 +66,10 @@ public final class AiPrompts {
     public static final String PLAN_GENERATION_USER =
             "Generate a {weeklyGoal}-day training plan for this user.\n\n" +
             "USER PROFILE:\n" +
-            "Name: {name} | Weight: {weightKg}kg | Level: {fitnessLevel}\n" +
+            "Name: {name} | Gender: {gender} | Weight: {weightKg}kg | Height: {heightCm}cm | Level: {fitnessLevel}\n" +
             "Goal: {goal} | Training days: {weeklyGoal}/week\n" +
-            "Health conditions: {healthConditions}\n\n" +
+            "Health conditions: {healthConditions}\n" +
+            "{aiContextBlock}\n" +
             "{historyBlock}\n\n" +
             "ADJUSTMENTS TO MAKE:\n" +
             "{adjustmentLines}\n" +
