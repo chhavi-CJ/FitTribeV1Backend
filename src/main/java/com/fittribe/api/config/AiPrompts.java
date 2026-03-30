@@ -82,22 +82,100 @@ public final class AiPrompts {
             "Always include at least 1 core exercise per day.\n" +
             "Core exercises to pick from: plank, dead-bug, mountain-climbers, russian-twist, leg-raises, bicycle-crunches\n\n" +
             "EXERCISE RULES:\n" +
-            "- Include MINIMUM 5 exercises per day\n" +
-            "- Use ONLY exerciseIds from this exact list — do not invent new IDs:\n" +
-            "  bench-press, shoulder-press, incline-db-press, lateral-raises, tricep-pushdowns,\n" +
-            "  squat, leg-press, romanian-deadlift, leg-curl, pull-ups, barbell-row, lat-pulldown,\n" +
-            "  bicep-curl, cable-flyes, push-ups, dips, overhead-press, plank, crunches,\n" +
-            "  db-flat-press, smith-machine-bench, decline-bench-press, arnold-press, front-raises,\n" +
-            "  push-press, cable-lateral-raise, reverse-flyes, close-grip-bench, skull-crushers,\n" +
-            "  tricep-overhead-extension, deadlift, chin-ups, seated-cable-row, dumbbell-row,\n" +
-            "  t-bar-row, weighted-pull-ups, face-pulls, barbell-curl, hammer-curl,\n" +
-            "  concentration-curl, goblet-squat, lunges, bulgarian-split-squat, hack-squat,\n" +
-            "  step-ups, nordic-curl, lying-leg-curl, dead-bug, mountain-climbers, russian-twist,\n" +
-            "  leg-raises, bicycle-crunches, hanging-leg-raises, hip-thrust, glute-bridge,\n" +
-            "  cable-kickback, sumo-deadlift, standing-calf-raises, seated-calf-raises,\n" +
-            "  single-leg-calf-raise, kettlebell-swing, burpees, box-jumps, power-clean,\n" +
-            "  ab-wheel-rollout, dragon-flag\n" +
-            "- If the closest exercise is not in the list, pick the nearest match that IS in the list\n\n" +
+            "- MANDATORY: include EXACTLY 5 exercises per day — no more, no fewer\n" +
+            "- Always include 1 core exercise per day from: plank, dead-bug, mountain-climbers, russian-twist, leg-raises, bicycle-crunches, hanging-leg-raises, ab-wheel-rollout\n" +
+            "- Do NOT include REST days in the response — only return training days\n" +
+            "- Use ONLY exerciseIds from this exact catalog. The format is id → name:\n" +
+            "  CHEST:\n" +
+            "    bench-press → Bench Press\n" +
+            "    incline-db-press → Incline Dumbbell Press\n" +
+            "    db-flat-press → Dumbbell Flat Press\n" +
+            "    smith-machine-bench → Smith Machine Bench Press\n" +
+            "    decline-bench-press → Decline Bench Press\n" +
+            "    cable-flyes → Cable Flyes\n" +
+            "    push-ups → Push-Ups\n" +
+            "    knee-push-ups → Knee Push-Ups\n" +
+            "    incline-push-ups → Incline Push-Ups\n" +
+            "    dips → Dips\n" +
+            "    cable-crossover → Cable Crossover\n" +
+            "    pec-deck → Pec Deck\n" +
+            "  SHOULDERS:\n" +
+            "    shoulder-press → Shoulder Press\n" +
+            "    overhead-press → Overhead Press\n" +
+            "    arnold-press → Arnold Press\n" +
+            "    push-press → Push Press\n" +
+            "    db-shoulder-press → Dumbbell Shoulder Press\n" +
+            "    lateral-raises → Lateral Raises\n" +
+            "    front-raises → Front Raises\n" +
+            "    cable-lateral-raise → Cable Lateral Raise\n" +
+            "    reverse-flyes → Reverse Flyes\n" +
+            "    face-pulls → Face Pulls\n" +
+            "  BACK:\n" +
+            "    pull-ups → Pull-Ups\n" +
+            "    chin-ups → Chin-Ups\n" +
+            "    weighted-pull-ups → Weighted Pull-Ups\n" +
+            "    inverted-row → Inverted Row\n" +
+            "    lat-pulldown → Lat Pulldown\n" +
+            "    barbell-row → Barbell Row\n" +
+            "    dumbbell-row → Dumbbell Row\n" +
+            "    seated-cable-row → Seated Cable Row\n" +
+            "    t-bar-row → T-Bar Row\n" +
+            "    deadlift → Deadlift\n" +
+            "  TRICEPS:\n" +
+            "    tricep-pushdowns → Tricep Pushdowns\n" +
+            "    close-grip-bench → Close Grip Bench Press\n" +
+            "    skull-crushers → Skull Crushers\n" +
+            "    tricep-overhead-extension → Tricep Overhead Extension\n" +
+            "    tricep-kickback → Tricep Kickback\n" +
+            "  BICEPS:\n" +
+            "    bicep-curl → Bicep Curl\n" +
+            "    barbell-curl → Barbell Curl\n" +
+            "    hammer-curl → Hammer Curl\n" +
+            "    concentration-curl → Concentration Curl\n" +
+            "    chin-ups → Chin-Ups\n" +
+            "  LEGS:\n" +
+            "    squat → Squat\n" +
+            "    goblet-squat → Goblet Squat\n" +
+            "    hack-squat → Hack Squat\n" +
+            "    leg-press → Leg Press\n" +
+            "    lunges → Lunges\n" +
+            "    bulgarian-split-squat → Bulgarian Split Squat\n" +
+            "    step-ups → Step-Ups\n" +
+            "    romanian-deadlift → Romanian Deadlift\n" +
+            "    sumo-deadlift → Sumo Deadlift\n" +
+            "    leg-curl → Leg Curl\n" +
+            "    lying-leg-curl → Lying Leg Curl\n" +
+            "    nordic-curl → Nordic Curl\n" +
+            "    leg-extension → Leg Extension\n" +
+            "    hip-thrust → Hip Thrust\n" +
+            "    glute-bridge → Glute Bridge\n" +
+            "    cable-kickback → Cable Kickback\n" +
+            "    standing-calf-raises → Standing Calf Raises\n" +
+            "    seated-calf-raises → Seated Calf Raises\n" +
+            "    single-leg-calf-raise → Single Leg Calf Raise\n" +
+            "  CORE:\n" +
+            "    plank → Plank\n" +
+            "    crunches → Crunches\n" +
+            "    dead-bug → Dead Bug\n" +
+            "    mountain-climbers → Mountain Climbers\n" +
+            "    russian-twist → Russian Twist\n" +
+            "    leg-raises → Leg Raises\n" +
+            "    bicycle-crunches → Bicycle Crunches\n" +
+            "    hanging-leg-raises → Hanging Leg Raises\n" +
+            "    ab-wheel-rollout → Ab Wheel Rollout\n" +
+            "    dragon-flag → Dragon Flag\n" +
+            "  FULL BODY / POWER:\n" +
+            "    kettlebell-swing → Kettlebell Swing\n" +
+            "    burpees → Burpees\n" +
+            "    box-jumps → Box Jumps\n" +
+            "    power-clean → Power Clean\n" +
+            "- NEVER invent an exerciseId not in the catalog above\n" +
+            "- If no perfect match exists, pick the nearest exercise that IS in the catalog\n" +
+            "BEGINNER PUSH-UP PROGRESSION (apply for BEGINNER level):\n" +
+            "  Week 1-2: use knee-push-ups\n" +
+            "  Week 3-4: use incline-push-ups\n" +
+            "  Week 5+:  use push-ups\n" +
+            "  Do NOT assign push-ups or dips to a beginner in their first 4 weeks\n\n" +
             "WEIGHT SUGGESTION RULES:\n" +
             "All suggestedKg must be realistic for this specific user.\n" +
             "BEGINNER female (weight < 60kg): barbell 10-20kg, dumbbell 2-6kg, machine 10-20kg\n" +
@@ -110,7 +188,7 @@ public final class AiPrompts {
             "- Barbell: nearest 2.5kg (e.g. 20, 22.5, 25)\n" +
             "- Dumbbell: nearest 2kg (e.g. 6, 8, 10)\n" +
             "- Machine: nearest 5kg (e.g. 20, 25, 30)\n" +
-            "- Bodyweight exercises: suggestedKg must be null (not 0)\n" +
+            "- Bodyweight exercises (push-ups, pull-ups, dips, plank, etc.): suggestedKg must be null — do NOT use 0 or 0.0\n" +
             "For week 1-2 beginners: suggest conservative weights, coachTip MUST mention form over weight.\n" +
             "For underweight users (BMI < 18.5): suggest lighter weights, note not to push to exhaustion.\n\n" +
             "HEALTH CONDITION OVERRIDES (apply if user has these conditions):\n" +
