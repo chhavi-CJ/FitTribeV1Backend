@@ -419,8 +419,8 @@ public class PlanService {
                 m.put("muscleGroup",      ex != null ? ex.getMuscleGroup() : null);
                 m.put("whyThisExercise",  buildWhyThisExercise(ed, analysis));
                 m.put("coachTip",         ex != null ? ex.getCoachTip() : null);
-                m.put("swapAlternatives", ex != null && ex.getSwapAlternatives() != null
-                                              ? ex.getSwapAlternatives() : new String[0]);
+                // Always store empty — dayResponse() re-fetches live swaps from DB on every GET
+                m.put("swapAlternatives", new ArrayList<>());
                 return m;
             }).collect(Collectors.toList());
 
@@ -659,6 +659,10 @@ When you change a weight from last week, explain why in that exercise's whyThisE
                             Double parsedKg = parseSuggestedKg(ex.get("suggestedKg"));
                             ex.put("suggestedKg",  parsedKg);
                             ex.put("isBodyweight", parsedKg == null);
+
+                            // 6. Always clear swapAlternatives before storing in JSONB —
+                            //    dayResponse() re-fetches fresh object swaps from DB on every GET
+                            ex.put("swapAlternatives", new ArrayList<>());
                             deduped.add(ex);
                         }
                         day.put("exercises", deduped);
@@ -854,6 +858,9 @@ When you change a weight from last week, explain why in that exercise's whyThisE
             response.put("fitnessLevel",       user.getFitnessLevel());
             response.put("muscles",            day.get("muscles"));
 
+            // Load exercise entity map once — authoritative source for muscleGroup
+            Map<String, Exercise> exMap = exerciseMap();
+
             // Enrich each exercise with live swap alternatives from DB
             @SuppressWarnings("unchecked")
             List<Map<String, Object>> storedExercises =
@@ -862,8 +869,14 @@ When you change a weight from last week, explain why in that exercise's whyThisE
             if (storedExercises != null) {
                 for (Map<String, Object> ex : storedExercises) {
                     Map<String, Object> exCopy = new LinkedHashMap<>(ex);
-                    String exId       = (String) exCopy.getOrDefault("exerciseId",  "");
-                    String muscleGrp  = (String) exCopy.getOrDefault("muscleGroup", "");
+                    String exId = (String) exCopy.getOrDefault("exerciseId", "");
+
+                    // Always get muscleGroup from entity — never trust stale JSONB value
+                    Exercise entity = exMap.get(exId);
+                    String muscleGrp = entity != null
+                            ? entity.getMuscleGroup()
+                            : (String) exCopy.get("muscleGroup");
+
                     exCopy.put("swapAlternatives", getSwapsFromDb(exId, muscleGrp));
                     enrichedExercises.add(exCopy);
                 }
