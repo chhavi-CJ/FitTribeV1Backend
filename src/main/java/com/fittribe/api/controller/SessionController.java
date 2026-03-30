@@ -8,12 +8,15 @@ import com.fittribe.api.dto.response.FinishSessionResponse;
 import com.fittribe.api.dto.response.LogSetResponse;
 import com.fittribe.api.dto.response.SessionHistoryItem;
 import com.fittribe.api.dto.response.StartSessionResponse;
+import com.fittribe.api.dto.request.SessionFeedbackRequest;
 import com.fittribe.api.entity.CoinTransaction;
+import com.fittribe.api.entity.SessionFeedback;
 import com.fittribe.api.entity.SetLog;
 import com.fittribe.api.entity.User;
 import com.fittribe.api.entity.WorkoutSession;
 import com.fittribe.api.exception.ApiException;
 import com.fittribe.api.repository.CoinTransactionRepository;
+import com.fittribe.api.repository.SessionFeedbackRepository;
 import com.fittribe.api.repository.SetLogRepository;
 import com.fittribe.api.repository.UserRepository;
 import com.fittribe.api.repository.WorkoutSessionRepository;
@@ -45,23 +48,26 @@ public class SessionController {
     private static final int COOLDOWN_HOURS    = 8;
     private static final int COINS_PER_SESSION = 10;
 
-    private final WorkoutSessionRepository sessionRepo;
-    private final SetLogRepository         setLogRepo;
-    private final UserRepository           userRepo;
+    private final WorkoutSessionRepository  sessionRepo;
+    private final SetLogRepository          setLogRepo;
+    private final UserRepository            userRepo;
     private final CoinTransactionRepository coinRepo;
-    private final AiService                aiService;
-    private final WeeklyReportService      weeklyReportService;
+    private final SessionFeedbackRepository feedbackRepo;
+    private final AiService                 aiService;
+    private final WeeklyReportService       weeklyReportService;
 
     public SessionController(WorkoutSessionRepository sessionRepo,
                              SetLogRepository setLogRepo,
                              UserRepository userRepo,
                              CoinTransactionRepository coinRepo,
+                             SessionFeedbackRepository feedbackRepo,
                              AiService aiService,
                              WeeklyReportService weeklyReportService) {
         this.sessionRepo         = sessionRepo;
         this.setLogRepo          = setLogRepo;
         this.userRepo            = userRepo;
         this.coinRepo            = coinRepo;
+        this.feedbackRepo        = feedbackRepo;
         this.aiService           = aiService;
         this.weeklyReportService = weeklyReportService;
     }
@@ -232,6 +238,47 @@ public class SessionController {
                 COINS_PER_SESSION,
                 weeklyGoalHit,
                 weekNumber)));
+    }
+
+    // ── POST /sessions/{id}/feedback ─────────────────────────────────
+    @PostMapping("/{id}/feedback")
+    public ResponseEntity<ApiResponse<Map<String, Object>>> submitFeedback(
+            @PathVariable UUID id,
+            @RequestBody @Valid SessionFeedbackRequest request,
+            Authentication auth) {
+
+        UUID userId = userId(auth);
+        WorkoutSession session = requireOwned(id, userId);
+
+        if (!"COMPLETED".equals(session.getStatus())) {
+            throw new ApiException(HttpStatus.BAD_REQUEST,
+                    "SESSION_NOT_COMPLETE", "Can only rate completed sessions.");
+        }
+
+        if (feedbackRepo.findBySessionId(id).isPresent()) {
+            throw new ApiException(HttpStatus.CONFLICT,
+                    "FEEDBACK_EXISTS", "Feedback already submitted for this session.");
+        }
+
+        String notes = request.getNotes();
+        if (notes != null) {
+            notes = notes.replaceAll(
+                    "(?i)(ignore previous|forget your|you are now|system prompt|jailbreak|ignore instructions)",
+                    "").trim();
+            if (notes.isEmpty()) notes = null;
+        }
+
+        SessionFeedback feedback = new SessionFeedback();
+        feedback.setUserId(userId);
+        feedback.setSessionId(id);
+        feedback.setRating(request.getRating());
+        feedback.setNotes(notes);
+        feedbackRepo.save(feedback);
+
+        return ResponseEntity.ok(ApiResponse.success(Map.of(
+                "message",   "Feedback saved successfully",
+                "sessionId", id,
+                "rating",    request.getRating())));
     }
 
     // ── POST /sessions/{id}/discard ───────────────────────────────────
