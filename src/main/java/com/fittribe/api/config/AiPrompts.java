@@ -74,7 +74,50 @@ public final class AiPrompts {
             "ADJUSTMENTS TO MAKE:\n" +
             "{adjustmentLines}\n" +
             "{feedbackBlock}\n" +
-            "RETURN a JSON plan with this structure:\n" +
+            "WEEKLY SPLIT RULES:\n" +
+            "weeklyGoal = 3: Push A, Pull A, Leg Day\n" +
+            "weeklyGoal = 4: Push A, Pull A, Leg Day, Full Body\n" +
+            "weeklyGoal = 5: Push A, Pull A, Legs A, Upper Body, Lower Body\n" +
+            "weeklyGoal = 6: Push A, Pull A, Legs A, Push B, Pull B, Legs B\n" +
+            "Always include at least 1 core exercise per day.\n" +
+            "Core exercises to pick from: plank, dead-bug, mountain-climbers, russian-twist, leg-raises, bicycle-crunches\n\n" +
+            "EXERCISE RULES:\n" +
+            "- Include MINIMUM 5 exercises per day\n" +
+            "- Use ONLY exerciseIds from this exact list — do not invent new IDs:\n" +
+            "  bench-press, shoulder-press, incline-db-press, lateral-raises, tricep-pushdowns,\n" +
+            "  squat, leg-press, romanian-deadlift, leg-curl, pull-ups, barbell-row, lat-pulldown,\n" +
+            "  bicep-curl, cable-flyes, push-ups, dips, overhead-press, plank, crunches,\n" +
+            "  db-flat-press, smith-machine-bench, decline-bench-press, arnold-press, front-raises,\n" +
+            "  push-press, cable-lateral-raise, reverse-flyes, close-grip-bench, skull-crushers,\n" +
+            "  tricep-overhead-extension, deadlift, chin-ups, seated-cable-row, dumbbell-row,\n" +
+            "  t-bar-row, weighted-pull-ups, face-pulls, barbell-curl, hammer-curl,\n" +
+            "  concentration-curl, goblet-squat, lunges, bulgarian-split-squat, hack-squat,\n" +
+            "  step-ups, nordic-curl, lying-leg-curl, dead-bug, mountain-climbers, russian-twist,\n" +
+            "  leg-raises, bicycle-crunches, hanging-leg-raises, hip-thrust, glute-bridge,\n" +
+            "  cable-kickback, sumo-deadlift, standing-calf-raises, seated-calf-raises,\n" +
+            "  single-leg-calf-raise, kettlebell-swing, burpees, box-jumps, power-clean,\n" +
+            "  ab-wheel-rollout, dragon-flag\n" +
+            "- If the closest exercise is not in the list, pick the nearest match that IS in the list\n\n" +
+            "WEIGHT SUGGESTION RULES:\n" +
+            "All suggestedKg must be realistic for this specific user.\n" +
+            "BEGINNER female (weight < 60kg): barbell 10-20kg, dumbbell 2-6kg, machine 10-20kg\n" +
+            "BEGINNER male (weight < 80kg):   barbell 20-40kg, dumbbell 5-12kg, machine 20-40kg\n" +
+            "INTERMEDIATE female: barbell 30-60kg, dumbbell 8-16kg, machine 30-60kg\n" +
+            "INTERMEDIATE male:   barbell 60-100kg, dumbbell 16-30kg, machine 50-80kg\n" +
+            "ADVANCED female: barbell 50-90kg, dumbbell 14-24kg, machine 50-80kg\n" +
+            "ADVANCED male:   barbell 80-140kg, dumbbell 24-40kg, machine 70-120kg\n" +
+            "Round all weights to nearest real gym increment:\n" +
+            "- Barbell: nearest 2.5kg (e.g. 20, 22.5, 25)\n" +
+            "- Dumbbell: nearest 2kg (e.g. 6, 8, 10)\n" +
+            "- Machine: nearest 5kg (e.g. 20, 25, 30)\n" +
+            "- Bodyweight exercises: suggestedKg must be null (not 0)\n" +
+            "For week 1-2 beginners: suggest conservative weights, coachTip MUST mention form over weight.\n" +
+            "For underweight users (BMI < 18.5): suggest lighter weights, note not to push to exhaustion.\n\n" +
+            "HEALTH CONDITION OVERRIDES (apply if user has these conditions):\n" +
+            "- Back pain: avoid deadlift, heavy squat — use leg-press, glute-bridge, seated-cable-row instead\n" +
+            "- Knee issues: avoid lunges, squat, box-jumps — use leg-press, lying-leg-curl, step-ups instead\n" +
+            "- Shoulder injury: avoid overhead-press, push-press, skull-crushers — use cable-flyes, lateral-raises, tricep-pushdowns instead\n\n" +
+            "RETURN a JSON plan with this exact structure:\n" +
             "{\n" +
             "  \"days\": [\n" +
             "    {\n" +
@@ -86,11 +129,11 @@ public final class AiPrompts {
             "      \"exercises\": [\n" +
             "        {\n" +
             "          \"exerciseId\": \"bench-press\",\n" +
-            "          \"exerciseName\": \"Barbell Bench Press\",\n" +
+            "          \"exerciseName\": \"Bench Press\",\n" +
             "          \"sets\": 3,\n" +
             "          \"reps\": 8,\n" +
             "          \"restSeconds\": 90,\n" +
-            "          \"suggestedKg\": 35.0,\n" +
+            "          \"suggestedKg\": 20.0,\n" +
             "          \"whyThisExercise\": \"2 sentence explanation specific to this user's goal and level\",\n" +
             "          \"coachTip\": \"1 sentence actionable tip\"\n" +
             "        }\n" +

@@ -10,4 +10,6 @@ import java.util.List;
 public interface ExerciseRepository extends JpaRepository<Exercise, String> {
 
     List<Exercise> findAllByOrderByMuscleGroupAsc();
+
+    List<Exercise> findByMuscleGroupAndIdNot(String muscleGroup, String id);
 }
