@@ -387,6 +387,7 @@ public class PlanService {
                 m.put("suggestedKg",      kg);
                 m.put("isBodyweight",     isBodyweight);
                 m.put("equipment",        ex != null ? ex.getEquipment() : "BARBELL");
+                m.put("muscleGroup",      ex != null ? ex.getMuscleGroup() : null);
                 m.put("whyThisExercise",  buildWhyThisExercise(ed, analysis));
                 m.put("coachTip",         ex != null ? ex.getCoachTip() : null);
                 m.put("swapAlternatives", ex != null && ex.getSwapAlternatives() != null
@@ -521,7 +522,7 @@ When you change a weight from last week, explain why in that exercise's whyThisE
 
         Map<String, Object> body = new LinkedHashMap<>();
         body.put("model", "gpt-4o-mini");
-        body.put("max_tokens", 2000);
+        body.put("max_tokens", 4000);
         body.put("temperature", 0.3);
         body.put("messages", List.of(
                 Map.of("role", "system", "content",
@@ -585,7 +586,8 @@ When you change a weight from last week, explain why in that exercise's whyThisE
                             String id = (String) ex.get("exerciseId");
                             Exercise entity = id != null ? exMap.get(id) : null;
                             if (entity != null) {
-                                ex.putIfAbsent("equipment", entity.getEquipment());
+                                ex.putIfAbsent("equipment",    entity.getEquipment());
+                                ex.putIfAbsent("muscleGroup",  entity.getMuscleGroup());
                                 ex.put("swapAlternatives",
                                         entity.getSwapAlternatives() != null
                                                 ? entity.getSwapAlternatives() : new String[0]);
@@ -752,6 +754,22 @@ When you change a weight from last week, explain why in that exercise's whyThisE
 
     // ── Plan reading helpers ──────────────────────────────────────────
 
+    private List<Map<String, Object>> getSwapsFromDb(String exerciseId, String muscleGroup) {
+        if (muscleGroup == null || muscleGroup.isBlank()) return Collections.emptyList();
+        return exerciseRepo.findByMuscleGroupAndIdNot(muscleGroup, exerciseId)
+                .stream()
+                .limit(3)
+                .map(e -> {
+                    Map<String, Object> swap = new LinkedHashMap<>();
+                    swap.put("exerciseId",   e.getId());
+                    swap.put("exerciseName", e.getName());
+                    swap.put("equipment",    e.getEquipment());
+                    swap.put("isBodyweight", e.isBodyweight());
+                    return swap;
+                })
+                .collect(Collectors.toList());
+    }
+
     private Map<String, Object> dayResponse(UserPlan plan, int dayNumber, User user,
                                              int completedThisWeek, int weeklyGoal) {
         try {
@@ -774,7 +792,22 @@ When you change a weight from last week, explain why in that exercise's whyThisE
             response.put("durationMins",       day.get("durationMins"));
             response.put("fitnessLevel",       user.getFitnessLevel());
             response.put("muscles",            day.get("muscles"));
-            response.put("exercises",          day.get("exercises"));
+
+            // Enrich each exercise with live swap alternatives from DB
+            @SuppressWarnings("unchecked")
+            List<Map<String, Object>> storedExercises =
+                    (List<Map<String, Object>>) day.get("exercises");
+            List<Map<String, Object>> enrichedExercises = new ArrayList<>();
+            if (storedExercises != null) {
+                for (Map<String, Object> ex : storedExercises) {
+                    Map<String, Object> exCopy = new LinkedHashMap<>(ex);
+                    String exId       = (String) exCopy.getOrDefault("exerciseId",  "");
+                    String muscleGrp  = (String) exCopy.getOrDefault("muscleGroup", "");
+                    exCopy.put("swapAlternatives", getSwapsFromDb(exId, muscleGrp));
+                    enrichedExercises.add(exCopy);
+                }
+            }
+            response.put("exercises", enrichedExercises);
             String whyThisPlan = day.get("whyThisDay") != null
                     ? (String) day.get("whyThisDay")
                     : (String) day.get("aiRationale");
