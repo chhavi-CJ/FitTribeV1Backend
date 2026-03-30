@@ -13,6 +13,7 @@ import com.fittribe.api.entity.WorkoutSession;
 import com.fittribe.api.exception.ApiException;
 import com.fittribe.api.repository.AiInsightRepository;
 import com.fittribe.api.repository.ExerciseRepository;
+import com.fittribe.api.repository.SessionFeedbackRepository;
 import com.fittribe.api.repository.SetLogRepository;
 import com.fittribe.api.repository.UserPlanRepository;
 import com.fittribe.api.repository.UserRepository;
@@ -28,6 +29,7 @@ import org.springframework.web.client.RestTemplate;
 import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.time.*;
+import java.time.format.DateTimeFormatter;
 import java.time.temporal.ChronoUnit;
 import java.time.temporal.TemporalAdjusters;
 import java.util.*;
@@ -42,14 +44,15 @@ public class PlanService {
     @Value("${openai.api-key:}")
     private String openAiKey;
 
-    private final UserRepository           userRepo;
-    private final UserPlanRepository       planRepo;
-    private final ExerciseRepository       exerciseRepo;
-    private final WorkoutSessionRepository sessionRepo;
-    private final SetLogRepository         setLogRepo;
-    private final AiInsightRepository      insightRepo;
-    private final ObjectMapper             mapper;
-    private final RestTemplate             restTemplate = new RestTemplate();
+    private final UserRepository              userRepo;
+    private final UserPlanRepository          planRepo;
+    private final ExerciseRepository          exerciseRepo;
+    private final WorkoutSessionRepository    sessionRepo;
+    private final SetLogRepository            setLogRepo;
+    private final AiInsightRepository         insightRepo;
+    private final SessionFeedbackRepository   feedbackRepo;
+    private final ObjectMapper                mapper;
+    private final RestTemplate                restTemplate = new RestTemplate();
 
     public PlanService(UserRepository userRepo,
                        UserPlanRepository planRepo,
@@ -57,6 +60,7 @@ public class PlanService {
                        WorkoutSessionRepository sessionRepo,
                        SetLogRepository setLogRepo,
                        AiInsightRepository insightRepo,
+                       SessionFeedbackRepository feedbackRepo,
                        ObjectMapper mapper) {
         this.userRepo     = userRepo;
         this.planRepo     = planRepo;
@@ -64,6 +68,7 @@ public class PlanService {
         this.sessionRepo  = sessionRepo;
         this.setLogRepo   = setLogRepo;
         this.insightRepo  = insightRepo;
+        this.feedbackRepo = feedbackRepo;
         this.mapper       = mapper;
     }
 
@@ -444,6 +449,26 @@ public class PlanService {
         String historyBlock = buildHistoryBlock(analysis, exMap);
         String adjustmentLines = buildAdjustmentLines(analysis, exMap);
 
+        // Build feedback block from last 3 session ratings
+        DateTimeFormatter dateFmt = DateTimeFormatter.ofPattern("dd MMM").withZone(ZoneOffset.UTC);
+        List<String> feedbackLines = feedbackRepo
+                .findByUserIdOrderByCreatedAtDesc(user.getId())
+                .stream()
+                .limit(3)
+                .map(fb -> {
+                    String date = fb.getCreatedAt() != null ? dateFmt.format(fb.getCreatedAt()) : "recent";
+                    String line = date + ": " + fb.getRating();
+                    if (fb.getNotes() != null && !fb.getNotes().isBlank()) {
+                        line += " — " + fb.getNotes();
+                    }
+                    return line;
+                })
+                .collect(Collectors.toList());
+        String feedbackBlock = feedbackLines.isEmpty() ? "" :
+                "RECENT SESSION FEEDBACK (use to adjust intensity — if sessions were TOO_EASY increase weights; " +
+                "if KILLED_ME reduce volume or add rest):\n" +
+                String.join("\n", feedbackLines) + "\n";
+
         String aiContextBlock = (user.getAiContext() != null && !user.getAiContext().isBlank())
                 ? "PERSONAL CONTEXT FROM USER:\n" + user.getAiContext() + "\n" +
                   "(Use this to personalise the plan. If it mentions a timeframe like 'wedding in 3 months', " +
@@ -461,6 +486,7 @@ public class PlanService {
                 .replace("{goal}",            user.getGoal() != null ? user.getGoal() : "BUILD_MUSCLE")
                 .replace("{healthConditions}", formatHealthConditions(user.getHealthConditions()))
                 .replace("{aiContextBlock}",  aiContextBlock)
+                .replace("{feedbackBlock}",   feedbackBlock)
                 .replace("{historyBlock}",    historyBlock)
                 .replace("{adjustmentLines}", adjustmentLines);
 

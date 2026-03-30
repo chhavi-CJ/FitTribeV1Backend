@@ -70,6 +70,7 @@ public final class AiPrompts {
             "Goal: {goal} | Training days: {weeklyGoal}/week\n" +
             "Health conditions: {healthConditions}\n" +
             "{aiContextBlock}\n" +
+            "{feedbackBlock}" +
             "{historyBlock}\n\n" +
             "ADJUSTMENTS TO MAKE:\n" +
             "{adjustmentLines}\n" +
