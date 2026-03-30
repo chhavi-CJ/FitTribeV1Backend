@@ -41,6 +41,43 @@ public class PlanService {
 
     private static final Logger log = LoggerFactory.getLogger(PlanService.class);
 
+    /** Maps common AI-invented exerciseIds to the canonical DB id. */
+    private static final Map<String, String> EXERCISE_ID_ALIASES = Map.ofEntries(
+            Map.entry("tricep-dips",                "dips"),
+            Map.entry("dumbbell-shoulder-press",    "db-shoulder-press"),
+            Map.entry("dumbbell-press",             "db-flat-press"),
+            Map.entry("bodyweight-row",             "inverted-row"),
+            Map.entry("bent-over-row",              "barbell-row"),
+            Map.entry("barbell-bent-over-row",      "barbell-row"),
+            Map.entry("bicep-curls",                "bicep-curl"),
+            Map.entry("hammer-curls",               "hammer-curl"),
+            Map.entry("cable-fly",                  "cable-flyes"),
+            Map.entry("cable-flies",                "cable-flyes"),
+            Map.entry("chest-fly",                  "pec-deck"),
+            Map.entry("chest-flyes",                "cable-flyes"),
+            Map.entry("leg-extensions",             "leg-extension"),
+            Map.entry("tricep-kickbacks",           "tricep-kickback"),
+            Map.entry("shoulder-lateral-raise",     "lateral-raises"),
+            Map.entry("db-lateral-raise",           "lateral-raises"),
+            Map.entry("cable-lateral-raises",       "cable-lateral-raise"),
+            Map.entry("overhead-tricep-extension",  "tricep-overhead-extension"),
+            Map.entry("lying-tricep-extension",     "skull-crushers"),
+            Map.entry("seated-row",                 "seated-cable-row"),
+            Map.entry("cable-row",                  "seated-cable-row"),
+            Map.entry("db-row",                     "dumbbell-row"),
+            Map.entry("one-arm-row",                "dumbbell-row"),
+            Map.entry("single-arm-row",             "dumbbell-row"),
+            Map.entry("pull-up",                    "pull-ups"),
+            Map.entry("chin-up",                    "chin-ups"),
+            Map.entry("hip-thrusts",                "hip-thrust"),
+            Map.entry("glute-bridges",              "glute-bridge"),
+            Map.entry("calf-raises",                "standing-calf-raises"),
+            Map.entry("standing-calf-raise",        "standing-calf-raises"),
+            Map.entry("leg-raise",                  "leg-raises"),
+            Map.entry("hanging-leg-raise",          "hanging-leg-raises"),
+            Map.entry("russian-twists",             "russian-twist"),
+            Map.entry("mountain-climber",           "mountain-climbers")
+    );
 
     @Value("${openai.api-key:}")
     private String openAiKey;
@@ -215,21 +252,13 @@ public class PlanService {
         int weeklyGoal = user.getWeeklyGoal() != null ? user.getWeeklyGoal() : 4;
 
         try {
-            List<Map<String, Object>> days = mapper.readValue(
+            List<Map<String, Object>> allDays = mapper.readValue(
                     plan.getDays(), new TypeReference<>() {});
 
-            for (int d = weeklyGoal + 1; d <= 7; d++) {
-                Map<String, Object> rest = new LinkedHashMap<>();
-                rest.put("dayNumber",       d);
-                rest.put("dayType",         "REST");
-                rest.put("sessionTitle",    "Rest & Recovery");
-                rest.put("durationMins",    0);
-                rest.put("muscles",         List.of());
-                rest.put("exercises",       List.of());
-                rest.put("aiRationale",     "Recovery is where adaptation happens.");
-                rest.put("sessionCoachTip", "Light stretching or a walk is ideal today.");
-                days.add(rest);
-            }
+            // Filter out any REST-day entries (AI should not return them, but guard just in case)
+            List<Map<String, Object>> days = allDays.stream()
+                    .filter(d -> !"REST".equals(d.get("dayType")))
+                    .collect(Collectors.toList());
 
             Map<String, Object> response = new LinkedHashMap<>();
             response.put("planId",        plan.getPlanId());
@@ -522,7 +551,7 @@ When you change a weight from last week, explain why in that exercise's whyThisE
 
         Map<String, Object> body = new LinkedHashMap<>();
         body.put("model", "gpt-4o-mini");
-        body.put("max_tokens", 4000);
+        body.put("max_tokens", 6000);
         body.put("temperature", 0.3);
         body.put("messages", List.of(
                 Map.of("role", "system", "content",
@@ -582,9 +611,28 @@ When you change a weight from last week, explain why in that exercise's whyThisE
                     List<Map<String, Object>> exList =
                             (List<Map<String, Object>>) day.get("exercises");
                     if (exList != null) {
+                        Set<String> usedIdsThisDay = new LinkedHashSet<>();
+                        List<Map<String, Object>> deduped = new ArrayList<>();
                         for (Map<String, Object> ex : exList) {
-                            String id = (String) ex.get("exerciseId");
-                            Exercise entity = id != null ? exMap.get(id) : null;
+                            String rawId = (String) ex.get("exerciseId");
+
+                            // 1. Resolve alias → canonical DB id
+                            String resolvedId = rawId != null
+                                    ? EXERCISE_ID_ALIASES.getOrDefault(rawId, rawId)
+                                    : null;
+                            if (rawId != null && !rawId.equals(resolvedId)) {
+                                ex.put("exerciseId", resolvedId);
+                                log.debug("Alias resolved: {} → {}", rawId, resolvedId);
+                            }
+
+                            // 2. Skip duplicate exercises within the same day
+                            if (resolvedId != null && !usedIdsThisDay.add(resolvedId)) {
+                                log.debug("Duplicate exercise removed from day: {}", resolvedId);
+                                continue;
+                            }
+
+                            // 3. Look up entity using resolved id
+                            Exercise entity = resolvedId != null ? exMap.get(resolvedId) : null;
                             if (entity != null) {
                                 ex.putIfAbsent("equipment",    entity.getEquipment());
                                 ex.putIfAbsent("muscleGroup",  entity.getMuscleGroup());
@@ -592,15 +640,28 @@ When you change a weight from last week, explain why in that exercise's whyThisE
                                         entity.getSwapAlternatives() != null
                                                 ? entity.getSwapAlternatives() : new String[0]);
                                 // Use adjusted weight if available (history-based overrides AI suggestion)
-                                if (id != null && analysis.adjustedWeights().containsKey(id)) {
-                                    ex.put("suggestedKg", analysis.adjustedWeights().get(id));
+                                if (resolvedId != null && analysis.adjustedWeights().containsKey(resolvedId)) {
+                                    ex.put("suggestedKg", analysis.adjustedWeights().get(resolvedId));
                                 }
+                            } else {
+                                // 4. Unknown id — derive muscleGroup from EXERCISE_MUSCLE fallback map
+                                if (ex.get("muscleGroup") == null && resolvedId != null) {
+                                    String fallbackMuscle = EXERCISE_MUSCLE.get(resolvedId);
+                                    if (fallbackMuscle != null) {
+                                        ex.put("muscleGroup", fallbackMuscle);
+                                    }
+                                }
+                                log.warn("AI returned unknown exerciseId '{}' (raw: '{}') — keeping with no entity enrichment",
+                                        resolvedId, rawId);
                             }
-                            // Coerce "Bodyweight"/"BW"/null strings → null Double + isBodyweight flag
+
+                            // 5. Coerce "Bodyweight"/"BW"/null strings → null Double + isBodyweight flag
                             Double parsedKg = parseSuggestedKg(ex.get("suggestedKg"));
                             ex.put("suggestedKg",  parsedKg);
                             ex.put("isBodyweight", parsedKg == null);
+                            deduped.add(ex);
                         }
+                        day.put("exercises", deduped);
                     }
                 }
             }
