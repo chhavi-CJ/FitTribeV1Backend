@@ -74,13 +74,10 @@ public final class AiPrompts {
             "ADJUSTMENTS TO MAKE:\n" +
             "{adjustmentLines}\n" +
             "{feedbackBlock}\n" +
-            "WEEKLY SPLIT RULES:\n" +
-            "weeklyGoal = 3: Push A, Pull A, Leg Day\n" +
-            "weeklyGoal = 4: Push A, Pull A, Leg Day, Full Body\n" +
-            "weeklyGoal = 5: Push A, Pull A, Legs A, Upper Body, Lower Body\n" +
-            "weeklyGoal = 6: Push A, Pull A, Legs A, Push B, Pull B, Legs B\n" +
-            "Always include at least 1 core exercise per day.\n" +
-            "Core exercises to pick from: plank, dead-bug, mountain-climbers, russian-twist, leg-raises, bicycle-crunches\n\n" +
+            "WEEKLY SPLIT (follow this EXACTLY — do not change the day structure or muscle group assignments):\n" +
+            "{splitStructure}\n\n" +
+            "Core finisher exercises (ONLY add core to days marked '+ Core finisher'): " +
+            "plank, dead-bug, mountain-climbers, russian-twist, leg-raises, bicycle-crunches, hanging-leg-raises, ab-wheel-rollout\n\n" +
             "EXERCISE RULES:\n" +
             "- MANDATORY: include EXACTLY 5 exercises per day — no more, no fewer\n" +
             "- Always include 1 core exercise per day from: plank, dead-bug, mountain-climbers, russian-twist, leg-raises, bicycle-crunches, hanging-leg-raises, ab-wheel-rollout\n" +
