@@ -119,21 +119,21 @@ public class PlanService {
 
     @Transactional
     public UserPlan generatePlan(UUID userId) {
-        User user = userRepo.findById(userId).orElseThrow(() -> ApiException.notFound("User"));
+        User user = userRepo.findById(userId)
+                .orElseThrow(() -> ApiException.notFound("User"));
 
         LocalDate monday = LocalDate.now(ZoneOffset.UTC)
                 .with(TemporalAdjusters.previousOrSame(DayOfWeek.MONDAY));
         int weekNumber = weekNumberFor(user, monday);
 
-        // Idempotent: return existing plan if already generated this week
+        // Idempotent — return existing plan if already generated this week
         Optional<UserPlan> existing = planRepo.findByUserIdAndWeekStartDate(userId, monday);
         if (existing.isPresent()) return existing.get();
 
-        int weeklyGoal = user.getWeeklyGoal() != null ? user.getWeeklyGoal() : 4;
-        double bw      = user.getWeightKg()   != null ? user.getWeightKg().doubleValue() : 70.0;
-        String level   = user.getFitnessLevel() != null ? user.getFitnessLevel() : "INTERMEDIATE";
+        String level     = user.getFitnessLevel() != null ? user.getFitnessLevel() : "INTERMEDIATE";
+        int weeklyGoal   = user.getWeeklyGoal()   != null ? user.getWeeklyGoal()   : 4;
 
-        // Fetch split structure from DB
+        // Fetch split structure from DB — no AI call needed here
         List<SplitTemplateDay> splitTemplate = splitTemplateDayRepo
                 .findByDaysPerWeekAndFitnessLevelOrderByDayNumber(weeklyGoal, level.toUpperCase());
         if (splitTemplate.isEmpty()) {
@@ -141,80 +141,28 @@ public class PlanService {
                     .findByDaysPerWeekAndFitnessLevelOrderByDayNumber(weeklyGoal, "INTERMEDIATE");
         }
 
-        // ── Gather history (last 4 weeks) ─────────────────────────────
-        Instant since4Weeks = monday.minusWeeks(4).atStartOfDay(ZoneOffset.UTC).toInstant();
-        Instant weekEnd     = monday.plusDays(7).atStartOfDay(ZoneOffset.UTC).toInstant();
-
-        List<WorkoutSession> recentSessions = sessionRepo
-                .findByUserIdAndStatusAndFinishedAtBetween(userId, "COMPLETED", since4Weeks, weekEnd);
-
-        List<UUID> sessionIds = recentSessions.stream()
-                .map(WorkoutSession::getId).collect(Collectors.toList());
-
-        List<SetLog> recentLogs = sessionIds.isEmpty()
-                ? List.of()
-                : setLogRepo.findBySessionIdIn(sessionIds);
-
-        List<AiInsight> pastInsights = insightRepo.findByUserIdOrderByGeneratedAtDesc(userId)
-                .stream().filter(i -> !"weekly_summary".equals(i.getInsightType()))
-                .limit(20).collect(Collectors.toList());
-
-        List<UserPlan> pastPlans = planRepo.findByUserIdOrderByWeekStartDateDesc(userId)
-                .stream().limit(4).collect(Collectors.toList());
-
-        // ── Compute adjustments ────────────────────────────────────────
-        HistoryAnalysis analysis = analyseHistory(recentSessions, recentLogs, pastPlans, bw, level);
-
-        // ── Build plan ────────────────────────────────────────────────
-        Map<String, Exercise> exMap = exerciseMap();
-        List<Map<String, Object>> days;
-        String weekRationale;
-        String sessionCoachTip;
-
-        if (openAiKey != null && !openAiKey.isBlank()) {
-            // AI-generated plan
-            String aiJson = callOpenAiPlan(user, weeklyGoal, analysis, exMap, splitTemplate);
-            if (aiJson != null) {
-                PlanParseResult parsed = parseAiPlan(aiJson, exMap, analysis, bw, level);
-                days           = parsed.days();
-                weekRationale  = parsed.weekRationale();
-                sessionCoachTip = parsed.sessionCoachTip();
-                saveInsightsFromAnalysis(userId, analysis);
-            } else {
-                // Fallback to rule-based
-                days           = buildRuleBasedDays(weeklyGoal, exMap, analysis, bw, level, splitTemplate);
-                weekRationale  = ruleBasedWeekRationale(weeklyGoal, analysis);
-                sessionCoachTip = "Focus on progressive overload. Small consistent increases beat occasional heroic efforts.";
-            }
-        } else {
-            // No key — rule-based only
-            days           = buildRuleBasedDays(weeklyGoal, exMap, analysis, bw, level, splitTemplate);
-            weekRationale  = ruleBasedWeekRationale(weeklyGoal, analysis);
-            sessionCoachTip = "Focus on progressive overload. Small consistent increases beat occasional heroic efforts.";
-            saveInsightsFromAnalysis(userId, analysis);
-        }
+        // Build days from split template — structure only, no exercises
+        List<Map<String, Object>> days = splitTemplate.stream().map(td -> {
+            Map<String, Object> day = new LinkedHashMap<>();
+            day.put("dayNumber",       td.getDayNumber());
+            day.put("dayLabel",        td.getDayLabel());
+            day.put("dayType",         td.getDayType());
+            day.put("muscleGroups",    td.getMuscleGroups());
+            day.put("includesCore",    td.isIncludesCore());
+            day.put("guidanceText",    td.getGuidanceText());
+            day.put("cardioType",      td.getCardioType());
+            day.put("cardioDurationMin", td.getCardioDurationMin());
+            day.put("estimatedMins",   td.getEstimatedMins());
+            return day;
+        }).collect(Collectors.toList());
 
         try {
-            // Build rationale map
-            Map<String, String> rationaleMap = new LinkedHashMap<>();
-            for (int i = 0; i < days.size(); i++) {
-                String dayRationale;
-                if (days.get(i).get("whyThisDay") != null) {
-                    dayRationale = (String) days.get(i).get("whyThisDay");
-                } else if (days.get(i).get("aiRationale") != null) {
-                    dayRationale = (String) days.get(i).get("aiRationale");
-                } else {
-                    dayRationale = weekRationale;
-                }
-                rationaleMap.put(String.valueOf(i + 1), dayRationale);
-            }
-
             UserPlan plan = new UserPlan();
             plan.setUserId(userId);
             plan.setWeekStartDate(monday);
             plan.setWeekNumber(weekNumber);
             plan.setDays(mapper.writeValueAsString(days));
-            plan.setAiRationale(mapper.writeValueAsString(rationaleMap));
+            plan.setAiRationale(null);
             return planRepo.save(plan);
         } catch (Exception e) {
             log.error("Failed to serialize plan: {}", e.getMessage());
@@ -249,13 +197,15 @@ public class PlanService {
             return response;
         }
 
-        // Next workout is the day after however many are already done this week
         int nextDayNumber = completedThisWeek + 1;
-        return dayResponse(plan, nextDayNumber, user, completedThisWeek, weeklyGoal);
+        return dayResponse(plan, nextDayNumber, user, completedThisWeek, weeklyGoal,
+                weekStart, Instant.now());
     }
 
     public Map<String, Object> getWeekPlan(UUID userId) {
-        User user = userRepo.findById(userId).orElseThrow(() -> ApiException.notFound("User"));
+        User user = userRepo.findById(userId)
+                .orElseThrow(() -> ApiException.notFound("User"));
+
         LocalDate monday = LocalDate.now(ZoneOffset.UTC)
                 .with(TemporalAdjusters.previousOrSame(DayOfWeek.MONDAY));
 
@@ -264,21 +214,24 @@ public class PlanService {
 
         int weeklyGoal = user.getWeeklyGoal() != null ? user.getWeeklyGoal() : 4;
 
+        // Count completed sessions this week so frontend knows progress
+        Instant weekStart = monday.atStartOfDay(ZoneOffset.UTC).toInstant();
+        Instant now       = Instant.now();
+        int completedThisWeek = sessionRepo.countByUserIdAndStatusAndFinishedAtBetween(
+                userId, "COMPLETED", weekStart, now);
+
         try {
-            List<Map<String, Object>> allDays = mapper.readValue(
+            List<Map<String, Object>> days = mapper.readValue(
                     plan.getDays(), new TypeReference<>() {});
 
-            // Filter out any REST-day entries (AI should not return them, but guard just in case)
-            List<Map<String, Object>> days = allDays.stream()
-                    .filter(d -> !"REST".equals(d.get("dayType")))
-                    .collect(Collectors.toList());
-
             Map<String, Object> response = new LinkedHashMap<>();
-            response.put("planId",        plan.getPlanId());
-            response.put("weekNumber",    plan.getWeekNumber());
-            response.put("weekStartDate", plan.getWeekStartDate().toString());
-            response.put("fitnessLevel",  user.getFitnessLevel());
-            response.put("days",          days);
+            response.put("planId",            plan.getPlanId());
+            response.put("weekNumber",         plan.getWeekNumber());
+            response.put("weekStartDate",      plan.getWeekStartDate().toString());
+            response.put("fitnessLevel",       user.getFitnessLevel());
+            response.put("weeklyGoal",         weeklyGoal);
+            response.put("completedThisWeek",  completedThisWeek);
+            response.put("days",               days);
             return response;
         } catch (Exception e) {
             log.error("Failed to parse plan JSON: {}", e.getMessage());
@@ -884,62 +837,145 @@ When you change a weight from last week, explain why in that exercise's whyThisE
     }
 
     private Map<String, Object> dayResponse(UserPlan plan, int dayNumber, User user,
-                                             int completedThisWeek, int weeklyGoal) {
+                                             int completedThisWeek, int weeklyGoal,
+                                             Instant weekStart, Instant now) {
         try {
             List<Map<String, Object>> days = mapper.readValue(
                     plan.getDays(), new TypeReference<>() {});
-            Map<String, Object> day = days.stream()
+
+            // Find the template day — skip rest days
+            Map<String, Object> templateDay = days.stream()
+                    .filter(d -> !"rest".equalsIgnoreCase((String) d.get("dayType")))
                     .filter(d -> Integer.valueOf(dayNumber).equals(d.get("dayNumber")))
                     .findFirst()
-                    .orElseThrow(() -> new RuntimeException("Day " + dayNumber + " not found in plan"));
+                    .orElse(days.stream()
+                            .filter(d -> !"rest".equalsIgnoreCase((String) d.get("dayType")))
+                            .skip(dayNumber - 1)
+                            .findFirst()
+                            .orElseThrow(() -> new RuntimeException("No training day found")));
+
+            // Gather recent history for AI context
+            Instant since2Weeks = now.minus(14, java.time.temporal.ChronoUnit.DAYS);
+            List<WorkoutSession> recentSessions = sessionRepo
+                    .findByUserIdAndStatusAndFinishedAtBetween(
+                            user.getId(), "COMPLETED", since2Weeks, now);
+            List<UUID> sessionIds = recentSessions.stream()
+                    .map(WorkoutSession::getId).collect(Collectors.toList());
+            List<SetLog> recentLogs = sessionIds.isEmpty()
+                    ? List.of()
+                    : setLogRepo.findBySessionIdIn(sessionIds);
+
+            // Build history analysis for AI
+            Map<String, Exercise> exMap = exerciseMap();
+            HistoryAnalysis analysis = analyseHistory(
+                    recentSessions, recentLogs, List.of(), user.getWeightKg() != null
+                            ? user.getWeightKg().doubleValue() : 70.0,
+                    user.getFitnessLevel() != null ? user.getFitnessLevel() : "INTERMEDIATE");
+
+            // Get muscle groups for today
+            @SuppressWarnings("unchecked")
+            List<String> muscleGroups = (List<String>) templateDay.get("muscleGroups");
+            boolean includesCore = Boolean.TRUE.equals(templateDay.get("includesCore"));
+            String dayLabel      = (String) templateDay.get("dayLabel");
+            String dayType       = (String) templateDay.get("dayType");
+
+            // Generate exercises via AI (or rule-based fallback)
+            List<Map<String, Object>> exercises;
+            if (openAiKey != null && !openAiKey.isBlank()) {
+                String aiJson = callOpenAiPlan(user,
+                        user.getWeeklyGoal() != null ? user.getWeeklyGoal() : 4,
+                        analysis, exMap, List.of());
+                if (aiJson != null) {
+                    PlanParseResult parsed = parseAiPlan(aiJson, exMap, analysis,
+                            user.getWeightKg() != null ? user.getWeightKg().doubleValue() : 70.0,
+                            user.getFitnessLevel() != null ? user.getFitnessLevel() : "INTERMEDIATE");
+                    if (parsed != null && !parsed.days().isEmpty()) {
+                        @SuppressWarnings("unchecked")
+                        List<Map<String, Object>> aiExercises =
+                                (List<Map<String, Object>>) parsed.days().get(0).get("exercises");
+                        exercises = aiExercises != null ? aiExercises : List.of();
+                    } else {
+                        exercises = buildExercisesFromTemplate(dayType, exMap, analysis,
+                                user.getWeightKg() != null ? user.getWeightKg().doubleValue() : 70.0,
+                                user.getFitnessLevel() != null ? user.getFitnessLevel() : "INTERMEDIATE");
+                    }
+                } else {
+                    exercises = buildExercisesFromTemplate(dayType, exMap, analysis,
+                            user.getWeightKg() != null ? user.getWeightKg().doubleValue() : 70.0,
+                            user.getFitnessLevel() != null ? user.getFitnessLevel() : "INTERMEDIATE");
+                }
+            } else {
+                exercises = buildExercisesFromTemplate(dayType, exMap, analysis,
+                        user.getWeightKg() != null ? user.getWeightKg().doubleValue() : 70.0,
+                        user.getFitnessLevel() != null ? user.getFitnessLevel() : "INTERMEDIATE");
+            }
+
+            // Enrich exercises with live swap alternatives
+            List<Map<String, Object>> enrichedExercises = new ArrayList<>();
+            for (Map<String, Object> ex : exercises) {
+                Map<String, Object> exCopy = new LinkedHashMap<>(ex);
+                String exId = (String) exCopy.getOrDefault("exerciseId", "");
+                Exercise entity = exMap.get(exId);
+                String muscleGrp = entity != null
+                        ? entity.getMuscleGroup()
+                        : (String) exCopy.get("muscleGroup");
+                exCopy.put("swapAlternatives", getSwapsFromDb(exId, muscleGrp));
+                enrichedExercises.add(exCopy);
+            }
 
             Map<String, Object> response = new LinkedHashMap<>();
-            response.put("planId",            plan.getPlanId());
-            response.put("weekNumber",         plan.getWeekNumber());
-            response.put("isGoalHit",          false);
-            response.put("completedThisWeek",  completedThisWeek);
-            response.put("weeklyGoal",         weeklyGoal);
-            response.put("dayNumber",          dayNumber);
-            response.put("dayType",            day.get("dayType"));
-            response.put("sessionTitle",       day.get("sessionTitle"));
-            response.put("durationMins",       day.get("durationMins"));
-            response.put("fitnessLevel",       user.getFitnessLevel());
-            response.put("muscles",            day.get("muscles"));
-
-            // Load exercise entity map once — authoritative source for muscleGroup
-            Map<String, Exercise> exMap = exerciseMap();
-
-            // Enrich each exercise with live swap alternatives from DB
-            @SuppressWarnings("unchecked")
-            List<Map<String, Object>> storedExercises =
-                    (List<Map<String, Object>>) day.get("exercises");
-            List<Map<String, Object>> enrichedExercises = new ArrayList<>();
-            if (storedExercises != null) {
-                for (Map<String, Object> ex : storedExercises) {
-                    Map<String, Object> exCopy = new LinkedHashMap<>(ex);
-                    String exId = (String) exCopy.getOrDefault("exerciseId", "");
-
-                    // Always get muscleGroup from entity — never trust stale JSONB value
-                    Exercise entity = exMap.get(exId);
-                    String muscleGrp = entity != null
-                            ? entity.getMuscleGroup()
-                            : (String) exCopy.get("muscleGroup");
-
-                    exCopy.put("swapAlternatives", getSwapsFromDb(exId, muscleGrp));
-                    enrichedExercises.add(exCopy);
-                }
-            }
-            response.put("exercises", enrichedExercises);
-            String whyThisPlan = day.get("whyThisDay") != null
-                    ? (String) day.get("whyThisDay")
-                    : (String) day.get("aiRationale");
-            response.put("whyThisPlan",        whyThisPlan);
-            response.put("sessionCoachTip",    day.get("sessionCoachTip"));
+            response.put("planId",           plan.getPlanId());
+            response.put("weekNumber",        plan.getWeekNumber());
+            response.put("isGoalHit",         false);
+            response.put("completedThisWeek", completedThisWeek);
+            response.put("weeklyGoal",        weeklyGoal);
+            response.put("dayNumber",         dayNumber);
+            response.put("dayLabel",          dayLabel);
+            response.put("dayType",           dayType);
+            response.put("muscleGroups",      muscleGroups);
+            response.put("includesCore",      includesCore);
+            response.put("guidanceText",      templateDay.get("guidanceText"));
+            response.put("cardioType",        templateDay.get("cardioType"));
+            response.put("cardioDurationMin", templateDay.get("cardioDurationMin"));
+            response.put("estimatedMins",     templateDay.get("estimatedMins"));
+            response.put("fitnessLevel",      user.getFitnessLevel());
+            response.put("exercises",         enrichedExercises);
             return response;
+
         } catch (Exception e) {
-            log.error("Failed to parse plan JSON: {}", e.getMessage());
-            throw new RuntimeException("Could not read plan", e);
+            log.error("Failed to build day response: {}", e.getMessage());
+            throw new RuntimeException("Could not build today's plan", e);
         }
+    }
+
+    private List<Map<String, Object>> buildExercisesFromTemplate(
+            String dayType, Map<String, Exercise> exMap,
+            HistoryAnalysis analysis, double bw, String level) {
+
+        DayTemplate template = DAY_TYPE_TO_TEMPLATE.getOrDefault(dayType, FULL_BODY);
+        return template.exercises().stream().map(ed -> {
+            Exercise ex = exMap.get(ed.id());
+            boolean isBodyweight = "bodyweight".equals(ed.formula());
+            Double kg = isBodyweight ? null
+                    : analysis.adjustedWeights().containsKey(ed.id())
+                            ? analysis.adjustedWeights().get(ed.id())
+                            : calcWeight(ed.formula(), bw, level);
+
+            Map<String, Object> m = new LinkedHashMap<>();
+            m.put("exerciseId",      ed.id());
+            m.put("exerciseName",    ex != null ? ex.getName() : ed.id());
+            m.put("sets",            ed.sets());
+            m.put("reps",            ed.reps());
+            m.put("restSeconds",     ed.restSeconds());
+            m.put("suggestedKg",     kg);
+            m.put("isBodyweight",    isBodyweight);
+            m.put("equipment",       ex != null ? ex.getEquipment() : null);
+            m.put("muscleGroup",     ex != null ? ex.getMuscleGroup() : null);
+            m.put("whyThisExercise", buildWhyThisExercise(ed, analysis));
+            m.put("coachTip",        ex != null ? ex.getCoachTip() : null);
+            m.put("swapAlternatives", new ArrayList<>());
+            return m;
+        }).collect(Collectors.toList());
     }
 
     // ── Weight calculation ────────────────────────────────────────────
