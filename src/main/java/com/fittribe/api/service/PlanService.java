@@ -14,7 +14,9 @@ import com.fittribe.api.exception.ApiException;
 import com.fittribe.api.repository.AiInsightRepository;
 import com.fittribe.api.repository.ExerciseRepository;
 import com.fittribe.api.entity.SessionFeedback;
+import com.fittribe.api.entity.SplitTemplateDay;
 import com.fittribe.api.repository.SessionFeedbackRepository;
+import com.fittribe.api.repository.SplitTemplateDayRepository;
 import com.fittribe.api.repository.SetLogRepository;
 import com.fittribe.api.repository.UserPlanRepository;
 import com.fittribe.api.repository.UserRepository;
@@ -89,6 +91,7 @@ public class PlanService {
     private final SetLogRepository            setLogRepo;
     private final AiInsightRepository         insightRepo;
     private final SessionFeedbackRepository   feedbackRepo;
+    private final SplitTemplateDayRepository  splitTemplateDayRepo;
     private final ObjectMapper                mapper;
     private final RestTemplate                restTemplate = new RestTemplate();
 
@@ -99,15 +102,17 @@ public class PlanService {
                        SetLogRepository setLogRepo,
                        AiInsightRepository insightRepo,
                        SessionFeedbackRepository feedbackRepo,
+                       SplitTemplateDayRepository splitTemplateDayRepo,
                        ObjectMapper mapper) {
-        this.userRepo     = userRepo;
-        this.planRepo     = planRepo;
-        this.exerciseRepo = exerciseRepo;
-        this.sessionRepo  = sessionRepo;
-        this.setLogRepo   = setLogRepo;
-        this.insightRepo  = insightRepo;
-        this.feedbackRepo = feedbackRepo;
-        this.mapper       = mapper;
+        this.userRepo             = userRepo;
+        this.planRepo             = planRepo;
+        this.exerciseRepo         = exerciseRepo;
+        this.sessionRepo          = sessionRepo;
+        this.setLogRepo           = setLogRepo;
+        this.insightRepo          = insightRepo;
+        this.feedbackRepo         = feedbackRepo;
+        this.splitTemplateDayRepo = splitTemplateDayRepo;
+        this.mapper               = mapper;
     }
 
     // ── Public API ────────────────────────────────────────────────────
@@ -127,6 +132,14 @@ public class PlanService {
         int weeklyGoal = user.getWeeklyGoal() != null ? user.getWeeklyGoal() : 4;
         double bw      = user.getWeightKg()   != null ? user.getWeightKg().doubleValue() : 70.0;
         String level   = user.getFitnessLevel() != null ? user.getFitnessLevel() : "INTERMEDIATE";
+
+        // Fetch split structure from DB
+        List<SplitTemplateDay> splitTemplate = splitTemplateDayRepo
+                .findByDaysPerWeekAndFitnessLevelOrderByDayNumber(weeklyGoal, level.toUpperCase());
+        if (splitTemplate.isEmpty()) {
+            splitTemplate = splitTemplateDayRepo
+                    .findByDaysPerWeekAndFitnessLevelOrderByDayNumber(weeklyGoal, "INTERMEDIATE");
+        }
 
         // ── Gather history (last 4 weeks) ─────────────────────────────
         Instant since4Weeks = monday.minusWeeks(4).atStartOfDay(ZoneOffset.UTC).toInstant();
@@ -160,7 +173,7 @@ public class PlanService {
 
         if (openAiKey != null && !openAiKey.isBlank()) {
             // AI-generated plan
-            String aiJson = callOpenAiPlan(user, weeklyGoal, analysis, exMap);
+            String aiJson = callOpenAiPlan(user, weeklyGoal, analysis, exMap, splitTemplate);
             if (aiJson != null) {
                 PlanParseResult parsed = parseAiPlan(aiJson, exMap, analysis, bw, level);
                 days           = parsed.days();
@@ -169,13 +182,13 @@ public class PlanService {
                 saveInsightsFromAnalysis(userId, analysis);
             } else {
                 // Fallback to rule-based
-                days           = buildRuleBasedDays(weeklyGoal, exMap, analysis, bw, level);
+                days           = buildRuleBasedDays(weeklyGoal, exMap, analysis, bw, level, splitTemplate);
                 weekRationale  = ruleBasedWeekRationale(weeklyGoal, analysis);
                 sessionCoachTip = "Focus on progressive overload. Small consistent increases beat occasional heroic efforts.";
             }
         } else {
             // No key — rule-based only
-            days           = buildRuleBasedDays(weeklyGoal, exMap, analysis, bw, level);
+            days           = buildRuleBasedDays(weeklyGoal, exMap, analysis, bw, level, splitTemplate);
             weekRationale  = ruleBasedWeekRationale(weeklyGoal, analysis);
             sessionCoachTip = "Focus on progressive overload. Small consistent increases beat occasional heroic efforts.";
             saveInsightsFromAnalysis(userId, analysis);
@@ -383,8 +396,9 @@ public class PlanService {
     private List<Map<String, Object>> buildRuleBasedDays(int weeklyGoal,
                                                           Map<String, Exercise> exMap,
                                                           HistoryAnalysis analysis,
-                                                          double bw, String level) {
-        List<DayTemplate> templates = splitFor(weeklyGoal, analysis);
+                                                          double bw, String level,
+                                                          List<SplitTemplateDay> splitTemplate) {
+        List<DayTemplate> templates = splitFor(weeklyGoal, level, splitTemplate, analysis);
         List<Map<String, Object>> days = new ArrayList<>();
 
         for (int i = 0; i < templates.size(); i++) {
@@ -483,9 +497,11 @@ public class PlanService {
     // ── AI plan call + parsing ────────────────────────────────────────
 
     private String callOpenAiPlan(User user, int weeklyGoal, HistoryAnalysis analysis,
-                                   Map<String, Exercise> exMap) {
+                                   Map<String, Exercise> exMap,
+                                   List<SplitTemplateDay> splitTemplate) {
         String historyBlock = buildHistoryBlock(analysis, exMap);
         String adjustmentLines = buildAdjustmentLines(analysis, exMap);
+        String splitBlock = buildSplitBlock(splitTemplate);
 
         // Build feedback block from last 3 session ratings
         List<SessionFeedback> recentFeedback = feedbackRepo
@@ -537,6 +553,7 @@ When you change a weight from last week, explain why in that exercise's whyThisE
 
         String userPrompt = AiPrompts.PLAN_GENERATION_USER
                 .replace("{weeklyGoal}",      String.valueOf(weeklyGoal))
+                .replace("{splitStructure}",  splitBlock)
                 .replace("{name}",            PromptSanitiser.sanitise(user.getDisplayName() != null ? user.getDisplayName() : "Athlete"))
                 .replace("{gender}",          user.getGender() != null ? user.getGender() : "Not specified")
                 .replace("{weightKg}",        user.getWeightKg() != null ? user.getWeightKg().toString() : "70")
@@ -812,6 +829,30 @@ When you change a weight from last week, explain why in that exercise's whyThisE
         return lines.isEmpty() ? "No specific adjustments — maintain current approach." : String.join("\n", lines);
     }
 
+    private String buildSplitBlock(List<SplitTemplateDay> template) {
+        if (template == null || template.isEmpty()) {
+            return "Use Push/Pull/Legs split appropriate for the user's level and days.";
+        }
+        StringBuilder sb = new StringBuilder();
+        for (SplitTemplateDay day : template) {
+            if ("rest".equalsIgnoreCase(day.getDayType())) {
+                sb.append("Day ").append(day.getDayNumber())
+                  .append(": Active Rest — light walk only, no weight training\n");
+                continue;
+            }
+            sb.append("Day ").append(day.getDayNumber())
+              .append(": ").append(day.getDayLabel())
+              .append(" — ").append(String.join(", ", day.getMuscleGroups()));
+            if (day.isIncludesCore()) sb.append(" + Core finisher");
+            if (day.getCardioType() != null) {
+                sb.append(" | ").append(day.getCardioType().replace("_", " "))
+                  .append(" ").append(day.getCardioDurationMin()).append(" min after");
+            }
+            sb.append("\n");
+        }
+        return sb.toString().trim();
+    }
+
     private String formatHealthConditions(String[] conditions) {
         if (conditions == null || conditions.length == 0) return "None";
         return String.join(", ", conditions);
@@ -967,17 +1008,27 @@ When you change a weight from last week, explain why in that exercise's whyThisE
 
     // ── Split templates ───────────────────────────────────────────────
 
-    private List<DayTemplate> splitFor(int weeklyGoal, HistoryAnalysis analysis) {
-        // If push/pull imbalanced, bias pull for 4-day split
+    private List<DayTemplate> splitFor(int weeklyGoal, String level,
+                                        List<SplitTemplateDay> splitTemplate,
+                                        HistoryAnalysis analysis) {
         if (analysis.pushPullImbalanced() && weeklyGoal == 4) {
             return List.of(PUSH_A, PULL, LEGS, PULL);
         }
+        if (!splitTemplate.isEmpty()) {
+            return splitTemplate.stream()
+                    .filter(td -> !"rest".equalsIgnoreCase(td.getDayType()))
+                    .map(td -> DAY_TYPE_TO_TEMPLATE.getOrDefault(td.getDayType(), FULL_BODY))
+                    .collect(Collectors.toList());
+        }
+        // Hardcoded fallback — should never be hit if DB is seeded
         return switch (weeklyGoal) {
+            case 1  -> List.of(FULL_BODY);
             case 2  -> List.of(FULL_BODY, FULL_BODY);
-            case 3  -> List.of(FULL_BODY, FULL_BODY, FULL_BODY);
+            case 3  -> List.of(PUSH_A, PULL, LEGS);
             case 5  -> List.of(PUSH_A, PULL, LEGS, PUSH_B, PULL);
             case 6  -> List.of(PUSH_A, PULL, LEGS, PUSH_B, PULL, FULL_BODY);
-            default -> List.of(PUSH_A, PULL, LEGS, PUSH_B); // 4 days
+            case 7  -> List.of(PUSH_A, PULL, LEGS, PUSH_B, PULL, LEGS, FULL_BODY);
+            default -> List.of(PUSH_A, PULL, LEGS, PUSH_B);
         };
     }
 
@@ -1050,5 +1101,22 @@ When you change a weight from last week, explain why in that exercise's whyThisE
                     new ExerciseDef("plank",            "bodyweight", 3, 30, 45, "Core stability finisher. Integrates everything trained above.")
             ),
             "Full body sessions are comprehensive. If pressed for time, prioritise the first 4 exercises."
+    );
+
+    private static final Map<String, DayTemplate> DAY_TYPE_TO_TEMPLATE = Map.ofEntries(
+            Map.entry("push_a",    PUSH_A),
+            Map.entry("push_b",    PUSH_B),
+            Map.entry("pull",      PULL),
+            Map.entry("pull_a",    PULL),
+            Map.entry("pull_b",    PULL),
+            Map.entry("legs",      LEGS),
+            Map.entry("legs_a",    LEGS),
+            Map.entry("legs_b",    LEGS),
+            Map.entry("full_body", FULL_BODY),
+            Map.entry("upper_a",   PUSH_A),
+            Map.entry("upper_b",   PULL),
+            Map.entry("lower",     LEGS),
+            Map.entry("lower_a",   LEGS),
+            Map.entry("lower_b",   LEGS)
     );
 }
