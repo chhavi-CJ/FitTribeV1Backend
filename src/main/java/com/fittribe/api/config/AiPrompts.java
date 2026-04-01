@@ -258,26 +258,84 @@ public final class AiPrompts {
             "- Order: compound movements first, isolation last\n" +
             "- If includesCore is TRUE: 5th exercise MUST be a core exercise\n" +
             "- If includesCore is FALSE: do NOT include any core exercises\n" +
-            "- Do NOT repeat any exercise listed in recentExercises block\n" +
-            "- Bodyweight exercises: suggestedKg must be null\n" +
-            "- Round weights: barbell nearest 2.5kg, " +
-            "dumbbell nearest 2kg, machine nearest 5kg\n\n" +
+            "- Do NOT repeat any exercise listed in recentExercises block\n\n" +
 
-            "BEGINNER WEEK 1-2 RULES (apply if weekNumber <= 2):\n" +
-            "- Use conservative weights — 60-70% of normal formula\n" +
-            "- coachTip MUST mention form over weight\n" +
-            "- No dips, no pull-ups, no deadlifts\n" +
-            "- Prefer machine and dumbbell over barbell\n" +
-            "- Beginner female: dumbbell 2-4kg, machine 10-15kg\n" +
-            "- Beginner male: dumbbell 4-8kg, machine 15-25kg\n\n" +
+            "WEIGHT SUGGESTION RULES — FOLLOW EXACTLY:\n" +
+            "Philosophy: Always suggest conservative weights. " +
+            "Users can increase or decrease via the app. " +
+            "It is better to start light than cause injury.\n\n" +
 
-            "WEIGHT PROGRESSION RULES (apply if weekNumber > 2):\n" +
-            "- Base weight on last logged weight per exercise\n" +
-            "- TOO_EASY rating: increase by one increment\n" +
-            "- GOOD rating (3 consecutive): increase by one increment\n" +
-            "- HARD rating: keep same weight\n" +
-            "- KILLED_ME rating: decrease by one increment\n" +
-            "- Never suggest below starting weight for this level\n\n" +
+            "LATERAL RAISES — special rule for ALL levels and genders:\n" +
+            "suggestedKg MUST NOT exceed 5kg. " +
+            "This applies to ALL fitness levels without exception.\n\n" +
+
+            "BEGINNER female:\n" +
+            "  Dumbbell exercises: 2–4kg\n" +
+            "  Cable machine: 2–5kg\n" +
+            "  Machine (plates): 5–10kg\n" +
+            "  Barbell/Smith machine: 5–10kg\n" +
+            "  Bodyweight exercises: suggestedKg must be null\n\n" +
+
+            "BEGINNER male:\n" +
+            "  Dumbbell exercises: 4–6kg\n" +
+            "  Cable machine: 5–8kg\n" +
+            "  Machine (plates): 10–20kg\n" +
+            "  Barbell/Smith machine: 10–20kg\n" +
+            "  Bodyweight exercises: suggestedKg must be null\n\n" +
+
+            "INTERMEDIATE female:\n" +
+            "  Dumbbell exercises: 6–10kg\n" +
+            "  Cable machine: 5–10kg\n" +
+            "  Machine (plates): 15–30kg\n" +
+            "  Barbell/Smith machine: 20–40kg\n" +
+            "  Lateral raises: max 5kg\n\n" +
+
+            "INTERMEDIATE male:\n" +
+            "  Dumbbell exercises: 10–16kg\n" +
+            "  Cable machine: 10–20kg\n" +
+            "  Machine (plates): 25–40kg\n" +
+            "  Barbell/Smith machine: 40–70kg\n" +
+            "  Lateral raises: max 5kg\n\n" +
+
+            "ADVANCED female:\n" +
+            "  Dumbbell exercises: 10–16kg\n" +
+            "  Cable machine: 10–20kg\n" +
+            "  Machine (plates): 25–50kg\n" +
+            "  Barbell/Smith machine: 30–60kg\n" +
+            "  Lateral raises: max 5kg\n\n" +
+
+            "ADVANCED male:\n" +
+            "  Dumbbell exercises: 16–24kg\n" +
+            "  Cable machine: 20–35kg\n" +
+            "  Machine (plates): 40–70kg\n" +
+            "  Barbell/Smith machine: 60–100kg\n" +
+            "  Lateral raises: max 5kg\n\n" +
+
+            "ALWAYS add to coachTip for week 1-2 beginners:\n" +
+            "'If this feels too heavy or too light, " +
+            "adjust the weight in the app — " +
+            "these are starting suggestions only.'\n\n" +
+
+            "HYPERTENSION — add to EVERY exercise coachTip:\n" +
+            "'Exhale on exertion, never hold your breath.'\n\n" +
+
+            "GAIN_WEIGHT goal — sessionNote MUST mention:\n" +
+            "'Focus on progressive overload and " +
+            "eating in a calorie surplus to support muscle growth.'\n\n" +
+
+            "FAT_LOSS goal — sessionNote MUST mention:\n" +
+            "'Keep rest periods short to maintain elevated " +
+            "heart rate for maximum calorie burn.'\n\n" +
+
+            "BUILD_MUSCLE goal — sessionNote MUST mention:\n" +
+            "'Progressive overload is key — " +
+            "aim to beat last session by at least 1 rep or 2.5kg.'\n\n" +
+
+            "Round all weights to nearest real gym increment:\n" +
+            "- Barbell: nearest 2.5kg (e.g. 20, 22.5, 25)\n" +
+            "- Dumbbell: nearest 2kg (e.g. 4, 6, 8)\n" +
+            "- Machine: nearest 5kg (e.g. 10, 15, 20)\n" +
+            "- Cable: nearest 2.5kg (e.g. 2.5, 5, 7.5)\n" +
 
             "HEALTH CONDITION HARD RULES — NON NEGOTIABLE:\n" +
             "PREGNANCY:\n" +

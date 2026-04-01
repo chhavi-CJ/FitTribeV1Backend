@@ -633,7 +633,7 @@ public class WeeklyReportService {
                 .replace("{recoveryScore}", String.valueOf(recoveryScore));
 
         Map<String, Object> body = new LinkedHashMap<>();
-        body.put("model", "gpt-4o-mini");
+        body.put("model", "gpt-4o");
         body.put("max_tokens", 160);
         body.put("messages", List.of(
                 Map.of("role", "system", "content", AiPrompts.WEEKLY_SUMMARY_SYSTEM),

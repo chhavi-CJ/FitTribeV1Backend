@@ -852,7 +852,7 @@ When you change a weight from last week, explain why in that exercise's whyThisE
                 .replace("{feedbackBlock}",   feedbackBlock);
 
         Map<String, Object> body = new LinkedHashMap<>();
-        body.put("model", "gpt-4o-mini");
+        body.put("model", "gpt-4o");
         body.put("max_tokens", 6000);
         body.put("temperature", 0.3);
         body.put("messages", List.of(
@@ -1238,8 +1238,8 @@ When you change a weight from last week, explain why in that exercise's whyThisE
     private String callDailyOpenAi(String userPrompt) {
         try {
             Map<String, Object> body = new LinkedHashMap<>();
-            body.put("model", "gpt-4o-mini");
-            body.put("max_tokens", 2000);
+            body.put("model", "gpt-4o");
+            body.put("max_tokens", 3000);
             body.put("temperature", 0.3);
             body.put("messages", List.of(
                     Map.of("role", "system", "content", AiPrompts.DAILY_EXERCISE_SYSTEM),

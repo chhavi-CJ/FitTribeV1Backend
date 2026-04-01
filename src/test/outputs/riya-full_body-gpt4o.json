@@ -1,0 +1,55 @@
+{
+  "exercises" : [ {
+    "exerciseId" : "smith-machine-bench",
+    "exerciseName" : "Smith Machine Bench Press",
+    "sets" : 3,
+    "reps" : 10,
+    "restSeconds" : 90,
+    "suggestedKg" : 7.5,
+    "whyThisExercise" : "This exercise targets the chest and is great for beginners to learn proper form with controlled weight.",
+    "coachTip" : "If this feels too heavy or too light, adjust the weight in the app — these are starting suggestions only."
+  }, {
+    "exerciseId" : "lat-pulldown",
+    "exerciseName" : "Lat Pulldown",
+    "sets" : 3,
+    "reps" : 12,
+    "restSeconds" : 90,
+    "suggestedKg" : 5.0,
+    "whyThisExercise" : "Lat pulldowns effectively target the back muscles, crucial for a balanced full-body workout.",
+    "coachTip" : "If this feels too heavy or too light, adjust the weight in the app — these are starting suggestions only."
+  }, {
+    "exerciseId" : "db-shoulder-press",
+    "exerciseName" : "Dumbbell Shoulder Press",
+    "sets" : 3,
+    "reps" : 10,
+    "restSeconds" : 90,
+    "suggestedKg" : 4.0,
+    "whyThisExercise" : "This exercise strengthens the shoulders and helps improve upper body stability.",
+    "coachTip" : "If this feels too heavy or too light, adjust the weight in the app — these are starting suggestions only."
+  }, {
+    "exerciseId" : "goblet-squat",
+    "exerciseName" : "Goblet Squat",
+    "sets" : 3,
+    "reps" : 12,
+    "restSeconds" : 90,
+    "suggestedKg" : 4.0,
+    "whyThisExercise" : "Goblet squats are ideal for beginners to safely develop leg strength and improve squat form.",
+    "coachTip" : "If this feels too heavy or too light, adjust the weight in the app — these are starting suggestions only."
+  }, {
+    "exerciseId" : "plank",
+    "exerciseName" : "Plank",
+    "sets" : 3,
+    "reps" : 30,
+    "restSeconds" : 60,
+    "suggestedKg" : null,
+    "whyThisExercise" : "Planks are excellent for core stability and strengthening the abdominal muscles.",
+    "coachTip" : "If this feels too heavy or too light, adjust the weight in the app — these are starting suggestions only."
+  } ],
+  "sessionNote" : "All muscle groups are fully recovered, allowing for an effective full-body workout. Keep rest periods short to maintain elevated heart rate for maximum calorie burn.",
+  "dayCoachTip" : "Focus on maintaining proper form to maximize effectiveness and prevent injury.",
+  "cardioSuggestion" : {
+    "type" : "brisk_walk",
+    "durationMins" : 20,
+    "reason" : "Brisk walking complements your workout by aiding in fat loss and improving cardiovascular health."
+  }
+}

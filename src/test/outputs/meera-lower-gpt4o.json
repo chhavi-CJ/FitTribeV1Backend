@@ -1,0 +1,55 @@
+{
+  "exercises" : [ {
+    "exerciseId" : "leg-press",
+    "exerciseName" : "Leg Press",
+    "sets" : 3,
+    "reps" : 12,
+    "restSeconds" : 90,
+    "suggestedKg" : 5.0,
+    "whyThisExercise" : "Leg press is a safe alternative to squats for strengthening quads and glutes, especially with knee issues. It allows controlled movement and reduces knee strain.",
+    "coachTip" : "If this feels too heavy or too light, adjust the weight in the app — these are starting suggestions only."
+  }, {
+    "exerciseId" : "lying-leg-curl",
+    "exerciseName" : "Lying Leg Curl",
+    "sets" : 3,
+    "reps" : 12,
+    "restSeconds" : 90,
+    "suggestedKg" : 5.0,
+    "whyThisExercise" : "Targets the hamstrings effectively without putting stress on the knees. It's a great isolation exercise for beginners.",
+    "coachTip" : "If this feels too heavy or too light, adjust the weight in the app — these are starting suggestions only."
+  }, {
+    "exerciseId" : "glute-bridge",
+    "exerciseName" : "Glute Bridge",
+    "sets" : 3,
+    "reps" : 15,
+    "restSeconds" : 60,
+    "suggestedKg" : null,
+    "whyThisExercise" : "Strengthens the glutes and core while being gentle on the knees. It helps improve hip stability and posture.",
+    "coachTip" : "If this feels too heavy or too light, adjust the weight in the app — these are starting suggestions only."
+  }, {
+    "exerciseId" : "seated-calf-raises",
+    "exerciseName" : "Seated Calf Raises",
+    "sets" : 3,
+    "reps" : 15,
+    "restSeconds" : 60,
+    "suggestedKg" : 5.0,
+    "whyThisExercise" : "Focuses on calf development with minimal knee involvement. It's ideal for beginners to build lower leg strength.",
+    "coachTip" : "If this feels too heavy or too light, adjust the weight in the app — these are starting suggestions only."
+  }, {
+    "exerciseId" : "cable-kickback",
+    "exerciseName" : "Cable Kickback",
+    "sets" : 3,
+    "reps" : 12,
+    "restSeconds" : 60,
+    "suggestedKg" : 2.5,
+    "whyThisExercise" : "Isolates the glutes effectively, helping to build strength and tone without knee strain. It's great for enhancing hip extension.",
+    "coachTip" : "If this feels too heavy or too light, adjust the weight in the app — these are starting suggestions only."
+  } ],
+  "sessionNote" : "All muscle groups are fully recovered, making today ideal for a lower body session focused on controlled movements. Start with conservative weights to ensure proper form and prevent injury.",
+  "dayCoachTip" : "Focus on controlled movements to protect your knees and build foundational strength.",
+  "cardioSuggestion" : {
+    "type" : "brisk_walk",
+    "durationMins" : 20,
+    "reason" : "A brisk walk complements today's lower body workout by enhancing recovery and cardiovascular health."
+  }
+}

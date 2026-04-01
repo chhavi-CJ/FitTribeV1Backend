@@ -1,0 +1,55 @@
+{
+  "exercises" : [ {
+    "exerciseId" : "smith-machine-bench",
+    "exerciseName" : "Smith Machine Bench Press",
+    "sets" : 3,
+    "reps" : 10,
+    "restSeconds" : 90,
+    "suggestedKg" : 7.5,
+    "whyThisExercise" : "This exercise targets the chest with stability support, ideal for beginners focusing on form and fat loss.",
+    "coachTip" : "If this feels too heavy or too light, adjust the weight in the app — these are starting suggestions only."
+  }, {
+    "exerciseId" : "db-shoulder-press",
+    "exerciseName" : "Dumbbell Shoulder Press",
+    "sets" : 3,
+    "reps" : 12,
+    "restSeconds" : 60,
+    "suggestedKg" : 4.0,
+    "whyThisExercise" : "A fundamental shoulder exercise to build strength and tone, supporting overall upper body fat loss.",
+    "coachTip" : "Exhale on exertion, never hold your breath."
+  }, {
+    "exerciseId" : "cable-flyes",
+    "exerciseName" : "Cable Flyes",
+    "sets" : 3,
+    "reps" : 12,
+    "restSeconds" : 60,
+    "suggestedKg" : 2.5,
+    "whyThisExercise" : "Cable flyes effectively isolate the chest muscles, enhancing definition and supporting fat loss.",
+    "coachTip" : "Exhale on exertion, never hold your breath."
+  }, {
+    "exerciseId" : "tricep-pushdowns",
+    "exerciseName" : "Tricep Pushdowns",
+    "sets" : 3,
+    "reps" : 15,
+    "restSeconds" : 60,
+    "suggestedKg" : 2.5,
+    "whyThisExercise" : "This exercise isolates the triceps, aiding in upper arm toning and supporting overall fat loss.",
+    "coachTip" : "Exhale on exertion, never hold your breath."
+  }, {
+    "exerciseId" : "lateral-raises",
+    "exerciseName" : "Lateral Raises",
+    "sets" : 3,
+    "reps" : 15,
+    "restSeconds" : 60,
+    "suggestedKg" : 2.0,
+    "whyThisExercise" : "Lateral raises target the shoulder's lateral head, enhancing shoulder definition and supporting fat loss.",
+    "coachTip" : "Exhale on exertion, never hold your breath."
+  } ],
+  "sessionNote" : "As this is your first session, all muscle groups are fully recovered, allowing you to focus on form and technique. Keep rest periods short to maintain elevated heart rate for maximum calorie burn.",
+  "dayCoachTip" : "Focus on controlled movements to ensure proper form and maximize fat loss.",
+  "cardioSuggestion" : {
+    "type" : "brisk_walk",
+    "durationMins" : 20,
+    "reason" : "A brisk walk helps maintain an elevated heart rate to support your fat loss goal."
+  }
+}
