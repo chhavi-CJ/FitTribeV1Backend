@@ -49,7 +49,7 @@ firebase:
 # ── OpenAI (Phase 2 – AI Coach) ───────────────────────────────────────
 openai:
   api-key: ${OPENAI_API_KEY:}
-  model: gpt-4o-mini
+  model: gpt-4o
   max-tokens: 150
   insight-min-sets: 8
 

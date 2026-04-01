@@ -361,7 +361,7 @@ public class AiService {
 
     private String callOpenAi(String userPrompt) {
         Map<String, Object> body = new LinkedHashMap<>();
-        body.put("model", "gpt-4o-mini");
+        body.put("model", "gpt-4o");
         body.put("max_tokens", 150);
         body.put("messages", List.of(
                 Map.of("role", "system", "content", AiPrompts.DAILY_INSIGHT_SYSTEM),

@@ -219,7 +219,7 @@ DTO returned to frontend
 5.2  application.yml Keys to Add
 openai:
   api-key: ${OPENAI_API_KEY}     # env variable — never hardcode
-  model: gpt-4o-mini             # cheapest, sufficient
+  model: gpt-4o             # cheapest, sufficient
   max-tokens: 150
   insight-min-sets: 8            # skip very short sessions
 

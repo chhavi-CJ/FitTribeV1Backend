@@ -1,0 +1,55 @@
+{
+  "exercises" : [ {
+    "exerciseId" : "smith-machine-bench",
+    "exerciseName" : "Smith Machine Bench Press",
+    "sets" : 4,
+    "reps" : 10,
+    "restSeconds" : 90,
+    "suggestedKg" : 20.0,
+    "whyThisExercise" : "This exercise targets the chest with controlled movement, suitable for those with back pain. It supports muscle building while ensuring safety.",
+    "coachTip" : "Focus on controlled movement and maintain a steady breathing pattern."
+  }, {
+    "exerciseId" : "incline-db-press",
+    "exerciseName" : "Incline Dumbbell Press",
+    "sets" : 3,
+    "reps" : 12,
+    "restSeconds" : 75,
+    "suggestedKg" : 8.0,
+    "whyThisExercise" : "Targets the upper chest and shoulders, aiding muscle development. Incline position reduces strain on the back.",
+    "coachTip" : "Keep your core engaged and exhale as you press up."
+  }, {
+    "exerciseId" : "cable-flyes",
+    "exerciseName" : "Cable Flyes",
+    "sets" : 3,
+    "reps" : 15,
+    "restSeconds" : 60,
+    "suggestedKg" : 5.0,
+    "whyThisExercise" : "Isolates the chest muscles, enhancing definition and growth. Suitable for back pain as it avoids heavy lifting.",
+    "coachTip" : "Maintain a slight bend in your elbows and focus on squeezing your chest."
+  }, {
+    "exerciseId" : "lateral-raises",
+    "exerciseName" : "Lateral Raises",
+    "sets" : 3,
+    "reps" : 12,
+    "restSeconds" : 60,
+    "suggestedKg" : 4.0,
+    "whyThisExercise" : "Strengthens the shoulder muscles, crucial for balanced upper body development. Light weights prevent strain on the back.",
+    "coachTip" : "Lift with control and avoid swinging the weights."
+  }, {
+    "exerciseId" : "tricep-pushdowns",
+    "exerciseName" : "Tricep Pushdowns",
+    "sets" : 3,
+    "reps" : 15,
+    "restSeconds" : 60,
+    "suggestedKg" : 7.5,
+    "whyThisExercise" : "Targets the triceps effectively, supporting arm muscle growth. Cable setup allows for controlled movement, reducing back strain.",
+    "coachTip" : "Keep your elbows close to your body and exhale as you push down."
+  } ],
+  "sessionNote" : "All muscle groups are fully recovered, making this an ideal session to focus on progressive overload. Aim to increase either weight or reps compared to future sessions. Progressive overload is key — aim to beat last session by at least 1 rep or 2.5kg.",
+  "dayCoachTip" : "Focus on form and controlled movements to protect your back.",
+  "cardioSuggestion" : {
+    "type" : "brisk_walk",
+    "durationMins" : 20,
+    "reason" : "A brisk walk aids recovery and complements muscle-building efforts."
+  }
+}
