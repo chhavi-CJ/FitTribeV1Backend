@@ -330,6 +330,14 @@ public final class AiPrompts {
             "hanging-leg-raises, ab-wheel-rollout, dragon-flag\n" +
             "FULL BODY: kettlebell-swing, burpees, box-jumps, power-clean\n\n" +
 
+            "LENGTH RULES — STRICTLY ENFORCED:\n" +
+            "- sessionNote: MAX 3 sentences. MUST reference recovery state " +
+            "and/or feedback rating. Never generic.\n" +
+            "- dayCoachTip: EXACTLY 1 sentence. Actionable. " +
+            "Specific to today's session type.\n" +
+            "- whyThisExercise: MAX 2 sentences per exercise.\n" +
+            "- coachTip per exercise: EXACTLY 1 sentence.\n" +
+            "- cardioSuggestion reason: EXACTLY 1 sentence.\n\n" +
             "RETURN this exact JSON structure:\n" +
             "{\n" +
             "  \"exercises\": [\n" +
@@ -340,11 +348,12 @@ public final class AiPrompts {
             "      \"reps\": 10,\n" +
             "      \"restSeconds\": 90,\n" +
             "      \"suggestedKg\": 60.0,\n" +
-            "      \"whyThisExercise\": \"2 sentences specific to user goal and level\",\n" +
-            "      \"coachTip\": \"1 actionable sentence\"\n" +
+            "      \"whyThisExercise\": \"Max 2 sentences specific to user goal, level and recovery\",\n" +
+            "      \"coachTip\": \"1 actionable sentence only\"\n" +
             "    }\n" +
             "  ],\n" +
-            "  \"sessionNote\": \"1-2 sentences explaining why today's plan is what it is\",\n" +
+            "  \"sessionNote\": \"Max 3 sentences. Why today specifically — reference recovery state or feedback rating. Never generic.\",\n" +
+            "  \"dayCoachTip\": \"1 sentence only. Actionable tip for today's session type.\",\n" +
             "  \"cardioSuggestion\": {\n" +
             "    \"type\": \"brisk_walk\",\n" +
             "    \"durationMins\": 20,\n" +

@@ -329,7 +329,6 @@ public class PlanService {
 
         // Gate 2 — IN_PROGRESS session exists today
         Instant startOfDay = today.atStartOfDay(ZoneOffset.UTC).toInstant();
-        Instant endOfDay   = today.plusDays(1).atStartOfDay(ZoneOffset.UTC).toInstant();
         Optional<WorkoutSession> inProgress = sessionRepo
                 .findFirstByUserIdAndStatusAndFinishedAtAfter(userId, "IN_PROGRESS", startOfDay);
         if (inProgress.isPresent()) {
@@ -346,29 +345,7 @@ public class PlanService {
             }
         }
 
-        // Gate 3 — already generated today
-        Optional<DailyPlanGenerated> existing = dailyPlanRepo
-                .findByIdUserIdAndIdDate(userId, today);
-        if (existing.isPresent()) {
-            try {
-                List<Map<String, Object>> exercises = mapper.readValue(
-                        existing.get().getExercises(), new TypeReference<>() {});
-                Map<String, Object> response = new LinkedHashMap<>();
-                response.put("status",           "GENERATED");
-                response.put("dayType",           existing.get().getDayType());
-                response.put("exercises",         exercises);
-                response.put("sessionNote",       existing.get().getSessionNote());
-                response.put("cardioSuggestion",  existing.get().getCardioSuggestion() != null
-                        ? mapper.readValue(existing.get().getCardioSuggestion(),
-                                new TypeReference<Map<String, Object>>() {})
-                        : null);
-                return response;
-            } catch (Exception e) {
-                log.error("Failed to parse existing daily plan: {}", e.getMessage());
-            }
-        }
-
-        // Gate 4 — get today's template day
+        // Gate 3 — get today's template day (needed for both cached and fresh responses)
         LocalDate monday = today.with(TemporalAdjusters.previousOrSame(DayOfWeek.MONDAY));
         UserPlan weekPlan = planRepo.findByUserIdAndWeekStartDate(userId, monday)
                 .orElseGet(() -> generatePlan(userId));
@@ -395,16 +372,48 @@ public class PlanService {
                         .findFirst()
                         .orElseThrow(() -> new RuntimeException("No training day found")));
 
-        String dayType    = (String) templateDay.get("dayType");
-        String dayLabel   = (String) templateDay.get("dayLabel");
-        String level      = user.getFitnessLevel() != null
-                ? user.getFitnessLevel() : "INTERMEDIATE";
-        double bw         = user.getWeightKg() != null
-                ? user.getWeightKg().doubleValue() : 70.0;
-        int weekNumber    = weekPlan.getWeekNumber();
+        String dayType       = (String) templateDay.get("dayType");
+        String dayLabel      = (String) templateDay.get("dayLabel");
+        String level         = user.getFitnessLevel() != null ? user.getFitnessLevel() : "INTERMEDIATE";
+        double bw            = user.getWeightKg() != null ? user.getWeightKg().doubleValue() : 70.0;
+        int weekNumber       = weekPlan.getWeekNumber();
+
+        @SuppressWarnings("unchecked")
+        List<String> muscleGroups = (List<String>) templateDay.get("muscleGroups");
+        boolean includesCore  = Boolean.TRUE.equals(templateDay.get("includesCore"));
+        String guidanceText   = (String) templateDay.get("guidanceText");
+        Integer estimatedMins = (Integer) templateDay.get("estimatedMins");
+
+        // Gate 4 — already generated today (return cached with full fields)
+        Optional<DailyPlanGenerated> existing = dailyPlanRepo
+                .findByIdUserIdAndIdDate(userId, today);
+        if (existing.isPresent()) {
+            try {
+                List<Map<String, Object>> exercises = mapper.readValue(
+                        existing.get().getExercises(), new TypeReference<>() {});
+                Map<String, Object> response = new LinkedHashMap<>();
+                response.put("status",           "GENERATED");
+                response.put("weekNumber",        weekPlan.getWeekNumber());
+                response.put("dayType",           existing.get().getDayType());
+                response.put("dayLabel",          dayLabel);
+                response.put("muscleGroups",      muscleGroups);
+                response.put("estimatedMins",     estimatedMins);
+                response.put("fitnessLevel",      user.getFitnessLevel());
+                response.put("exercises",         exercises);
+                response.put("sessionNote",       existing.get().getSessionNote());
+                response.put("dayCoachTip",       existing.get().getDayCoachTip());
+                response.put("cardioSuggestion",  existing.get().getCardioSuggestion() != null
+                        ? mapper.readValue(existing.get().getCardioSuggestion(),
+                                new TypeReference<Map<String, Object>>() {})
+                        : null);
+                return response;
+            } catch (Exception e) {
+                log.error("Failed to parse existing daily plan: {}", e.getMessage());
+            }
+        }
 
         // Build context for AI
-        Instant since4Days = today.minusDays(4).atStartOfDay(ZoneOffset.UTC).toInstant();
+        Instant since4Days  = today.minusDays(4).atStartOfDay(ZoneOffset.UTC).toInstant();
         Instant since14Days = today.minusDays(14).atStartOfDay(ZoneOffset.UTC).toInstant();
 
         List<WorkoutSession> recentSessions = sessionRepo
@@ -423,43 +432,38 @@ public class PlanService {
                 recentSessions, recentLogs, List.of(), bw, level);
 
         // Build daily context blocks
-        String recoveryBlock  = buildRecoveryBlock(recentSessions, recentLogs);
-        String historyBlock   = buildDailyHistoryBlock(analysis, exMap);
-        String feedbackBlock  = buildDailyFeedbackBlock(recentFeedback);
-        String recentExBlock  = buildRecentExercisesBlock(recentSessions, recentLogs, since4Days);
-
-        @SuppressWarnings("unchecked")
-        List<String> muscleGroups = (List<String>) templateDay.get("muscleGroups");
-        boolean includesCore = Boolean.TRUE.equals(templateDay.get("includesCore"));
-        String guidanceText  = (String) templateDay.get("guidanceText");
-        Integer estimatedMins = (Integer) templateDay.get("estimatedMins");
+        String recoveryBlock = buildRecoveryBlock(recentSessions, recentLogs);
+        String historyBlock  = buildDailyHistoryBlock(analysis, exMap);
+        String feedbackBlock = buildDailyFeedbackBlock(recentFeedback);
+        String recentExBlock = buildRecentExercisesBlock(recentSessions, recentLogs, since4Days);
 
         String aiContextBlock = (user.getAiContext() != null && !user.getAiContext().isBlank())
                 ? "PERSONAL CONTEXT: " + user.getAiContext() : "";
 
         String userPrompt = AiPrompts.DAILY_EXERCISE_USER
-                .replace("{name}",           PromptSanitiser.sanitise(
+                .replace("{name}",             PromptSanitiser.sanitise(
                         user.getDisplayName() != null ? user.getDisplayName() : "Athlete"))
-                .replace("{gender}",         user.getGender() != null ? user.getGender() : "Not specified")
-                .replace("{weightKg}",       user.getWeightKg() != null ? user.getWeightKg().toString() : "70")
-                .replace("{heightCm}",       user.getHeightCm() != null ? user.getHeightCm().toString() : "Not specified")
-                .replace("{fitnessLevel}",   level)
-                .replace("{goal}",           user.getGoal() != null ? user.getGoal() : "BUILD_MUSCLE")
-                .replace("{weekNumber}",     String.valueOf(weekNumber))
+                .replace("{gender}",           user.getGender() != null ? user.getGender() : "Not specified")
+                .replace("{weightKg}",         user.getWeightKg() != null ? user.getWeightKg().toString() : "70")
+                .replace("{heightCm}",         user.getHeightCm() != null ? user.getHeightCm().toString() : "Not specified")
+                .replace("{fitnessLevel}",     level)
+                .replace("{goal}",             user.getGoal() != null ? user.getGoal() : "BUILD_MUSCLE")
+                .replace("{weekNumber}",       String.valueOf(weekNumber))
                 .replace("{healthConditions}", formatHealthConditions(user.getHealthConditions()))
-                .replace("{aiContext}",      aiContextBlock)
-                .replace("{dayLabel}",       dayLabel)
-                .replace("{muscleGroups}",   String.join(", ", muscleGroups))
-                .replace("{includesCore}",   String.valueOf(includesCore))
-                .replace("{estimatedMins}",  String.valueOf(estimatedMins != null ? estimatedMins : 45))
-                .replace("{guidanceText}",   guidanceText != null ? guidanceText : "")
-                .replace("{recoveryBlock}",  recoveryBlock)
-                .replace("{historyBlock}",   historyBlock + "\n" + recentExBlock)
-                .replace("{feedbackBlock}",  feedbackBlock);
+                .replace("{aiContext}",        aiContextBlock)
+                .replace("{dayLabel}",         dayLabel)
+                .replace("{muscleGroups}",     String.join(", ", muscleGroups))
+                .replace("{includesCore}",     String.valueOf(includesCore))
+                .replace("{estimatedMins}",    String.valueOf(estimatedMins != null ? estimatedMins : 45))
+                .replace("{guidanceText}",     guidanceText != null ? guidanceText : "")
+                .replace("{recoveryBlock}",    recoveryBlock)
+                .replace("{historyBlock}",     historyBlock + "\n" + recentExBlock)
+                .replace("{feedbackBlock}",    feedbackBlock);
 
         // Call AI or fallback
         String exercises;
-        String sessionNote    = null;
+        String sessionNote      = null;
+        String dayCoachTip      = null;
         String cardioSuggestion = null;
 
         if (openAiKey != null && !openAiKey.isBlank()) {
@@ -471,9 +475,10 @@ public class PlanService {
                         json = json.replaceAll("^```[a-z]*\\n?", "").replaceAll("```$", "").trim();
                     }
                     Map<String, Object> parsed = mapper.readValue(json, new TypeReference<>() {});
-                    exercises       = mapper.writeValueAsString(parsed.get("exercises"));
-                    sessionNote     = (String) parsed.get("sessionNote");
-                    Object cardio   = parsed.get("cardioSuggestion");
+                    exercises        = mapper.writeValueAsString(parsed.get("exercises"));
+                    sessionNote      = (String) parsed.get("sessionNote");
+                    dayCoachTip      = (String) parsed.get("dayCoachTip");
+                    Object cardio    = parsed.get("cardioSuggestion");
                     cardioSuggestion = cardio != null ? mapper.writeValueAsString(cardio) : null;
                 } catch (Exception e) {
                     log.warn("Failed to parse daily AI response: {}", e.getMessage());
@@ -492,6 +497,7 @@ public class PlanService {
         plan.setDayType(dayType);
         plan.setExercises(exercises);
         plan.setSessionNote(sessionNote);
+        plan.setDayCoachTip(dayCoachTip);
         plan.setCardioSuggestion(cardioSuggestion);
         dailyPlanRepo.save(plan);
 
@@ -514,14 +520,16 @@ public class PlanService {
 
             Map<String, Object> response = new LinkedHashMap<>();
             response.put("status",          "GENERATED");
+            response.put("weekNumber",       weekNumber);
             response.put("dayType",          dayType);
             response.put("dayLabel",         dayLabel);
             response.put("muscleGroups",     muscleGroups);
             response.put("includesCore",     includesCore);
-            response.put("guidanceText",     guidanceText);
             response.put("estimatedMins",    estimatedMins);
+            response.put("fitnessLevel",     user.getFitnessLevel());
             response.put("exercises",        enriched);
             response.put("sessionNote",      sessionNote);
+            response.put("dayCoachTip",      dayCoachTip);
             response.put("cardioSuggestion", cardioSuggestion != null
                     ? mapper.readValue(cardioSuggestion, new TypeReference<Map<String, Object>>() {})
                     : null);
