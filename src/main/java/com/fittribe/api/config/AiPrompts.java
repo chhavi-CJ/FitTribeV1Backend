@@ -220,4 +220,136 @@ public final class AiPrompts {
             "  \"weekRationale\": \"2-3 sentence explanation of the overall week structure\"\n" +
             "}\n\n" +
             "Return ONLY valid JSON. No markdown. No explanation outside the JSON.";
+
+    // ── Daily Exercise Generation ───────────────────────────────────────
+
+    public static final String DAILY_EXERCISE_SYSTEM =
+            "You are an expert fitness coach inside FitTribe, an Indian gym app. " +
+            "Generate today's personalised workout based on the user's profile, " +
+            "recovery state, and training history. " +
+            "Return ONLY valid JSON. No markdown. No explanation outside JSON.";
+
+    public static final String DAILY_EXERCISE_USER =
+            "Generate today's workout for this user.\n\n" +
+
+            "USER PROFILE:\n" +
+            "Name: {name} | Gender: {gender} | Weight: {weightKg}kg | " +
+            "Height: {heightCm}cm | Level: {fitnessLevel}\n" +
+            "Goal: {goal} | Week number: {weekNumber}\n" +
+            "Health conditions: {healthConditions}\n" +
+            "{aiContext}\n\n" +
+
+            "TODAY'S SESSION:\n" +
+            "Day: {dayLabel}\n" +
+            "Target muscles: {muscleGroups}\n" +
+            "Includes core finisher: {includesCore}\n" +
+            "Time budget: {estimatedMins} minutes\n" +
+            "Guidance: {guidanceText}\n\n" +
+
+            "{recoveryBlock}\n\n" +
+
+            "{historyBlock}\n\n" +
+
+            "{feedbackBlock}\n\n" +
+
+            "EXERCISE RULES:\n" +
+            "- Generate EXACTLY 5 exercises\n" +
+            "- Use ONLY exercise IDs from the catalog below\n" +
+            "- Order: compound movements first, isolation last\n" +
+            "- If includesCore is TRUE: 5th exercise MUST be a core exercise\n" +
+            "- If includesCore is FALSE: do NOT include any core exercises\n" +
+            "- Do NOT repeat any exercise listed in recentExercises block\n" +
+            "- Bodyweight exercises: suggestedKg must be null\n" +
+            "- Round weights: barbell nearest 2.5kg, " +
+            "dumbbell nearest 2kg, machine nearest 5kg\n\n" +
+
+            "BEGINNER WEEK 1-2 RULES (apply if weekNumber <= 2):\n" +
+            "- Use conservative weights — 60-70% of normal formula\n" +
+            "- coachTip MUST mention form over weight\n" +
+            "- No dips, no pull-ups, no deadlifts\n" +
+            "- Prefer machine and dumbbell over barbell\n" +
+            "- Beginner female: dumbbell 2-4kg, machine 10-15kg\n" +
+            "- Beginner male: dumbbell 4-8kg, machine 15-25kg\n\n" +
+
+            "WEIGHT PROGRESSION RULES (apply if weekNumber > 2):\n" +
+            "- Base weight on last logged weight per exercise\n" +
+            "- TOO_EASY rating: increase by one increment\n" +
+            "- GOOD rating (3 consecutive): increase by one increment\n" +
+            "- HARD rating: keep same weight\n" +
+            "- KILLED_ME rating: decrease by one increment\n" +
+            "- Never suggest below starting weight for this level\n\n" +
+
+            "HEALTH CONDITION HARD RULES — NON NEGOTIABLE:\n" +
+            "PREGNANCY:\n" +
+            "- BANNED: deadlift, squat, bench-press, overhead-press, " +
+            "push-press, plank, crunches, leg-raises, hanging-leg-raises\n" +
+            "- ALLOWED: seated-cable-row, lat-pulldown, lateral-raises, " +
+            "glute-bridge, seated-calf-raises, dumbbell-row, face-pulls\n" +
+            "- coachTip on every exercise MUST mention breathing and safety\n" +
+            "BACK PAIN:\n" +
+            "- BANNED: deadlift, romanian-deadlift, barbell-row, " +
+            "squat, good-mornings\n" +
+            "- REPLACE WITH: leg-press, glute-bridge, seated-cable-row, " +
+            "lat-pulldown, cable-flyes\n" +
+            "KNEE ISSUES:\n" +
+            "- BANNED: lunges, squat, box-jumps, leg-extension, " +
+            "bulgarian-split-squat, step-ups\n" +
+            "- REPLACE WITH: leg-press, lying-leg-curl, glute-bridge, " +
+            "seated-calf-raises\n" +
+            "SHOULDER INJURY:\n" +
+            "- BANNED: overhead-press, push-press, upright-rows, " +
+            "skull-crushers, arnold-press\n" +
+            "- REPLACE WITH: cable-flyes, lateral-raises, " +
+            "tricep-pushdowns, face-pulls\n" +
+            "HYPERTENSION:\n" +
+            "- BANNED: power-clean, push-press, heavy deadlift\n" +
+            "- coachTip MUST say: exhale on exertion, no breath holding\n\n" +
+
+            "EXERCISE CATALOG (use ONLY these IDs):\n" +
+            "CHEST: bench-press, incline-db-press, db-flat-press, " +
+            "smith-machine-bench, decline-bench-press, cable-flyes, " +
+            "push-ups, knee-push-ups, incline-push-ups, dips, " +
+            "cable-crossover, pec-deck\n" +
+            "SHOULDERS: shoulder-press, overhead-press, arnold-press, " +
+            "push-press, db-shoulder-press, lateral-raises, front-raises, " +
+            "cable-lateral-raise, reverse-flyes, face-pulls\n" +
+            "BACK: pull-ups, chin-ups, weighted-pull-ups, inverted-row, " +
+            "lat-pulldown, barbell-row, dumbbell-row, seated-cable-row, " +
+            "t-bar-row, deadlift, face-pulls, reverse-flyes\n" +
+            "TRICEPS: tricep-pushdowns, close-grip-bench, skull-crushers, " +
+            "tricep-overhead-extension, tricep-kickback\n" +
+            "BICEPS: bicep-curl, barbell-curl, hammer-curl, " +
+            "concentration-curl, chin-ups\n" +
+            "LEGS: squat, goblet-squat, hack-squat, leg-press, lunges, " +
+            "bulgarian-split-squat, step-ups, romanian-deadlift, " +
+            "sumo-deadlift, leg-curl, lying-leg-curl, nordic-curl, " +
+            "leg-extension, hip-thrust, glute-bridge, cable-kickback, " +
+            "standing-calf-raises, seated-calf-raises, single-leg-calf-raise\n" +
+            "CORE: plank, crunches, dead-bug, mountain-climbers, " +
+            "russian-twist, leg-raises, bicycle-crunches, " +
+            "hanging-leg-raises, ab-wheel-rollout, dragon-flag\n" +
+            "FULL BODY: kettlebell-swing, burpees, box-jumps, power-clean\n\n" +
+
+            "RETURN this exact JSON structure:\n" +
+            "{\n" +
+            "  \"exercises\": [\n" +
+            "    {\n" +
+            "      \"exerciseId\": \"bench-press\",\n" +
+            "      \"exerciseName\": \"Bench Press\",\n" +
+            "      \"sets\": 4,\n" +
+            "      \"reps\": 10,\n" +
+            "      \"restSeconds\": 90,\n" +
+            "      \"suggestedKg\": 60.0,\n" +
+            "      \"whyThisExercise\": \"2 sentences specific to user goal and level\",\n" +
+            "      \"coachTip\": \"1 actionable sentence\"\n" +
+            "    }\n" +
+            "  ],\n" +
+            "  \"sessionNote\": \"1-2 sentences explaining why today's plan is what it is\",\n" +
+            "  \"cardioSuggestion\": {\n" +
+            "    \"type\": \"brisk_walk\",\n" +
+            "    \"durationMins\": 20,\n" +
+            "    \"reason\": \"1 sentence why\"\n" +
+            "  }\n" +
+            "}\n\n" +
+            "Return ONLY valid JSON. No markdown. No explanation outside JSON.";
 }

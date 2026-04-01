@@ -7,6 +7,7 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.*;
 
+import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 
@@ -46,6 +47,33 @@ public class PlanController {
     public ResponseEntity<ApiResponse<Map<String, Object>>> week(Authentication auth) {
         UUID userId = (UUID) auth.getPrincipal();
         Map<String, Object> result = planService.getWeekPlan(userId);
+        return ResponseEntity.ok(ApiResponse.success(result));
+    }
+
+    /** POST /api/v1/plan/today/generate — generate today's AI workout */
+    @PostMapping("/today/generate")
+    public ResponseEntity<ApiResponse<Map<String, Object>>> generateToday(Authentication auth) {
+        UUID userId = (UUID) auth.getPrincipal();
+        Map<String, Object> result = planService.generateTodaysPlan(userId);
+        return ResponseEntity.ok(ApiResponse.success(result));
+    }
+
+    /** POST /api/v1/plan/today/status — set today's status */
+    @PostMapping("/today/status")
+    public ResponseEntity<ApiResponse<Map<String, Object>>> setStatus(
+            @RequestBody Map<String, String> body,
+            Authentication auth) {
+        UUID userId = (UUID) auth.getPrincipal();
+        String status = body.get("status");
+        if (status == null || !List.of("REST","TRAVELLING","BUSY","SICK").contains(status)) {
+            @SuppressWarnings("unchecked")
+            ApiResponse<Map<String, Object>> err = (ApiResponse<Map<String, Object>>)
+                    (ApiResponse<?>) ApiResponse.error(
+                            "status must be REST, TRAVELLING, BUSY or SICK",
+                            "VALIDATION_ERROR");
+            return ResponseEntity.badRequest().body(err);
+        }
+        Map<String, Object> result = planService.setTodayStatus(userId, status);
         return ResponseEntity.ok(ApiResponse.success(result));
     }
 }
