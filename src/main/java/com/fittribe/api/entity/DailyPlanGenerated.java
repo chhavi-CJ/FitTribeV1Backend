@@ -24,6 +24,9 @@ public class DailyPlanGenerated {
     @Column(name = "session_note")
     private String sessionNote;
 
+    @Column(name = "day_coach_tip")
+    private String dayCoachTip;
+
     @Column(name = "cardio_suggestion", columnDefinition = "jsonb")
     @JdbcTypeCode(SqlTypes.JSON)
     private String cardioSuggestion;
@@ -44,6 +47,9 @@ public class DailyPlanGenerated {
 
     public String getSessionNote()                   { return sessionNote; }
     public void setSessionNote(String sessionNote)   { this.sessionNote = sessionNote; }
+
+    public String getDayCoachTip()                   { return dayCoachTip; }
+    public void setDayCoachTip(String v)             { this.dayCoachTip = v; }
 
     public String getCardioSuggestion()              { return cardioSuggestion; }
     public void setCardioSuggestion(String v)        { this.cardioSuggestion = v; }
