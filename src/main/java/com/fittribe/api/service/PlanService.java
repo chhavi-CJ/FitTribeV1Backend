@@ -1166,32 +1166,39 @@ When you change a weight from last week, explain why in that exercise's whyThisE
     }
 
     private String callDailyOpenAi(String userPrompt) {
-        Map<String, Object> body = new LinkedHashMap<>();
-        body.put("model", "gpt-4o-mini");
-        body.put("max_tokens", 2000);
-        body.put("temperature", 0.3);
-        body.put("messages", List.of(
-                Map.of("role", "system", "content", AiPrompts.DAILY_EXERCISE_SYSTEM),
-                Map.of("role", "user",   "content", userPrompt)));
-
-        HttpHeaders headers = new HttpHeaders();
-        headers.setContentType(MediaType.APPLICATION_JSON);
-        headers.setBearerAuth(openAiKey);
-
         try {
+            Map<String, Object> body = new LinkedHashMap<>();
+            body.put("model", "gpt-4o-mini");
+            body.put("max_tokens", 2000);
+            body.put("temperature", 0.3);
+            body.put("messages", List.of(
+                    Map.of("role", "system", "content", AiPrompts.DAILY_EXERCISE_SYSTEM),
+                    Map.of("role", "user",   "content", userPrompt)));
+
+            String jsonBody = mapper.writeValueAsString(body);
+
+            HttpHeaders headers = new HttpHeaders();
+            headers.setContentType(MediaType.APPLICATION_JSON);
+            headers.setBearerAuth(openAiKey);
+
+            HttpEntity<String> entity = new HttpEntity<>(jsonBody, headers);
+
             @SuppressWarnings("unchecked")
             Map<String, Object> resp = restTemplate.postForObject(
                     "https://api.openai.com/v1/chat/completions",
-                    new HttpEntity<>(body, headers), Map.class);
+                    entity, Map.class);
             if (resp == null) return null;
 
             @SuppressWarnings("unchecked")
-            List<Map<String, Object>> choices = (List<Map<String, Object>>) resp.get("choices");
+            List<Map<String, Object>> choices =
+                    (List<Map<String, Object>>) resp.get("choices");
             if (choices == null || choices.isEmpty()) return null;
 
             @SuppressWarnings("unchecked")
-            Map<String, Object> msg = (Map<String, Object>) choices.get(0).get("message");
+            Map<String, Object> msg =
+                    (Map<String, Object>) choices.get(0).get("message");
             return msg != null ? (String) msg.get("content") : null;
+
         } catch (Exception e) {
             log.warn("Daily OpenAI call failed: {}", e.getMessage());
             return null;
