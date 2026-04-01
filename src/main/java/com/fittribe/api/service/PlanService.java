@@ -183,35 +183,97 @@ public class PlanService {
     }
 
     public Map<String, Object> getTodaysPlan(UUID userId) {
-        User user = userRepo.findById(userId).orElseThrow(() -> ApiException.notFound("User"));
-        LocalDate monday = LocalDate.now(ZoneOffset.UTC)
+        User user = userRepo.findById(userId)
+                .orElseThrow(() -> ApiException.notFound("User"));
+
+        LocalDate today = LocalDate.now(ZoneOffset.UTC);
+        LocalDate monday = today
                 .with(TemporalAdjusters.previousOrSame(DayOfWeek.MONDAY));
 
         UserPlan plan = planRepo.findByUserIdAndWeekStartDate(userId, monday)
                 .orElseGet(() -> generatePlan(userId));
 
         int weeklyGoal = user.getWeeklyGoal() != null ? user.getWeeklyGoal() : 4;
-
-        // Count completed sessions since Monday 00:00 UTC
         Instant weekStart = monday.atStartOfDay(ZoneOffset.UTC).toInstant();
-        Instant now       = Instant.now();
-        int completedThisWeek = sessionRepo.countByUserIdAndStatusAndFinishedAtBetween(
-                userId, "COMPLETED", weekStart, now);
+        Instant now = Instant.now();
+        int completedThisWeek = sessionRepo
+                .countByUserIdAndStatusAndFinishedAtBetween(
+                        userId, "COMPLETED", weekStart, now);
 
-        if (completedThisWeek >= weeklyGoal) {
+        // Check user day status
+        Optional<UserDayStatus> statusOpt = dayStatusRepo
+                .findByIdUserIdAndIdDate(userId, today);
+        if (statusOpt.isPresent()) {
             Map<String, Object> response = new LinkedHashMap<>();
-            response.put("planId",            plan.getPlanId());
-            response.put("weekNumber",         plan.getWeekNumber());
-            response.put("isGoalHit",          true);
-            response.put("completedThisWeek",  completedThisWeek);
-            response.put("weeklyGoal",         weeklyGoal);
-            response.put("message",            "Weekly goal hit! Rest or go for a bonus session.");
+            response.put("status",  statusOpt.get().getStatus());
+            response.put("message", statusMessage(statusOpt.get().getStatus()));
             return response;
         }
 
+        // Check for IN_PROGRESS session today
+        Instant startOfDay = today.atStartOfDay(ZoneOffset.UTC).toInstant();
+        Optional<WorkoutSession> inProgress = sessionRepo
+                .findFirstByUserIdAndStatusAndFinishedAtAfter(
+                        userId, "IN_PROGRESS", startOfDay);
+        if (inProgress.isPresent()) {
+            Map<String, Object> response = new LinkedHashMap<>();
+            response.put("status",    "IN_PROGRESS");
+            response.put("sessionId", inProgress.get().getId());
+            return response;
+        }
+
+        // Weekly goal hit check
+        if (completedThisWeek >= weeklyGoal) {
+            Map<String, Object> response = new LinkedHashMap<>();
+            response.put("status",           "GOAL_HIT");
+            response.put("isGoalHit",         true);
+            response.put("completedThisWeek", completedThisWeek);
+            response.put("weeklyGoal",        weeklyGoal);
+            response.put("message",           "Weekly goal hit! Rest or go for a bonus session.");
+            return response;
+        }
+
+        // Get today's template day — structure only, NO exercises
         int nextDayNumber = completedThisWeek + 1;
-        return dayResponse(plan, nextDayNumber, user, completedThisWeek, weeklyGoal,
-                weekStart, Instant.now());
+
+        List<Map<String, Object>> allDays;
+        try {
+            allDays = mapper.readValue(plan.getDays(), new TypeReference<>() {});
+        } catch (Exception e) {
+            throw new RuntimeException("Could not read week plan", e);
+        }
+
+        Map<String, Object> templateDay = allDays.stream()
+                .filter(d -> !"rest".equalsIgnoreCase(
+                        (String) d.get("dayType")))
+                .filter(d -> Integer.valueOf(nextDayNumber)
+                        .equals(d.get("dayNumber")))
+                .findFirst()
+                .orElse(allDays.stream()
+                        .filter(d -> !"rest".equalsIgnoreCase(
+                                (String) d.get("dayType")))
+                        .findFirst()
+                        .orElseThrow(() -> new RuntimeException(
+                                "No training day found")));
+
+        Map<String, Object> response = new LinkedHashMap<>();
+        response.put("planId",           plan.getPlanId());
+        response.put("weekNumber",        plan.getWeekNumber());
+        response.put("isGoalHit",         false);
+        response.put("completedThisWeek", completedThisWeek);
+        response.put("weeklyGoal",        weeklyGoal);
+        response.put("dayNumber",         nextDayNumber);
+        response.put("dayLabel",          templateDay.get("dayLabel"));
+        response.put("dayType",           templateDay.get("dayType"));
+        response.put("muscleGroups",      templateDay.get("muscleGroups"));
+        response.put("includesCore",      templateDay.get("includesCore"));
+        response.put("guidanceText",      templateDay.get("guidanceText"));
+        response.put("cardioType",        templateDay.get("cardioType"));
+        response.put("cardioDurationMin", templateDay.get("cardioDurationMin"));
+        response.put("estimatedMins",     templateDay.get("estimatedMins"));
+        response.put("fitnessLevel",      user.getFitnessLevel());
+        response.put("status",            "PENDING");
+        return response;
     }
 
     public Map<String, Object> getWeekPlan(UUID userId) {
