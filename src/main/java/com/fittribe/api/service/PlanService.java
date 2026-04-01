@@ -17,6 +17,12 @@ import com.fittribe.api.entity.SessionFeedback;
 import com.fittribe.api.entity.SplitTemplateDay;
 import com.fittribe.api.repository.SessionFeedbackRepository;
 import com.fittribe.api.repository.SplitTemplateDayRepository;
+import com.fittribe.api.entity.DailyPlanGenerated;
+import com.fittribe.api.entity.DailyPlanGeneratedId;
+import com.fittribe.api.entity.UserDayStatus;
+import com.fittribe.api.entity.UserDayStatusId;
+import com.fittribe.api.repository.DailyPlanGeneratedRepository;
+import com.fittribe.api.repository.UserDayStatusRepository;
 import com.fittribe.api.repository.SetLogRepository;
 import com.fittribe.api.repository.UserPlanRepository;
 import com.fittribe.api.repository.UserRepository;
@@ -92,6 +98,8 @@ public class PlanService {
     private final AiInsightRepository         insightRepo;
     private final SessionFeedbackRepository   feedbackRepo;
     private final SplitTemplateDayRepository  splitTemplateDayRepo;
+    private final DailyPlanGeneratedRepository dailyPlanRepo;
+    private final UserDayStatusRepository      dayStatusRepo;
     private final ObjectMapper                mapper;
     private final RestTemplate                restTemplate = new RestTemplate();
 
@@ -103,6 +111,8 @@ public class PlanService {
                        AiInsightRepository insightRepo,
                        SessionFeedbackRepository feedbackRepo,
                        SplitTemplateDayRepository splitTemplateDayRepo,
+                       DailyPlanGeneratedRepository dailyPlanRepo,
+                       UserDayStatusRepository dayStatusRepo,
                        ObjectMapper mapper) {
         this.userRepo             = userRepo;
         this.planRepo             = planRepo;
@@ -112,6 +122,8 @@ public class PlanService {
         this.insightRepo          = insightRepo;
         this.feedbackRepo         = feedbackRepo;
         this.splitTemplateDayRepo = splitTemplateDayRepo;
+        this.dailyPlanRepo        = dailyPlanRepo;
+        this.dayStatusRepo        = dayStatusRepo;
         this.mapper               = mapper;
     }
 
@@ -237,6 +249,256 @@ public class PlanService {
             log.error("Failed to parse plan JSON: {}", e.getMessage());
             throw new RuntimeException("Could not read plan", e);
         }
+    }
+
+    public Map<String, Object> generateTodaysPlan(UUID userId) {
+        User user = userRepo.findById(userId)
+                .orElseThrow(() -> ApiException.notFound("User"));
+        LocalDate today = LocalDate.now(ZoneOffset.UTC);
+
+        // Gate 1 — user set a status today
+        Optional<UserDayStatus> statusOpt = dayStatusRepo
+                .findByIdUserIdAndIdDate(userId, today);
+        if (statusOpt.isPresent()) {
+            return Map.of(
+                    "status",  statusOpt.get().getStatus(),
+                    "message", statusMessage(statusOpt.get().getStatus()));
+        }
+
+        // Gate 2 — IN_PROGRESS session exists today
+        Instant startOfDay = today.atStartOfDay(ZoneOffset.UTC).toInstant();
+        Instant endOfDay   = today.plusDays(1).atStartOfDay(ZoneOffset.UTC).toInstant();
+        Optional<WorkoutSession> inProgress = sessionRepo
+                .findFirstByUserIdAndStatusAndFinishedAtAfter(userId, "IN_PROGRESS", startOfDay);
+        if (inProgress.isPresent()) {
+            try {
+                List<Map<String, Object>> exercises = inProgress.get().getExercises() != null
+                        ? mapper.readValue(inProgress.get().getExercises(), new TypeReference<>() {})
+                        : List.of();
+                return Map.of(
+                        "status",    "IN_PROGRESS",
+                        "sessionId", inProgress.get().getId(),
+                        "exercises", exercises);
+            } catch (Exception e) {
+                log.error("Failed to parse IN_PROGRESS session exercises: {}", e.getMessage());
+            }
+        }
+
+        // Gate 3 — already generated today
+        Optional<DailyPlanGenerated> existing = dailyPlanRepo
+                .findByIdUserIdAndIdDate(userId, today);
+        if (existing.isPresent()) {
+            try {
+                List<Map<String, Object>> exercises = mapper.readValue(
+                        existing.get().getExercises(), new TypeReference<>() {});
+                Map<String, Object> response = new LinkedHashMap<>();
+                response.put("status",           "GENERATED");
+                response.put("dayType",           existing.get().getDayType());
+                response.put("exercises",         exercises);
+                response.put("sessionNote",       existing.get().getSessionNote());
+                response.put("cardioSuggestion",  existing.get().getCardioSuggestion() != null
+                        ? mapper.readValue(existing.get().getCardioSuggestion(),
+                                new TypeReference<Map<String, Object>>() {})
+                        : null);
+                return response;
+            } catch (Exception e) {
+                log.error("Failed to parse existing daily plan: {}", e.getMessage());
+            }
+        }
+
+        // Gate 4 — get today's template day
+        LocalDate monday = today.with(TemporalAdjusters.previousOrSame(DayOfWeek.MONDAY));
+        UserPlan weekPlan = planRepo.findByUserIdAndWeekStartDate(userId, monday)
+                .orElseGet(() -> generatePlan(userId));
+
+        Instant weekStart = monday.atStartOfDay(ZoneOffset.UTC).toInstant();
+        Instant now       = Instant.now();
+        int completedThisWeek = sessionRepo.countByUserIdAndStatusAndFinishedAtBetween(
+                userId, "COMPLETED", weekStart, now);
+        int nextDayNumber = completedThisWeek + 1;
+
+        List<Map<String, Object>> allDays;
+        try {
+            allDays = mapper.readValue(weekPlan.getDays(), new TypeReference<>() {});
+        } catch (Exception e) {
+            throw new RuntimeException("Could not read week plan", e);
+        }
+
+        Map<String, Object> templateDay = allDays.stream()
+                .filter(d -> !"rest".equalsIgnoreCase((String) d.get("dayType")))
+                .filter(d -> Integer.valueOf(nextDayNumber).equals(d.get("dayNumber")))
+                .findFirst()
+                .orElse(allDays.stream()
+                        .filter(d -> !"rest".equalsIgnoreCase((String) d.get("dayType")))
+                        .findFirst()
+                        .orElseThrow(() -> new RuntimeException("No training day found")));
+
+        String dayType    = (String) templateDay.get("dayType");
+        String dayLabel   = (String) templateDay.get("dayLabel");
+        String level      = user.getFitnessLevel() != null
+                ? user.getFitnessLevel() : "INTERMEDIATE";
+        double bw         = user.getWeightKg() != null
+                ? user.getWeightKg().doubleValue() : 70.0;
+        int weekNumber    = weekPlan.getWeekNumber();
+
+        // Build context for AI
+        Instant since4Days = today.minusDays(4).atStartOfDay(ZoneOffset.UTC).toInstant();
+        Instant since14Days = today.minusDays(14).atStartOfDay(ZoneOffset.UTC).toInstant();
+
+        List<WorkoutSession> recentSessions = sessionRepo
+                .findByUserIdAndStatusAndFinishedAtBetween(userId, "COMPLETED", since14Days, now);
+        List<UUID> sessionIds = recentSessions.stream()
+                .map(WorkoutSession::getId).collect(Collectors.toList());
+        List<SetLog> recentLogs = sessionIds.isEmpty()
+                ? List.of() : setLogRepo.findBySessionIdIn(sessionIds);
+
+        List<SessionFeedback> recentFeedback = feedbackRepo
+                .findByUserIdOrderByCreatedAtDesc(user.getId())
+                .stream().limit(3).collect(Collectors.toList());
+
+        Map<String, Exercise> exMap = exerciseMap();
+        HistoryAnalysis analysis = analyseHistory(
+                recentSessions, recentLogs, List.of(), bw, level);
+
+        // Build daily context blocks
+        String recoveryBlock  = buildRecoveryBlock(recentSessions, recentLogs);
+        String historyBlock   = buildDailyHistoryBlock(analysis, exMap);
+        String feedbackBlock  = buildDailyFeedbackBlock(recentFeedback);
+        String recentExBlock  = buildRecentExercisesBlock(recentSessions, recentLogs, since4Days);
+
+        @SuppressWarnings("unchecked")
+        List<String> muscleGroups = (List<String>) templateDay.get("muscleGroups");
+        boolean includesCore = Boolean.TRUE.equals(templateDay.get("includesCore"));
+        String guidanceText  = (String) templateDay.get("guidanceText");
+        Integer estimatedMins = (Integer) templateDay.get("estimatedMins");
+
+        String aiContextBlock = (user.getAiContext() != null && !user.getAiContext().isBlank())
+                ? "PERSONAL CONTEXT: " + user.getAiContext() : "";
+
+        String userPrompt = AiPrompts.DAILY_EXERCISE_USER
+                .replace("{name}",           PromptSanitiser.sanitise(
+                        user.getDisplayName() != null ? user.getDisplayName() : "Athlete"))
+                .replace("{gender}",         user.getGender() != null ? user.getGender() : "Not specified")
+                .replace("{weightKg}",       user.getWeightKg() != null ? user.getWeightKg().toString() : "70")
+                .replace("{heightCm}",       user.getHeightCm() != null ? user.getHeightCm().toString() : "Not specified")
+                .replace("{fitnessLevel}",   level)
+                .replace("{goal}",           user.getGoal() != null ? user.getGoal() : "BUILD_MUSCLE")
+                .replace("{weekNumber}",     String.valueOf(weekNumber))
+                .replace("{healthConditions}", formatHealthConditions(user.getHealthConditions()))
+                .replace("{aiContext}",      aiContextBlock)
+                .replace("{dayLabel}",       dayLabel)
+                .replace("{muscleGroups}",   String.join(", ", muscleGroups))
+                .replace("{includesCore}",   String.valueOf(includesCore))
+                .replace("{estimatedMins}",  String.valueOf(estimatedMins != null ? estimatedMins : 45))
+                .replace("{guidanceText}",   guidanceText != null ? guidanceText : "")
+                .replace("{recoveryBlock}",  recoveryBlock)
+                .replace("{historyBlock}",   historyBlock + "\n" + recentExBlock)
+                .replace("{feedbackBlock}",  feedbackBlock);
+
+        // Call AI or fallback
+        String exercises;
+        String sessionNote    = null;
+        String cardioSuggestion = null;
+
+        if (openAiKey != null && !openAiKey.isBlank()) {
+            String aiResponse = callDailyOpenAi(userPrompt);
+            if (aiResponse != null) {
+                try {
+                    String json = aiResponse.trim();
+                    if (json.startsWith("```")) {
+                        json = json.replaceAll("^```[a-z]*\\n?", "").replaceAll("```$", "").trim();
+                    }
+                    Map<String, Object> parsed = mapper.readValue(json, new TypeReference<>() {});
+                    exercises       = mapper.writeValueAsString(parsed.get("exercises"));
+                    sessionNote     = (String) parsed.get("sessionNote");
+                    Object cardio   = parsed.get("cardioSuggestion");
+                    cardioSuggestion = cardio != null ? mapper.writeValueAsString(cardio) : null;
+                } catch (Exception e) {
+                    log.warn("Failed to parse daily AI response: {}", e.getMessage());
+                    exercises = buildFallbackExercisesJson(dayType, exMap, analysis, bw, level);
+                }
+            } else {
+                exercises = buildFallbackExercisesJson(dayType, exMap, analysis, bw, level);
+            }
+        } else {
+            exercises = buildFallbackExercisesJson(dayType, exMap, analysis, bw, level);
+        }
+
+        // Store in daily_plan_generated
+        DailyPlanGenerated plan = new DailyPlanGenerated();
+        plan.setId(new DailyPlanGeneratedId(userId, today));
+        plan.setDayType(dayType);
+        plan.setExercises(exercises);
+        plan.setSessionNote(sessionNote);
+        plan.setCardioSuggestion(cardioSuggestion);
+        dailyPlanRepo.save(plan);
+
+        // Build response
+        try {
+            List<Map<String, Object>> exerciseList = mapper.readValue(
+                    exercises, new TypeReference<>() {});
+
+            // Enrich with swap alternatives
+            List<Map<String, Object>> enriched = new ArrayList<>();
+            for (Map<String, Object> ex : exerciseList) {
+                Map<String, Object> copy = new LinkedHashMap<>(ex);
+                String exId = (String) copy.getOrDefault("exerciseId", "");
+                Exercise entity = exMap.get(exId);
+                String muscleGrp = entity != null
+                        ? entity.getMuscleGroup() : (String) copy.get("muscleGroup");
+                copy.put("swapAlternatives", getSwapsFromDb(exId, muscleGrp));
+                enriched.add(copy);
+            }
+
+            Map<String, Object> response = new LinkedHashMap<>();
+            response.put("status",          "GENERATED");
+            response.put("dayType",          dayType);
+            response.put("dayLabel",         dayLabel);
+            response.put("muscleGroups",     muscleGroups);
+            response.put("includesCore",     includesCore);
+            response.put("guidanceText",     guidanceText);
+            response.put("estimatedMins",    estimatedMins);
+            response.put("exercises",        enriched);
+            response.put("sessionNote",      sessionNote);
+            response.put("cardioSuggestion", cardioSuggestion != null
+                    ? mapper.readValue(cardioSuggestion, new TypeReference<Map<String, Object>>() {})
+                    : null);
+            return response;
+        } catch (Exception e) {
+            log.error("Failed to build daily plan response: {}", e.getMessage());
+            throw new RuntimeException("Could not build today's plan", e);
+        }
+    }
+
+    public Map<String, Object> setTodayStatus(UUID userId, String status) {
+        LocalDate today = LocalDate.now(ZoneOffset.UTC);
+
+        // Block if IN_PROGRESS session exists
+        Instant startOfDay = today.atStartOfDay(ZoneOffset.UTC).toInstant();
+        boolean hasActiveSession = sessionRepo
+                .findFirstByUserIdAndStatusAndFinishedAtAfter(userId, "IN_PROGRESS", startOfDay)
+                .isPresent();
+        if (hasActiveSession) {
+            throw new ApiException(HttpStatus.CONFLICT, "SESSION_IN_PROGRESS",
+                    "Cannot set status — you have an active session in progress.");
+        }
+
+        UserDayStatus dayStatus = new UserDayStatus(userId, today, status);
+        dayStatusRepo.save(dayStatus);
+
+        return Map.of(
+                "status",  status,
+                "message", statusMessage(status));
+    }
+
+    private String statusMessage(String status) {
+        return switch (status) {
+            case "REST"       -> "Recovery is part of the plan. Your muscles are growing right now. See you tomorrow 💪";
+            case "TRAVELLING" -> "Staying consistent while travelling is hard. We'll pick up tomorrow — your progress is safe.";
+            case "BUSY"       -> "Life happens. One missed day won't break your progress. Come back when you're ready.";
+            case "SICK"       -> "Rest up and take care of yourself. Your health comes first — we'll be here when you're back 🙏";
+            default           -> "Take your time. We'll be here when you're ready.";
+        };
     }
 
     // ── History analysis ──────────────────────────────────────────────
@@ -804,6 +1066,136 @@ When you change a weight from last week, explain why in that exercise's whyThisE
             sb.append("\n");
         }
         return sb.toString().trim();
+    }
+
+    private String buildRecoveryBlock(List<WorkoutSession> sessions, List<SetLog> logs) {
+        if (sessions.isEmpty()) return "RECOVERY STATUS: No recent sessions — all muscle groups fully recovered.";
+
+        Map<String, Instant> lastTrainedPerMuscle = new LinkedHashMap<>();
+        for (SetLog sl : logs) {
+            String muscle = EXERCISE_MUSCLE.getOrDefault(sl.getExerciseId(), "");
+            if (muscle.isEmpty()) continue;
+            WorkoutSession session = sessions.stream()
+                    .filter(s -> s.getId().equals(sl.getSessionId()))
+                    .findFirst().orElse(null);
+            if (session == null || session.getFinishedAt() == null) continue;
+            lastTrainedPerMuscle.merge(muscle, session.getFinishedAt(),
+                    (a, b) -> a.isAfter(b) ? a : b);
+        }
+
+        if (lastTrainedPerMuscle.isEmpty()) return "RECOVERY STATUS: No recent sessions — all muscle groups fully recovered.";
+
+        StringBuilder sb = new StringBuilder("RECOVERY STATUS (hours since last trained):\n");
+        Instant now = Instant.now();
+        for (Map.Entry<String, Instant> entry : lastTrainedPerMuscle.entrySet()) {
+            long hours = java.time.temporal.ChronoUnit.HOURS.between(entry.getValue(), now);
+            String flag = hours < 48 ? "⚠️ UNDER 48HR — reduce volume or avoid"
+                        : hours < 72 ? "✅ RECOVERING"
+                        : "✅ FULLY RECOVERED";
+            sb.append("- ").append(entry.getKey()).append(": ")
+              .append(hours).append("hrs ago — ").append(flag).append("\n");
+        }
+        return sb.toString().trim();
+    }
+
+    private String buildDailyHistoryBlock(HistoryAnalysis analysis, Map<String, Exercise> exMap) {
+        if (analysis.totalSessionsInHistory() == 0)
+            return "HISTORY: No training history — first session. Use conservative starting weights.";
+
+        StringBuilder sb = new StringBuilder("LAST LOGGED WEIGHTS (use for progression):\n");
+        for (Map.Entry<String, BigDecimal> e : analysis.recentBestWeight().entrySet()) {
+            Exercise ex = exMap.get(e.getKey());
+            String name = ex != null ? ex.getName() : e.getKey();
+            boolean stalled = analysis.stalledExercises().contains(e.getKey());
+            sb.append("- ").append(name).append(": ").append(e.getValue()).append("kg")
+              .append(stalled ? " (STALLING — no progression in 3+ sessions)" : "").append("\n");
+        }
+        return sb.toString().trim();
+    }
+
+    private String buildRecentExercisesBlock(List<WorkoutSession> sessions,
+                                              List<SetLog> logs, Instant since) {
+        List<String> recentExercises = logs.stream()
+                .filter(sl -> {
+                    WorkoutSession s = sessions.stream()
+                            .filter(ws -> ws.getId().equals(sl.getSessionId()))
+                            .findFirst().orElse(null);
+                    return s != null && s.getFinishedAt() != null
+                            && s.getFinishedAt().isAfter(since);
+                })
+                .map(SetLog::getExerciseId)
+                .filter(Objects::nonNull)
+                .distinct()
+                .collect(Collectors.toList());
+
+        if (recentExercises.isEmpty())
+            return "RECENT EXERCISES (last 4 days): None — all exercises available.";
+
+        return "RECENT EXERCISES (last 4 days — do NOT repeat these for same muscle group): "
+                + String.join(", ", recentExercises);
+    }
+
+    private String buildDailyFeedbackBlock(List<SessionFeedback> feedback) {
+        if (feedback.isEmpty()) return "";
+        DateTimeFormatter fmt = DateTimeFormatter
+                .ofPattern("EEE dd MMM").withZone(ZoneId.of("Asia/Kolkata"));
+        StringBuilder sb = new StringBuilder("RECENT SESSION FEEDBACK (adjust weights accordingly):\n");
+        for (SessionFeedback f : feedback) {
+            String date = f.getCreatedAt() != null ? fmt.format(f.getCreatedAt()) : "recent";
+            sb.append("- ").append(date).append(": ").append(f.getRating());
+            if (f.getNotes() != null && !f.getNotes().isBlank()) {
+                sb.append(" — ").append(f.getNotes());
+            }
+            sb.append("\n");
+        }
+        sb.append("Apply weight adjustments: TOO_EASY → +1 increment, GOOD × 3 → +1 increment, ")
+          .append("HARD → same weight, KILLED_ME → -1 increment\n");
+        return sb.toString().trim();
+    }
+
+    private String buildFallbackExercisesJson(String dayType, Map<String, Exercise> exMap,
+                                               HistoryAnalysis analysis, double bw, String level) {
+        try {
+            List<Map<String, Object>> exercises = buildExercisesFromTemplate(
+                    dayType, exMap, analysis, bw, level);
+            return mapper.writeValueAsString(exercises);
+        } catch (Exception e) {
+            log.error("Failed to build fallback exercises: {}", e.getMessage());
+            return "[]";
+        }
+    }
+
+    private String callDailyOpenAi(String userPrompt) {
+        Map<String, Object> body = new LinkedHashMap<>();
+        body.put("model", "gpt-4o-mini");
+        body.put("max_tokens", 2000);
+        body.put("temperature", 0.3);
+        body.put("messages", List.of(
+                Map.of("role", "system", "content", AiPrompts.DAILY_EXERCISE_SYSTEM),
+                Map.of("role", "user",   "content", userPrompt)));
+
+        HttpHeaders headers = new HttpHeaders();
+        headers.setContentType(MediaType.APPLICATION_JSON);
+        headers.setBearerAuth(openAiKey);
+
+        try {
+            @SuppressWarnings("unchecked")
+            Map<String, Object> resp = restTemplate.postForObject(
+                    "https://api.openai.com/v1/chat/completions",
+                    new HttpEntity<>(body, headers), Map.class);
+            if (resp == null) return null;
+
+            @SuppressWarnings("unchecked")
+            List<Map<String, Object>> choices = (List<Map<String, Object>>) resp.get("choices");
+            if (choices == null || choices.isEmpty()) return null;
+
+            @SuppressWarnings("unchecked")
+            Map<String, Object> msg = (Map<String, Object>) choices.get(0).get("message");
+            return msg != null ? (String) msg.get("content") : null;
+        } catch (Exception e) {
+            log.warn("Daily OpenAI call failed: {}", e.getMessage());
+            return null;
+        }
     }
 
     private String formatHealthConditions(String[] conditions) {
