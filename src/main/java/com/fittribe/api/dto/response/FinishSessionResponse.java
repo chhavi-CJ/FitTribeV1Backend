@@ -14,5 +14,6 @@ public record FinishSessionResponse(
         int streak,
         int coinsEarned,
         boolean weeklyGoalHit,
-        int weekNumber
+        int weekNumber,
+        int completedThisWeek
 ) {}

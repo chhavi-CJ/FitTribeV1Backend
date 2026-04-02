@@ -237,7 +237,8 @@ public class SessionController {
                 user.getStreak(),
                 COINS_PER_SESSION,
                 weeklyGoalHit,
-                weekNumber)));
+                weekNumber,
+                count)));
     }
 
     // ── POST /sessions/{id}/feedback ─────────────────────────────────
