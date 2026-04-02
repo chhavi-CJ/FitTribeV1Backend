@@ -1,0 +1,2050 @@
+[
+  {
+    "id": "barbell-row",
+    "name": "Barbell Row",
+    "muscle_group": "BACK",
+    "equipment": "BARBELL",
+    "is_bodyweight": false,
+    "steps": [
+      "Stand with feet hip width, bar over mid-foot",
+      "Hinge to 45 degrees, bar hanging at arm length",
+      "Pull bar to your lower chest or belly",
+      "Squeeze shoulder blades together at the top",
+      "Lower with full control — do not drop"
+    ],
+    "common_mistakes": [
+      "Too upright a torso — becomes more of a shrug",
+      "Jerking the weight up with momentum",
+      "Pulling to the stomach — changes the back angle engagement"
+    ],
+    "coach_tip": "Aim for your lower chest with the bar. Drive your elbows back and squeeze your upper back at the top.",
+    "secondary_muscles": [
+      "Biceps",
+      "Rear delts",
+      "Erector spinae"
+    ],
+    "swap_alternatives": [
+      "Barbell row",
+      "T-bar row",
+      "Dumbbell row"
+    ],
+    "demo_video_url": "https://www.youtube.com/watch?v=fpgfWbe7yhc"
+  },
+  {
+    "id": "chin-ups",
+    "name": "Chin Ups",
+    "muscle_group": "BACK",
+    "equipment": "BODYWEIGHT",
+    "is_bodyweight": true,
+    "steps": [
+      "Hang from bar with underhand grip shoulder width",
+      "Pull yourself up until chin clears the bar",
+      "Squeeze biceps and back at the top",
+      "Lower slowly until arms are fully extended",
+      "Do not swing or use momentum"
+    ],
+    "common_mistakes": [
+      "Using momentum and kipping",
+      "Not reaching full extension at the bottom",
+      "Pulling with biceps only — engage the lats"
+    ],
+    "coach_tip": "Chin ups have more bicep involvement than pull ups. Think about pulling your elbows to your hips to maximise lat engagement.",
+    "secondary_muscles": [
+      "Biceps",
+      "Rear delts"
+    ],
+    "swap_alternatives": [],
+    "demo_video_url": "https://www.youtube.com/shorts/CjcQKcPkyQ0"
+  },
+  {
+    "id": "deadlift",
+    "name": "Conventional Deadlift",
+    "muscle_group": "BACK",
+    "equipment": "BARBELL",
+    "is_bodyweight": false,
+    "steps": [
+      "Stand with bar over mid-foot, feet hip width",
+      "Hinge and grip bar just outside your legs",
+      "Flatten your back and brace your core hard",
+      "Drive through the floor — push the earth away",
+      "Lock hips and shoulders out at the top together",
+      "Lower with control by hinging at the hips first"
+    ],
+    "common_mistakes": [
+      "Rounding the lower back — most serious risk",
+      "Bar drifting away from the body",
+      "Jerking the bar off the floor",
+      "Not locking out fully at the top"
+    ],
+    "coach_tip": "Think of the deadlift as a push not a pull. Push the floor away with your legs. The bar should drag up your shins the whole way.",
+    "secondary_muscles": [
+      "Hamstrings",
+      "Glutes",
+      "Core",
+      "Traps",
+      "Forearms"
+    ],
+    "swap_alternatives": [],
+    "demo_video_url": "https://www.youtube.com/watch?v=1ZXobu7JvvE"
+  },
+  {
+    "id": "dumbbell-row",
+    "name": "Dumbbell Row",
+    "muscle_group": "BACK",
+    "equipment": "DUMBBELL",
+    "is_bodyweight": false,
+    "steps": [
+      "Place one knee and hand on a bench for support",
+      "Hold dumbbell in opposite hand hanging straight down",
+      "Pull dumbbell up to your hip keeping elbow close",
+      "Squeeze your lat at the top of the movement",
+      "Lower slowly back to full extension"
+    ],
+    "common_mistakes": [
+      "Rotating the torso to lift the weight",
+      "Pulling toward the shoulder instead of the hip",
+      "Not getting a full stretch at the bottom"
+    ],
+    "coach_tip": "Think about putting your elbow in your back pocket. That cue gets the elbow path exactly right for maximum lat activation.",
+    "secondary_muscles": [
+      "Biceps",
+      "Rear delts",
+      "Rhomboids"
+    ],
+    "swap_alternatives": [],
+    "demo_video_url": "https://www.youtube.com/shorts/XrkGZ7Gjlao"
+  },
+  {
+    "id": "face-pulls",
+    "name": "Face Pulls",
+    "muscle_group": "BACK",
+    "equipment": "CABLE",
+    "is_bodyweight": false,
+    "steps": [
+      "Set cable to face height with rope attachment",
+      "Grip rope with overhand grip, step back",
+      "Pull rope toward your face splitting the rope at the end",
+      "Elbows should be at shoulder height throughout",
+      "Hold for 1 second before returning"
+    ],
+    "common_mistakes": [
+      "Pulling too low — becomes a row not a face pull",
+      "Not splitting the rope at the end",
+      "Using too much weight — reduces form quality"
+    ],
+    "coach_tip": "Face pulls are one of the best exercises for shoulder health and rear delt development. Keep the weight light and focus on the squeeze.",
+    "secondary_muscles": [
+      "Rear delts",
+      "Rhomboids",
+      "External rotators"
+    ],
+    "swap_alternatives": [],
+    "demo_video_url": "https://www.youtube.com/shorts/a9AaQh1dtRs"
+  },
+  {
+    "id": "inverted-row",
+    "name": "Inverted Row",
+    "muscle_group": "BACK",
+    "equipment": "BODYWEIGHT",
+    "is_bodyweight": true,
+    "steps": [
+      "Set a bar at waist height in a rack or use a table",
+      "Hang underneath with overhand grip, body straight",
+      "Pull chest up to the bar squeezing shoulder blades",
+      "Lower slowly until arms are fully extended",
+      "Keep body rigid like a plank throughout"
+    ],
+    "common_mistakes": [
+      "Hips sagging — keep body straight",
+      "Not pulling all the way up to the bar",
+      "Using momentum instead of controlled pull"
+    ],
+    "coach_tip": "Make it easier by raising the bar higher. Make it harder by lowering it. This is a great beginner back exercise before pull-ups.",
+    "secondary_muscles": [
+      "Biceps",
+      "Rear delts",
+      "Core"
+    ],
+    "swap_alternatives": [],
+    "demo_video_url": "https://www.youtube.com/shorts/vZy_Eu_Z0WA"
+  },
+  {
+    "id": "lat-pulldown",
+    "name": "Lat Pulldown",
+    "muscle_group": "BACK",
+    "equipment": "CABLE",
+    "is_bodyweight": false,
+    "steps": [
+      "Grip bar 1.5x shoulder width with overhand grip",
+      "Sit with knees under the pad, lean back slightly",
+      "Pull bar to your upper chest",
+      "Squeeze lats hard at the bottom",
+      "Control the bar back up slowly — do not let it fly"
+    ],
+    "common_mistakes": [
+      "Pulling the bar behind the neck — neck injury risk",
+      "Leaning back too far — becomes a row instead",
+      "Not completing the full range of motion"
+    ],
+    "coach_tip": "Imagine pulling your elbows down to your back pockets. This single cue transforms lat activation.",
+    "secondary_muscles": [
+      "Biceps",
+      "Rear delts",
+      "Rhomboids",
+      "Teres major"
+    ],
+    "swap_alternatives": [
+      "Pull-ups",
+      "Seated cable row",
+      "Single-arm DB row"
+    ],
+    "demo_video_url": "https://www.youtube.com/shorts/i_En2drerpY"
+  },
+  {
+    "id": "pull-ups",
+    "name": "Pull Ups",
+    "muscle_group": "BACK",
+    "equipment": "BODYWEIGHT",
+    "is_bodyweight": true,
+    "steps": [
+      "Hang with arms fully extended, shoulder width grip",
+      "Pull shoulders down and back first (depress scapulae)",
+      "Pull elbows down toward your ribcage",
+      "Chin clears the bar at the top",
+      "Lower fully — do not skip the dead hang at the bottom"
+    ],
+    "common_mistakes": [
+      "Kipping or swinging to get up",
+      "Partial reps that avoid the bottom dead hang",
+      "Not engaging scapulae before pulling"
+    ],
+    "coach_tip": "Begin each rep by depressing your shoulder blades. This protects your shoulders and activates far more lat.",
+    "secondary_muscles": [
+      "Biceps",
+      "Rear delts",
+      "Teres major",
+      "Core"
+    ],
+    "swap_alternatives": [
+      "Lat pulldown",
+      "Assisted pull-ups",
+      "Cable pull-over"
+    ],
+    "demo_video_url": "https://www.youtube.com/shorts/ym1V5H35IpA"
+  },
+  {
+    "id": "reverse-flyes",
+    "name": "Reverse Flyes",
+    "muscle_group": "BACK",
+    "equipment": "DUMBBELL",
+    "is_bodyweight": false,
+    "steps": [
+      "Hinge forward at hips to 45 degrees",
+      "Hold dumbbells hanging down, slight elbow bend",
+      "Raise arms out to the sides to shoulder height",
+      "Squeeze shoulder blades together at the top",
+      "Lower slowly back down"
+    ],
+    "common_mistakes": [
+      "Shrugging shoulders during the movement",
+      "Using momentum to swing weights up",
+      "Not hinging enough — becomes a lateral raise"
+    ],
+    "coach_tip": "Think about leading with your elbows and squeezing your rear delts at the top. The weight should be light enough for strict form.",
+    "secondary_muscles": [
+      "Rear delts",
+      "Rhomboids",
+      "Upper traps"
+    ],
+    "swap_alternatives": [],
+    "demo_video_url": "https://www.youtube.com/shorts/LsT-bR_zxLo"
+  },
+  {
+    "id": "seated-cable-row",
+    "name": "Seated Cable Row",
+    "muscle_group": "BACK",
+    "equipment": "CABLE",
+    "is_bodyweight": false,
+    "steps": [
+      "Sit at cable row machine, feet on platform",
+      "Grab handle with both hands, slight knee bend",
+      "Sit tall and pull handle to your lower stomach",
+      "Squeeze shoulder blades together at end position",
+      "Return slowly until arms are fully extended"
+    ],
+    "common_mistakes": [
+      "Rocking back and forth with torso",
+      "Shrugging shoulders during the pull",
+      "Not fully extending arms at the start of each rep"
+    ],
+    "coach_tip": "Keep your torso upright throughout. The power comes from driving your elbows back not from leaning back.",
+    "secondary_muscles": [
+      "Biceps",
+      "Rear delts",
+      "Rhomboids"
+    ],
+    "swap_alternatives": [],
+    "demo_video_url": "https://www.youtube.com/shorts/qD1WZ5pSuvk"
+  },
+  {
+    "id": "t-bar-row",
+    "name": "T-Bar Row",
+    "muscle_group": "BACK",
+    "equipment": "BARBELL",
+    "is_bodyweight": false,
+    "steps": [
+      "Straddle the bar, hinge to 45 degrees",
+      "Grip the handles or the bar just below the plates",
+      "Pull bar to your chest keeping elbows close",
+      "Squeeze your back hard at the top",
+      "Lower slowly until arms are fully extended"
+    ],
+    "common_mistakes": [
+      "Too upright a torso — reduces back engagement",
+      "Using momentum to jerk the weight up",
+      "Not squeezing at the top of each rep"
+    ],
+    "coach_tip": "The T-bar row allows very heavy loading with great stability. Focus on driving elbows back and up — not just pulling the weight up.",
+    "secondary_muscles": [
+      "Biceps",
+      "Rear delts",
+      "Erector spinae"
+    ],
+    "swap_alternatives": [],
+    "demo_video_url": "https://www.youtube.com/shorts/8pR3JoZ0iBU"
+  },
+  {
+    "id": "weighted-pull-ups",
+    "name": "Weighted Pull Ups",
+    "muscle_group": "BACK",
+    "equipment": "BODYWEIGHT",
+    "is_bodyweight": false,
+    "steps": [
+      "Attach weight belt or hold dumbbell between feet",
+      "Hang from bar with overhand grip",
+      "Pull up until chin clears the bar",
+      "Lower slowly with full control",
+      "Full dead hang at the bottom each rep"
+    ],
+    "common_mistakes": [
+      "Adding weight before mastering bodyweight pull ups",
+      "Kipping or swinging",
+      "Not reaching full extension at the bottom"
+    ],
+    "coach_tip": "Only add weight once you can do 10 clean bodyweight pull ups. Start with 5kg and build slowly.",
+    "secondary_muscles": [
+      "Biceps",
+      "Rear delts",
+      "Core"
+    ],
+    "swap_alternatives": [],
+    "demo_video_url": null
+  },
+  {
+    "id": "barbell-curl",
+    "name": "Barbell Curl",
+    "muscle_group": "BICEPS",
+    "equipment": "BARBELL",
+    "is_bodyweight": false,
+    "steps": [
+      "Stand holding barbell with underhand grip",
+      "Elbows pinned to sides throughout the movement",
+      "Curl bar up toward shoulders",
+      "Squeeze biceps hard at the top",
+      "Lower slowly over 3 seconds"
+    ],
+    "common_mistakes": [
+      "Swinging the body to curl the weight up",
+      "Letting elbows drift forward",
+      "Not lowering fully — partial reps reduce growth"
+    ],
+    "coach_tip": "Your elbows should not move at all. If they drift forward, the weight is too heavy. The slow negative is where the bicep grows.",
+    "secondary_muscles": [
+      "Forearms",
+      "Brachialis"
+    ],
+    "swap_alternatives": [],
+    "demo_video_url": null
+  },
+  {
+    "id": "bicep-curl",
+    "name": "Bicep Curl",
+    "muscle_group": "BICEPS",
+    "equipment": "DUMBBELL",
+    "is_bodyweight": false,
+    "steps": [
+      "Stand with dumbbells at sides, palms facing forward",
+      "Curl up keeping elbows completely fixed at sides",
+      "Supinate your wrists at the top for peak contraction",
+      "Hold 1 second at the peak",
+      "Lower fully in 2-3 seconds — do not drop"
+    ],
+    "common_mistakes": [
+      "Swinging elbows forward to get more range",
+      "Partial reps that avoid the full stretch at bottom",
+      "Using lower back momentum on heavier sets"
+    ],
+    "coach_tip": "Lower all the way for the full stretch. The eccentric stretch is as important as the peak contraction.",
+    "secondary_muscles": [
+      "Brachialis",
+      "Brachioradialis",
+      "Forearm flexors"
+    ],
+    "swap_alternatives": [
+      "Hammer curl",
+      "Preacher curl",
+      "Cable curl"
+    ],
+    "demo_video_url": null
+  },
+  {
+    "id": "concentration-curl",
+    "name": "Concentration Curl",
+    "muscle_group": "BICEPS",
+    "equipment": "DUMBBELL",
+    "is_bodyweight": false,
+    "steps": [
+      "Sit on bench, lean forward slightly",
+      "Rest upper arm against inner thigh",
+      "Curl dumbbell up toward shoulder",
+      "Squeeze at the top for 2 seconds",
+      "Lower fully until arm is straight"
+    ],
+    "common_mistakes": [
+      "Moving the upper arm off the thigh",
+      "Not fully extending at the bottom",
+      "Using a weight that requires body swing"
+    ],
+    "coach_tip": "The concentration curl is one of the best bicep isolation exercises. The peak contraction squeeze is what matters here.",
+    "secondary_muscles": [
+      "Brachialis"
+    ],
+    "swap_alternatives": [],
+    "demo_video_url": null
+  },
+  {
+    "id": "hammer-curl",
+    "name": "Hammer Curl",
+    "muscle_group": "BICEPS",
+    "equipment": "DUMBBELL",
+    "is_bodyweight": false,
+    "steps": [
+      "Stand holding dumbbells with neutral grip",
+      "Keep elbows pinned to sides",
+      "Curl dumbbells up keeping palms facing each other",
+      "Squeeze at the top",
+      "Lower slowly with control"
+    ],
+    "common_mistakes": [
+      "Rotating the wrist during the movement",
+      "Swinging the body",
+      "Going too heavy — reduces isolation"
+    ],
+    "coach_tip": "Hammer curls target the brachialis which sits under the bicep and makes your arms look thicker from the side.",
+    "secondary_muscles": [
+      "Brachialis",
+      "Forearms"
+    ],
+    "swap_alternatives": [],
+    "demo_video_url": null
+  },
+  {
+    "id": "seated-calf-raises",
+    "name": "Seated Calf Raises",
+    "muscle_group": "CALVES",
+    "equipment": "MACHINE",
+    "is_bodyweight": false,
+    "steps": [
+      "Sit at machine with knees under the pad",
+      "Balls of feet on the platform, heels hanging",
+      "Lower heels for a full stretch",
+      "Rise up as high as possible",
+      "Squeeze and hold for 1 second at the top"
+    ],
+    "common_mistakes": [
+      "Not getting full range of motion",
+      "Too heavy weight — reduces range",
+      "Bouncing the weight"
+    ],
+    "coach_tip": "The seated position targets the soleus more than the gastrocnemius. Both exercises are needed for complete calf development.",
+    "secondary_muscles": [
+      "Soleus"
+    ],
+    "swap_alternatives": [],
+    "demo_video_url": null
+  },
+  {
+    "id": "single-leg-calf-raise",
+    "name": "Single Leg Calf Raise",
+    "muscle_group": "CALVES",
+    "equipment": "BODYWEIGHT",
+    "is_bodyweight": true,
+    "steps": [
+      "Stand on one foot on edge of a step",
+      "Hold a wall or rail lightly for balance only",
+      "Lower heel as far as possible",
+      "Rise up as high as possible on one foot",
+      "Complete all reps on one side then switch"
+    ],
+    "common_mistakes": [
+      "Holding the wall too tightly — reduces the work",
+      "Not getting full range of motion",
+      "Going too fast"
+    ],
+    "coach_tip": "Single leg calf raises are significantly harder than two leg versions. If you can do 15 bodyweight you can add a dumbbell in the other hand.",
+    "secondary_muscles": [
+      "Soleus",
+      "Core"
+    ],
+    "swap_alternatives": [],
+    "demo_video_url": null
+  },
+  {
+    "id": "standing-calf-raises",
+    "name": "Standing Calf Raises",
+    "muscle_group": "CALVES",
+    "equipment": "BODYWEIGHT",
+    "is_bodyweight": true,
+    "steps": [
+      "Stand with balls of feet on edge of a step",
+      "Lower heels as far as possible for a deep stretch",
+      "Rise up on tiptoes as high as possible",
+      "Hold at the top for 1 second",
+      "Lower slowly over 3 seconds"
+    ],
+    "common_mistakes": [
+      "Not getting full range of motion either way",
+      "Bouncing at the bottom — loses the stretch benefit",
+      "Going too fast"
+    ],
+    "coach_tip": "Calves respond well to high reps and slow eccentrics. 3 seconds down every single rep. Full stretch at the bottom is non-negotiable.",
+    "secondary_muscles": [
+      "Soleus",
+      "Achilles tendon"
+    ],
+    "swap_alternatives": [],
+    "demo_video_url": null
+  },
+  {
+    "id": "bench-press",
+    "name": "Bench Press",
+    "muscle_group": "CHEST",
+    "equipment": "BARBELL",
+    "is_bodyweight": false,
+    "steps": [
+      "Set up with feet flat, back slightly arched",
+      "Grip bar just wider than shoulder width",
+      "Lower bar to lower chest in 2-3 seconds",
+      "Touch lightly — do not bounce",
+      "Press up and slightly back toward rack"
+    ],
+    "common_mistakes": [
+      "Bouncing bar off chest — loses time under tension",
+      "Flaring elbows 90° out — rotator cuff risk",
+      "Lifting hips off bench",
+      "Partial reps — go full range"
+    ],
+    "coach_tip": "Drive your feet into the floor throughout the press. Squeeze the bar as if trying to bend it inward.",
+    "secondary_muscles": [
+      "Front delts",
+      "Triceps",
+      "Serratus anterior"
+    ],
+    "swap_alternatives": [
+      "DB flat press",
+      "Smith machine bench",
+      "Push-ups"
+    ],
+    "demo_video_url": null
+  },
+  {
+    "id": "cable-crossover",
+    "name": "Cable Crossover",
+    "muscle_group": "CHEST",
+    "equipment": "CABLE",
+    "is_bodyweight": false,
+    "steps": [
+      "Set cables to shoulder height on both sides",
+      "Stand in the middle, one foot forward for balance",
+      "Pull handles down and together in an arc",
+      "Hands should meet in front of your hips",
+      "Return slowly feeling the stretch across the chest"
+    ],
+    "common_mistakes": [
+      "Bending elbows too much — slight bend only",
+      "Using too much weight — reduces range of motion",
+      "Not getting a full stretch at the start position"
+    ],
+    "coach_tip": "Think of hugging a tree. The arc motion is what makes this exercise effective. Feel the squeeze when hands meet at the bottom.",
+    "secondary_muscles": [
+      "Front delts",
+      "Triceps"
+    ],
+    "swap_alternatives": [],
+    "demo_video_url": null
+  },
+  {
+    "id": "cable-flyes",
+    "name": "Cable Flyes",
+    "muscle_group": "CHEST",
+    "equipment": "CABLE",
+    "is_bodyweight": false,
+    "steps": [
+      "Set cables at shoulder height on both sides",
+      "Step forward into a split stance for stability",
+      "Bring handles together in an arc motion with slight elbow bend",
+      "Slight bend in elbows maintained throughout",
+      "Squeeze chest hard at the centre, hold 1 second"
+    ],
+    "common_mistakes": [
+      "Straightening elbows — turns it into a tricep movement",
+      "Going too heavy — loses the arc motion entirely",
+      "Not squeezing at the peak contraction"
+    ],
+    "coach_tip": "Think about trying to hug a large tree. The arc motion is what makes this an effective isolation exercise.",
+    "secondary_muscles": [
+      "Front delts",
+      "Biceps short head"
+    ],
+    "swap_alternatives": [
+      "DB fly",
+      "Pec deck machine",
+      "Push-up fly"
+    ],
+    "demo_video_url": null
+  },
+  {
+    "id": "decline-bench-press",
+    "name": "Decline Bench Press",
+    "muscle_group": "CHEST",
+    "equipment": "BARBELL",
+    "is_bodyweight": false,
+    "steps": [
+      "Set bench to 15-30 degree decline",
+      "Hook feet under pad, lie back safely",
+      "Grip bar wider than shoulder width",
+      "Lower bar to lower chest slowly",
+      "Press back up powerfully"
+    ],
+    "common_mistakes": [
+      "Too steep a decline — becomes uncomfortable",
+      "Not having a spotter for heavy weights",
+      "Bar drifting toward the stomach"
+    ],
+    "coach_tip": "Decline press targets the lower chest which is often underdeveloped. Keep the angle mild — 15-20 degrees is enough.",
+    "secondary_muscles": [
+      "Triceps",
+      "Front delts"
+    ],
+    "swap_alternatives": [],
+    "demo_video_url": null
+  },
+  {
+    "id": "db-flat-press",
+    "name": "Dumbbell Flat Press",
+    "muscle_group": "CHEST",
+    "equipment": "DUMBBELL",
+    "is_bodyweight": false,
+    "steps": [
+      "Lie flat on bench with dumbbells at chest level",
+      "Press dumbbells up until arms are fully extended",
+      "Lower slowly in 3 seconds back to chest level",
+      "Keep wrists straight throughout the movement",
+      "Feet flat on floor throughout"
+    ],
+    "common_mistakes": [
+      "Letting dumbbells drift too wide apart",
+      "Dropping the weight too fast on the way down",
+      "Not touching dumbbells at the top — reduces range"
+    ],
+    "coach_tip": "Dumbbells allow a deeper stretch than a barbell. Let them sink slightly below chest level at the bottom.",
+    "secondary_muscles": [
+      "Front delts",
+      "Triceps"
+    ],
+    "swap_alternatives": [],
+    "demo_video_url": null
+  },
+  {
+    "id": "incline-db-press",
+    "name": "Incline DB Press",
+    "muscle_group": "CHEST",
+    "equipment": "DUMBBELL",
+    "is_bodyweight": false,
+    "steps": [
+      "Set bench to 30-45 degrees",
+      "Hold dumbbells at shoulder level, palms forward",
+      "Press up and slightly inward in a slight arc",
+      "Lower slowly until a stretch is felt in the upper chest",
+      "Keep elbows at 70-75 degrees throughout"
+    ],
+    "common_mistakes": [
+      "Bench angle above 45° — becomes a shoulder press",
+      "Not controlling the descent",
+      "Touching dumbbells at the top — reduces tension"
+    ],
+    "coach_tip": "The 30° incline targets upper chest optimally. Higher angles shift load to shoulders.",
+    "secondary_muscles": [
+      "Front delts",
+      "Triceps"
+    ],
+    "swap_alternatives": [
+      "Incline barbell press",
+      "Cable incline fly",
+      "Incline push-ups"
+    ],
+    "demo_video_url": null
+  },
+  {
+    "id": "incline-push-ups",
+    "name": "Incline Push-Ups",
+    "muscle_group": "CHEST",
+    "equipment": "BODYWEIGHT",
+    "is_bodyweight": true,
+    "steps": [
+      "Place hands on a raised surface like a bench or wall",
+      "The higher the surface the easier the movement",
+      "Lower chest toward the surface with control",
+      "Push back up keeping body in a straight line",
+      "Core tight throughout"
+    ],
+    "common_mistakes": [
+      "Hips sagging — maintain a straight plank position",
+      "Surface too low before you are ready for it",
+      "Not going through full range of motion"
+    ],
+    "coach_tip": "Incline push-ups sit between knee push-ups and full push-ups in difficulty. Progress to a lower surface as you get stronger.",
+    "secondary_muscles": [
+      "Front delts",
+      "Triceps",
+      "Core"
+    ],
+    "swap_alternatives": [],
+    "demo_video_url": null
+  },
+  {
+    "id": "knee-push-ups",
+    "name": "Knee Push-Ups",
+    "muscle_group": "CHEST",
+    "equipment": "BODYWEIGHT",
+    "is_bodyweight": true,
+    "steps": [
+      "Start on hands and knees, hands shoulder width apart",
+      "Lower chest toward floor keeping body straight from knees up",
+      "Push back up to start position",
+      "Keep core braced throughout",
+      "Do not let hips sag or rise"
+    ],
+    "common_mistakes": [
+      "Hips rising — body should be straight from knees to shoulders",
+      "Not going low enough — chest should nearly touch floor",
+      "Flaring elbows wide — keep at 45 degrees from body"
+    ],
+    "coach_tip": "Knee push-ups are the perfect starting point. Master these before progressing to full push-ups. Focus on feeling your chest muscles contract.",
+    "secondary_muscles": [
+      "Front delts",
+      "Triceps"
+    ],
+    "swap_alternatives": [],
+    "demo_video_url": null
+  },
+  {
+    "id": "pec-deck",
+    "name": "Pec Deck",
+    "muscle_group": "CHEST",
+    "equipment": "MACHINE",
+    "is_bodyweight": false,
+    "steps": [
+      "Sit with back flat against the pad",
+      "Place forearms on the arm pads",
+      "Bring arms together in front squeezing chest",
+      "Hold for 1 second at peak contraction",
+      "Return slowly until a good stretch is felt"
+    ],
+    "common_mistakes": [
+      "Going too far back on the return — shoulder strain",
+      "Not squeezing at the peak of the movement",
+      "Using momentum to slam the pads together"
+    ],
+    "coach_tip": "The machine guides the movement making this great for beginners to feel the chest working. Focus on the squeeze not the weight.",
+    "secondary_muscles": [
+      "Front delts"
+    ],
+    "swap_alternatives": [],
+    "demo_video_url": null
+  },
+  {
+    "id": "push-ups",
+    "name": "Push Ups",
+    "muscle_group": "CHEST",
+    "equipment": "BODYWEIGHT",
+    "is_bodyweight": true,
+    "steps": [
+      "Hands slightly wider than shoulder width on the floor",
+      "Body in a rigid plank position from head to heels",
+      "Lower until chest almost touches the floor",
+      "Press back up to full arm extension",
+      "Do not let hips sag or pike up"
+    ],
+    "common_mistakes": [
+      "Hips sagging down — lower back strain",
+      "Head looking up instead of neutral",
+      "Partial range of motion — not going low enough"
+    ],
+    "coach_tip": "Squeeze your glutes and abs throughout. A push-up is a moving plank — treat it that way.",
+    "secondary_muscles": [
+      "Front delts",
+      "Triceps",
+      "Core",
+      "Serratus anterior"
+    ],
+    "swap_alternatives": [
+      "Bench press",
+      "Diamond push-ups",
+      "Pike push-ups"
+    ],
+    "demo_video_url": null
+  },
+  {
+    "id": "smith-machine-bench",
+    "name": "Smith Machine Bench Press",
+    "muscle_group": "CHEST",
+    "equipment": "MACHINE",
+    "is_bodyweight": false,
+    "steps": [
+      "Set bar to chest height when lying down",
+      "Lie on bench, grip bar slightly wider than shoulders",
+      "Unhook bar and lower to lower chest",
+      "Press up and rotate bar to re-rack safely",
+      "Keep feet flat and back slightly arched"
+    ],
+    "common_mistakes": [
+      "Bar path too vertical — should travel slightly back",
+      "Gripping too narrow — puts excess stress on shoulders",
+      "Not controlling the descent"
+    ],
+    "coach_tip": "The fixed bar path of a Smith machine makes it great for learning the bench press movement. Focus on feeling the chest contract.",
+    "secondary_muscles": [
+      "Front delts",
+      "Triceps"
+    ],
+    "swap_alternatives": [],
+    "demo_video_url": null
+  },
+  {
+    "id": "ab-wheel-rollout",
+    "name": "Ab Wheel Rollout",
+    "muscle_group": "CORE",
+    "equipment": "BODYWEIGHT",
+    "is_bodyweight": true,
+    "steps": [
+      "Kneel on floor holding ab wheel with both hands",
+      "Roll wheel forward slowly lowering body toward floor",
+      "Extend as far as you can while keeping back flat",
+      "Pull wheel back toward knees using core strength",
+      "Do not let hips sag at any point"
+    ],
+    "common_mistakes": [
+      "Hips sagging — lower back injury risk",
+      "Going too far too soon",
+      "Using hip flexors instead of abs to return"
+    ],
+    "coach_tip": "The ab wheel rollout is an advanced exercise. Start by rolling out just 30-40cm. Build range over weeks not days.",
+    "secondary_muscles": [
+      "Shoulders",
+      "Lats",
+      "Triceps"
+    ],
+    "swap_alternatives": [],
+    "demo_video_url": null
+  },
+  {
+    "id": "bicycle-crunches",
+    "name": "Bicycle Crunches",
+    "muscle_group": "CORE",
+    "equipment": "BODYWEIGHT",
+    "is_bodyweight": true,
+    "steps": [
+      "Lie on back, hands behind head lightly",
+      "Lift shoulder blades off the floor",
+      "Bring one knee to chest while rotating opposite elbow toward it",
+      "Switch sides in a pedalling motion",
+      "Keep lower back pressed into the floor"
+    ],
+    "common_mistakes": [
+      "Pulling neck with hands",
+      "Moving too fast — quality over speed",
+      "Not rotating fully to each side"
+    ],
+    "coach_tip": "Slow deliberate bicycle crunches beat fast sloppy ones every time. Focus on the rotation touching elbow to knee.",
+    "secondary_muscles": [
+      "Obliques",
+      "Hip flexors"
+    ],
+    "swap_alternatives": [],
+    "demo_video_url": null
+  },
+  {
+    "id": "crunches",
+    "name": "Crunches",
+    "muscle_group": "CORE",
+    "equipment": "BODYWEIGHT",
+    "is_bodyweight": true,
+    "steps": [
+      "Lie on back with knees bent at 90°",
+      "Hands at temples — not clasped behind the neck",
+      "Curl shoulders off the floor toward your knees",
+      "Hold 1 second at the top of the crunch",
+      "Lower with full control — do not drop back down"
+    ],
+    "common_mistakes": [
+      "Pulling on the neck with hands — cervical strain",
+      "Using momentum to bounce through reps",
+      "Not fully lowering — skipping the stretch at bottom"
+    ],
+    "coach_tip": "You only need to raise your shoulders 20-30cm. Going further brings hip flexors in and reduces ab work.",
+    "secondary_muscles": [
+      "Hip flexors",
+      "Obliques"
+    ],
+    "swap_alternatives": [
+      "Cable crunch",
+      "Decline crunch",
+      "Sit-ups"
+    ],
+    "demo_video_url": null
+  },
+  {
+    "id": "dead-bug",
+    "name": "Dead Bug",
+    "muscle_group": "CORE",
+    "equipment": "BODYWEIGHT",
+    "is_bodyweight": true,
+    "steps": [
+      "Lie on your back, arms pointing to ceiling",
+      "Knees bent at 90 degrees, shins parallel to floor",
+      "Lower opposite arm and leg toward the floor",
+      "Keep lower back pressed into the floor throughout",
+      "Return and repeat on the other side"
+    ],
+    "common_mistakes": [
+      "Lower back arching off the floor",
+      "Moving too fast — control is everything",
+      "Holding your breath"
+    ],
+    "coach_tip": "The dead bug is one of the best core stability exercises. If your back arches, reduce the range of motion until you build more strength.",
+    "secondary_muscles": [
+      "Hip flexors",
+      "Transverse abdominis"
+    ],
+    "swap_alternatives": [],
+    "demo_video_url": null
+  },
+  {
+    "id": "dragon-flag",
+    "name": "Dragon Flag",
+    "muscle_group": "CORE",
+    "equipment": "BODYWEIGHT",
+    "is_bodyweight": true,
+    "steps": [
+      "Lie on bench, grip behind your head",
+      "Raise body to vertical keeping it completely straight",
+      "Lower body slowly keeping it rigid like a plank",
+      "Hover just above the bench at the bottom",
+      "Raise back up and repeat"
+    ],
+    "common_mistakes": [
+      "Bending at the hips — body must stay completely straight",
+      "Lowering too fast",
+      "Attempting before mastering basic core exercises"
+    ],
+    "coach_tip": "The dragon flag was popularised by Bruce Lee and is one of the hardest core exercises. Master planks, leg raises and ab wheel first.",
+    "secondary_muscles": [
+      "Shoulders",
+      "Lats",
+      "Hip flexors"
+    ],
+    "swap_alternatives": [],
+    "demo_video_url": null
+  },
+  {
+    "id": "hanging-leg-raises",
+    "name": "Hanging Leg Raises",
+    "muscle_group": "CORE",
+    "equipment": "BODYWEIGHT",
+    "is_bodyweight": true,
+    "steps": [
+      "Hang from a pull up bar with overhand grip",
+      "Brace core and raise legs to 90 degrees",
+      "Lower slowly without swinging",
+      "For advanced: raise legs all the way to the bar",
+      "Dead stop at the bottom each rep"
+    ],
+    "common_mistakes": [
+      "Swinging the body to generate momentum",
+      "Not controlling the descent",
+      "Bending knees to compensate for weak core"
+    ],
+    "coach_tip": "Hanging leg raises are an advanced core exercise. Master lying leg raises first. If you swing, do dead hangs to build grip strength.",
+    "secondary_muscles": [
+      "Hip flexors",
+      "Forearms",
+      "Lats"
+    ],
+    "swap_alternatives": [],
+    "demo_video_url": null
+  },
+  {
+    "id": "leg-raises",
+    "name": "Leg Raises",
+    "muscle_group": "CORE",
+    "equipment": "BODYWEIGHT",
+    "is_bodyweight": true,
+    "steps": [
+      "Lie flat on your back, legs straight",
+      "Place hands under your lower back for support",
+      "Raise legs to 90 degrees keeping them straight",
+      "Lower slowly until heels are just above the floor",
+      "Do not let heels touch the floor between reps"
+    ],
+    "common_mistakes": [
+      "Lower back arching off the floor",
+      "Bending the knees to make it easier",
+      "Dropping legs too fast"
+    ],
+    "coach_tip": "The lower back should stay pressed into the floor. If it arches, you are not ready for this weight — bend your knees slightly.",
+    "secondary_muscles": [
+      "Hip flexors",
+      "Transverse abdominis"
+    ],
+    "swap_alternatives": [],
+    "demo_video_url": null
+  },
+  {
+    "id": "mountain-climbers",
+    "name": "Mountain Climbers",
+    "muscle_group": "CORE",
+    "equipment": "BODYWEIGHT",
+    "is_bodyweight": true,
+    "steps": [
+      "Start in a high plank position",
+      "Drive one knee toward your chest quickly",
+      "Switch legs in a running motion",
+      "Keep hips level throughout",
+      "Maintain a strong plank position the whole time"
+    ],
+    "common_mistakes": [
+      "Hips rising too high — piking position",
+      "Not keeping shoulders over wrists",
+      "Moving so fast that form breaks down"
+    ],
+    "coach_tip": "Mountain climbers are a core and cardio combination. Keep your hips level — if they rise, slow down.",
+    "secondary_muscles": [
+      "Shoulders",
+      "Hip flexors",
+      "Chest"
+    ],
+    "swap_alternatives": [],
+    "demo_video_url": null
+  },
+  {
+    "id": "plank",
+    "name": "Plank",
+    "muscle_group": "CORE",
+    "equipment": "BODYWEIGHT",
+    "is_bodyweight": true,
+    "steps": [
+      "Start on forearms and toes in a straight line",
+      "Body straight from head to heels — no piking",
+      "Brace abs hard and squeeze glutes",
+      "Hold position breathing normally",
+      "Do not hold your breath — it reduces stability"
+    ],
+    "common_mistakes": [
+      "Hips too high or too low during the hold",
+      "Holding breath instead of breathing normally",
+      "Head hanging down between the shoulders"
+    ],
+    "coach_tip": "Focus on pulling your belly button toward your spine. A 30-second perfect plank beats a 2-minute saggy one.",
+    "secondary_muscles": [
+      "Glutes",
+      "Shoulders",
+      "Erector spinae",
+      "Hip flexors"
+    ],
+    "swap_alternatives": [
+      "Dead bug",
+      "Bird dog",
+      "Ab wheel rollout"
+    ],
+    "demo_video_url": null
+  },
+  {
+    "id": "russian-twist",
+    "name": "Russian Twist",
+    "muscle_group": "CORE",
+    "equipment": "BODYWEIGHT",
+    "is_bodyweight": true,
+    "steps": [
+      "Sit with knees bent, lean back to 45 degrees",
+      "Lift feet off the floor",
+      "Rotate torso left to right touching the floor each side",
+      "Keep core braced throughout",
+      "Add a weight plate or dumbbell to increase difficulty"
+    ],
+    "common_mistakes": [
+      "Rotating arms only instead of the whole torso",
+      "Losing balance and dropping feet",
+      "Not going through full rotation range"
+    ],
+    "coach_tip": "The rotation should come from your torso not just your arms. Think about your belly button pointing left and right.",
+    "secondary_muscles": [
+      "Hip flexors",
+      "Obliques"
+    ],
+    "swap_alternatives": [],
+    "demo_video_url": null
+  },
+  {
+    "id": "box-jumps",
+    "name": "Box Jumps",
+    "muscle_group": "FULL_BODY",
+    "equipment": "BODYWEIGHT",
+    "is_bodyweight": true,
+    "steps": [
+      "Stand in front of a box at knee to hip height",
+      "Bend knees and swing arms back",
+      "Explode up and forward landing on the box",
+      "Land softly with both feet, knees bent",
+      "Step down — do not jump down"
+    ],
+    "common_mistakes": [
+      "Box too high for your current level",
+      "Landing with straight legs",
+      "Jumping down instead of stepping — injury risk"
+    ],
+    "coach_tip": "Always step down from the box — never jump. The Achilles tendon is under massive stress on the landing. Start with a low box and build up.",
+    "secondary_muscles": [
+      "Glutes",
+      "Hamstrings",
+      "Core",
+      "Calves"
+    ],
+    "swap_alternatives": [],
+    "demo_video_url": null
+  },
+  {
+    "id": "burpees",
+    "name": "Burpees",
+    "muscle_group": "FULL_BODY",
+    "equipment": "BODYWEIGHT",
+    "is_bodyweight": true,
+    "steps": [
+      "Stand with feet shoulder width",
+      "Drop hands to floor and jump feet back to plank",
+      "Perform a push up",
+      "Jump feet back to hands",
+      "Jump up with arms overhead"
+    ],
+    "common_mistakes": [
+      "Skipping the push up — reduces the upper body benefit",
+      "Landing with straight legs on the jump — knee stress",
+      "Going so fast that form breaks completely"
+    ],
+    "coach_tip": "Burpees are brutal but effective. Pace yourself — one good burpee beats ten sloppy ones. Land softly with knees slightly bent.",
+    "secondary_muscles": [
+      "Chest",
+      "Shoulders",
+      "Core",
+      "Legs"
+    ],
+    "swap_alternatives": [],
+    "demo_video_url": null
+  },
+  {
+    "id": "kettlebell-swing",
+    "name": "Kettlebell Swing",
+    "muscle_group": "FULL_BODY",
+    "equipment": "KETTLEBELL",
+    "is_bodyweight": false,
+    "steps": [
+      "Stand with feet shoulder width, kettlebell in front",
+      "Hinge at hips, swing kettlebell back between legs",
+      "Drive hips forward explosively to swing it to shoulder height",
+      "Let it swing back down and hinge to absorb",
+      "The power comes entirely from the hip drive not the arms"
+    ],
+    "common_mistakes": [
+      "Squatting instead of hinging",
+      "Using arms to lift — arms are just a link",
+      "Letting the bell pull you forward at the bottom"
+    ],
+    "coach_tip": "The kettlebell swing is a hip hinge not a squat. Think of snapping your hips forward like slamming a car door with your hips.",
+    "secondary_muscles": [
+      "Glutes",
+      "Hamstrings",
+      "Core",
+      "Shoulders"
+    ],
+    "swap_alternatives": [],
+    "demo_video_url": null
+  },
+  {
+    "id": "power-clean",
+    "name": "Power Clean",
+    "muscle_group": "FULL_BODY",
+    "equipment": "BARBELL",
+    "is_bodyweight": false,
+    "steps": [
+      "Stand over bar, feet hip width, bar over mid-foot",
+      "Hinge down, grip just outside legs",
+      "First pull — lift bar to knee level keeping back flat",
+      "Second pull — explosive hip extension",
+      "Receive bar on shoulders in quarter squat position"
+    ],
+    "common_mistakes": [
+      "Pulling with the arms too early",
+      "Not getting full hip extension",
+      "Bar drifting away from the body"
+    ],
+    "coach_tip": "The power clean is a technical lift. Learn it with a broomstick first. The arms do not pull — they just guide. All power comes from the legs and hips.",
+    "secondary_muscles": [
+      "Hamstrings",
+      "Glutes",
+      "Traps",
+      "Core"
+    ],
+    "swap_alternatives": [],
+    "demo_video_url": null
+  },
+  {
+    "id": "hip-thrust",
+    "name": "Barbell Hip Thrust",
+    "muscle_group": "GLUTES",
+    "equipment": "BARBELL",
+    "is_bodyweight": false,
+    "steps": [
+      "Sit with upper back against a bench, bar across hips",
+      "Feet flat on floor, knees bent at 90 degrees",
+      "Drive hips up until body forms a straight line",
+      "Squeeze glutes hard at the top for 2 seconds",
+      "Lower hips slowly back toward the floor"
+    ],
+    "common_mistakes": [
+      "Hyperextending the lower back at the top",
+      "Feet too far or too close — find your stance",
+      "Not squeezing glutes at the top"
+    ],
+    "coach_tip": "The hip thrust is the single best glute exercise. At the top your shins should be vertical. Use a pad on the bar for comfort.",
+    "secondary_muscles": [
+      "Hamstrings",
+      "Core",
+      "Adductors"
+    ],
+    "swap_alternatives": [],
+    "demo_video_url": null
+  },
+  {
+    "id": "cable-kickback",
+    "name": "Cable Kickback",
+    "muscle_group": "GLUTES",
+    "equipment": "CABLE",
+    "is_bodyweight": false,
+    "steps": [
+      "Attach ankle strap to cable at low pulley",
+      "Face the machine holding for support",
+      "Kick working leg straight back squeezing the glute",
+      "Hold for 1 second at the top",
+      "Lower with control and repeat"
+    ],
+    "common_mistakes": [
+      "Swinging the leg with momentum",
+      "Kicking too high — becomes lower back",
+      "Not squeezing the glute at the top"
+    ],
+    "coach_tip": "The range of motion is small. Do not try to kick high. Focus on feeling the glute contract not on how far your leg goes back.",
+    "secondary_muscles": [
+      "Hamstrings",
+      "Core"
+    ],
+    "swap_alternatives": [],
+    "demo_video_url": null
+  },
+  {
+    "id": "glute-bridge",
+    "name": "Glute Bridge",
+    "muscle_group": "GLUTES",
+    "equipment": "BODYWEIGHT",
+    "is_bodyweight": true,
+    "steps": [
+      "Lie on your back, knees bent, feet flat on floor",
+      "Drive hips up by squeezing your glutes",
+      "Hold at the top for 2 seconds",
+      "Lower hips slowly back to the floor",
+      "Do not let hips fully touch before next rep"
+    ],
+    "common_mistakes": [
+      "Pushing through the lower back instead of glutes",
+      "Feet too far from body — shifts load to hamstrings",
+      "Not squeezing glutes at the top"
+    ],
+    "coach_tip": "The glute bridge is a beginner-friendly hip thrust. Master this before adding a barbell. Focus entirely on squeezing your glutes.",
+    "secondary_muscles": [
+      "Hamstrings",
+      "Core"
+    ],
+    "swap_alternatives": [],
+    "demo_video_url": null
+  },
+  {
+    "id": "sumo-deadlift",
+    "name": "Sumo Deadlift",
+    "muscle_group": "GLUTES",
+    "equipment": "BARBELL",
+    "is_bodyweight": false,
+    "steps": [
+      "Stand with wide stance, toes pointed out 45 degrees",
+      "Grip bar inside your legs with overhand grip",
+      "Chest up, back flat, hips low to start",
+      "Drive through the floor and squeeze glutes at top",
+      "Lower bar with control hinging at hips"
+    ],
+    "common_mistakes": [
+      "Hips rising before the bar leaves the floor",
+      "Knees caving inward during the lift",
+      "Rounding the lower back"
+    ],
+    "coach_tip": "The sumo deadlift places more emphasis on glutes and inner thighs than conventional. Push your knees out in line with your toes throughout the entire lift.",
+    "secondary_muscles": [
+      "Hamstrings",
+      "Adductors",
+      "Core",
+      "Traps"
+    ],
+    "swap_alternatives": [],
+    "demo_video_url": null
+  },
+  {
+    "id": "leg-curl",
+    "name": "Leg Curl",
+    "muscle_group": "HAMSTRINGS",
+    "equipment": "MACHINE",
+    "is_bodyweight": false,
+    "steps": [
+      "Lie face down on machine, pad just above ankles",
+      "Adjust pad position so it sits comfortably",
+      "Curl heels toward glutes in a controlled motion",
+      "Hold for 1 second at the top contraction",
+      "Lower slowly over 3 seconds — do not drop"
+    ],
+    "common_mistakes": [
+      "Hips rising off the pad during the movement",
+      "Not reaching a full range of motion",
+      "Using momentum to curl the weight up"
+    ],
+    "coach_tip": "Think about squeezing your hamstring at the top. The slow eccentric (lowering) is where the growth happens.",
+    "secondary_muscles": [
+      "Calves",
+      "Glutes"
+    ],
+    "swap_alternatives": [
+      "Romanian deadlift",
+      "Nordic curl",
+      "Swiss ball curl"
+    ],
+    "demo_video_url": null
+  },
+  {
+    "id": "lying-leg-curl",
+    "name": "Lying Leg Curl",
+    "muscle_group": "HAMSTRINGS",
+    "equipment": "MACHINE",
+    "is_bodyweight": false,
+    "steps": [
+      "Lie face down on the machine",
+      "Position pad just above the ankles",
+      "Curl heels toward glutes in a controlled arc",
+      "Hold for 1 second at the top",
+      "Lower slowly over 3 seconds"
+    ],
+    "common_mistakes": [
+      "Hips rising off the pad",
+      "Using momentum to swing weight up",
+      "Not getting full range of motion"
+    ],
+    "coach_tip": "The slow lowering phase is where hamstring development happens. 3 seconds down on every rep.",
+    "secondary_muscles": [
+      "Calves",
+      "Glutes"
+    ],
+    "swap_alternatives": [],
+    "demo_video_url": null
+  },
+  {
+    "id": "nordic-curl",
+    "name": "Nordic Curl",
+    "muscle_group": "HAMSTRINGS",
+    "equipment": "BODYWEIGHT",
+    "is_bodyweight": true,
+    "steps": [
+      "Kneel on the floor, have partner hold ankles or hook under something",
+      "Keeping body straight from knees to head",
+      "Lower your body toward the floor slowly",
+      "Use hands to catch yourself at the bottom",
+      "Pull yourself back up using hamstrings"
+    ],
+    "common_mistakes": [
+      "Hinging at the hips — defeats the purpose",
+      "Dropping too fast — reduces the eccentric benefit",
+      "Not keeping a straight body line"
+    ],
+    "coach_tip": "This is one of the hardest hamstring exercises and has strong injury prevention benefits. Beginners can do the eccentric only — lower down and use hands to push back up.",
+    "secondary_muscles": [
+      "Glutes",
+      "Calves"
+    ],
+    "swap_alternatives": [],
+    "demo_video_url": null
+  },
+  {
+    "id": "romanian-deadlift",
+    "name": "Romanian Deadlift",
+    "muscle_group": "HAMSTRINGS",
+    "equipment": "BARBELL",
+    "is_bodyweight": false,
+    "steps": [
+      "Stand with bar at hip level, slight knee bend",
+      "Hinge at the hips by pushing them backward",
+      "Lower bar along your shins until hamstring stretch",
+      "Keep back perfectly neutral throughout",
+      "Drive hips forward to return to standing"
+    ],
+    "common_mistakes": [
+      "Rounding the lower back — serious injury risk",
+      "Bending knees too much — becomes a conventional deadlift",
+      "Not feeling the hamstring stretch — reduce weight"
+    ],
+    "coach_tip": "Feel the stretch in your hamstrings before you reverse. If you feel it in your back, the weight is too heavy.",
+    "secondary_muscles": [
+      "Glutes",
+      "Erector spinae",
+      "Adductors"
+    ],
+    "swap_alternatives": [
+      "Lying leg curl",
+      "Nordic curl",
+      "Seated leg curl"
+    ],
+    "demo_video_url": null
+  },
+  {
+    "id": "bulgarian-split-squat",
+    "name": "Bulgarian Split Squat",
+    "muscle_group": "LEGS",
+    "equipment": "DUMBBELL",
+    "is_bodyweight": false,
+    "steps": [
+      "Stand in front of a bench, hold dumbbells at sides",
+      "Place rear foot on bench behind you",
+      "Lower front leg until thigh is parallel to floor",
+      "Front knee tracks over toes",
+      "Drive through front heel to return to start"
+    ],
+    "common_mistakes": [
+      "Front foot too close to bench — knee goes forward",
+      "Torso leaning forward excessively",
+      "Rear foot too high up on bench — unstable"
+    ],
+    "coach_tip": "This is one of the hardest leg exercises. Start with bodyweight until comfortable, then add dumbbells. Your front leg does all the work.",
+    "secondary_muscles": [
+      "Glutes",
+      "Hamstrings",
+      "Core"
+    ],
+    "swap_alternatives": [],
+    "demo_video_url": null
+  },
+  {
+    "id": "goblet-squat",
+    "name": "Goblet Squat",
+    "muscle_group": "LEGS",
+    "equipment": "DUMBBELL",
+    "is_bodyweight": false,
+    "steps": [
+      "Hold dumbbell vertically at chest height",
+      "Feet shoulder width, toes slightly out",
+      "Squat down keeping chest tall and upright",
+      "Elbows should brush inside of knees at the bottom",
+      "Drive through heels to stand back up"
+    ],
+    "common_mistakes": [
+      "Letting chest fall forward",
+      "Heels rising off the floor",
+      "Not squatting deep enough"
+    ],
+    "coach_tip": "The goblet squat teaches perfect squat mechanics. The weight in front forces your torso to stay upright naturally.",
+    "secondary_muscles": [
+      "Glutes",
+      "Core",
+      "Calves"
+    ],
+    "swap_alternatives": [],
+    "demo_video_url": null
+  },
+  {
+    "id": "hack-squat",
+    "name": "Hack Squat",
+    "muscle_group": "LEGS",
+    "equipment": "MACHINE",
+    "is_bodyweight": false,
+    "steps": [
+      "Step into machine, shoulders under pads",
+      "Feet shoulder width on the platform",
+      "Release safety and lower until thighs are parallel",
+      "Drive through full foot to press back up",
+      "Do not lock out knees at the top"
+    ],
+    "common_mistakes": [
+      "Feet too low — excessive knee stress",
+      "Locking out knees at top — joint impact",
+      "Not going to parallel depth"
+    ],
+    "coach_tip": "Higher foot position targets glutes more. Lower foot position targets quads. Start in the middle and find what works for you.",
+    "secondary_muscles": [
+      "Glutes",
+      "Hamstrings",
+      "Calves"
+    ],
+    "swap_alternatives": [],
+    "demo_video_url": null
+  },
+  {
+    "id": "leg-extension",
+    "name": "Leg Extension",
+    "muscle_group": "LEGS",
+    "equipment": "MACHINE",
+    "is_bodyweight": false,
+    "steps": [
+      "Sit in machine with back flat against pad",
+      "Position pad just above the ankles",
+      "Extend legs until fully straight",
+      "Hold for 1 second at the top",
+      "Lower slowly over 3 seconds"
+    ],
+    "common_mistakes": [
+      "Using momentum to swing weight up",
+      "Not reaching full extension at the top",
+      "Dropping weight too fast on the way down"
+    ],
+    "coach_tip": "Leg extensions isolate the quads directly. Keep the movement slow and controlled. This is a finishing exercise not a primary lift.",
+    "secondary_muscles": [
+      "Rectus femoris"
+    ],
+    "swap_alternatives": [],
+    "demo_video_url": null
+  },
+  {
+    "id": "leg-press",
+    "name": "Leg Press",
+    "muscle_group": "LEGS",
+    "equipment": "MACHINE",
+    "is_bodyweight": false,
+    "steps": [
+      "Set feet hip width on the platform",
+      "Lower the platform until knees reach 90°",
+      "Do not lock out knees at the top of the movement",
+      "Control the descent for 2 seconds",
+      "Push through your full foot, not just the toes"
+    ],
+    "common_mistakes": [
+      "Feet too low — puts excessive stress on knees",
+      "Locking out knees at the top — joint impact",
+      "Bouncing off the bottom with heavy weight"
+    ],
+    "coach_tip": "Foot position changes emphasis. Higher feet targets glutes and hamstrings. Lower hits quads harder.",
+    "secondary_muscles": [
+      "Glutes",
+      "Hamstrings",
+      "Calves"
+    ],
+    "swap_alternatives": [
+      "Barbell squat",
+      "Hack squat",
+      "Bulgarian split squat"
+    ],
+    "demo_video_url": null
+  },
+  {
+    "id": "squat",
+    "name": "Squat",
+    "muscle_group": "LEGS",
+    "equipment": "BARBELL",
+    "is_bodyweight": false,
+    "steps": [
+      "Set bar on upper traps below your neck",
+      "Feet shoulder width, toes slightly outward",
+      "Brace core hard and sit back into the squat",
+      "Lower until thighs are parallel to the floor",
+      "Drive through heels and stand explosively"
+    ],
+    "common_mistakes": [
+      "Knees caving inward — very common in beginners",
+      "Heels rising — indicates poor ankle mobility",
+      "Excessive forward lean — focus on keeping chest up"
+    ],
+    "coach_tip": "Think about sitting back and down, not just down. Keep your chest proud and proud throughout the movement.",
+    "secondary_muscles": [
+      "Glutes",
+      "Hamstrings",
+      "Core",
+      "Calves",
+      "Adductors"
+    ],
+    "swap_alternatives": [
+      "Leg press",
+      "Hack squat",
+      "Goblet squat"
+    ],
+    "demo_video_url": null
+  },
+  {
+    "id": "step-ups",
+    "name": "Step Ups",
+    "muscle_group": "LEGS",
+    "equipment": "DUMBBELL",
+    "is_bodyweight": false,
+    "steps": [
+      "Stand facing a bench or box holding dumbbells",
+      "Step up with one foot onto the platform",
+      "Drive through that heel to bring your body up",
+      "Step down with the same foot",
+      "Complete all reps on one side then switch"
+    ],
+    "common_mistakes": [
+      "Pushing off the back foot — reduces leg isolation",
+      "Box too high — compromises form",
+      "Leaning forward excessively"
+    ],
+    "coach_tip": "The stepping leg should do all the work. If you find yourself pushing off the back foot the box is too high.",
+    "secondary_muscles": [
+      "Glutes",
+      "Hamstrings",
+      "Core"
+    ],
+    "swap_alternatives": [],
+    "demo_video_url": null
+  },
+  {
+    "id": "lunges",
+    "name": "Walking Lunges",
+    "muscle_group": "LEGS",
+    "equipment": "BODYWEIGHT",
+    "is_bodyweight": true,
+    "steps": [
+      "Stand tall, feet together",
+      "Step forward with one foot into a lunge",
+      "Lower back knee toward the floor without touching",
+      "Drive through front heel to bring feet together",
+      "Alternate legs each rep"
+    ],
+    "common_mistakes": [
+      "Front knee going past the toes",
+      "Torso leaning forward excessively",
+      "Steps too short — reduces range of motion"
+    ],
+    "coach_tip": "Keep your torso upright and take a long enough stride so your front shin stays vertical at the bottom.",
+    "secondary_muscles": [
+      "Glutes",
+      "Hamstrings",
+      "Core",
+      "Calves"
+    ],
+    "swap_alternatives": [],
+    "demo_video_url": null
+  },
+  {
+    "id": "arnold-press",
+    "name": "Arnold Press",
+    "muscle_group": "SHOULDERS",
+    "equipment": "DUMBBELL",
+    "is_bodyweight": false,
+    "steps": [
+      "Sit with dumbbells at shoulder height, palms facing you",
+      "Press up while rotating palms to face forward",
+      "At the top arms are fully extended",
+      "Reverse the rotation as you lower back down",
+      "Full rotation should happen over the full rep range"
+    ],
+    "common_mistakes": [
+      "Rushing the rotation — defeats the purpose",
+      "Not going through full range of motion",
+      "Using too heavy weight — reduces rotation quality"
+    ],
+    "coach_tip": "The rotation engages all three heads of the shoulder. Slow it down — this is not a race.",
+    "secondary_muscles": [
+      "Triceps",
+      "Upper traps"
+    ],
+    "swap_alternatives": [],
+    "demo_video_url": null
+  },
+  {
+    "id": "cable-lateral-raise",
+    "name": "Cable Lateral Raise",
+    "muscle_group": "SHOULDERS",
+    "equipment": "CABLE",
+    "is_bodyweight": false,
+    "steps": [
+      "Set cable to ankle height on one side",
+      "Stand sideways to the cable, grab handle with far hand",
+      "Raise arm to shoulder height keeping slight elbow bend",
+      "Hold for 1 second at the top",
+      "Lower slowly in 3 seconds"
+    ],
+    "common_mistakes": [
+      "Using too much weight and swinging",
+      "Raising arm too high above shoulder",
+      "Not keeping constant tension at the bottom"
+    ],
+    "coach_tip": "Cable lateral raises maintain tension throughout the full range unlike dumbbells. The bottom portion of the lift is where cables win.",
+    "secondary_muscles": [
+      "Upper traps"
+    ],
+    "swap_alternatives": [],
+    "demo_video_url": null
+  },
+  {
+    "id": "db-shoulder-press",
+    "name": "Dumbbell Shoulder Press",
+    "muscle_group": "SHOULDERS",
+    "equipment": "DUMBBELL",
+    "is_bodyweight": false,
+    "steps": [
+      "Sit on bench with back supported, dumbbells at shoulder height",
+      "Palms facing forward, elbows at 90 degrees",
+      "Press dumbbells up until arms are fully extended",
+      "Lower slowly back to shoulder height",
+      "Keep core braced and avoid arching lower back"
+    ],
+    "common_mistakes": [
+      "Arching lower back excessively",
+      "Pressing dumbbells forward instead of straight up",
+      "Using momentum to press the weight"
+    ],
+    "coach_tip": "Dumbbells allow each arm to work independently fixing strength imbalances. Keep the movement controlled especially on the way down.",
+    "secondary_muscles": [
+      "Triceps",
+      "Upper traps"
+    ],
+    "swap_alternatives": [],
+    "demo_video_url": null
+  },
+  {
+    "id": "front-raises",
+    "name": "Front Raises",
+    "muscle_group": "SHOULDERS",
+    "equipment": "DUMBBELL",
+    "is_bodyweight": false,
+    "steps": [
+      "Stand holding dumbbells at thigh level",
+      "Raise one or both arms to shoulder height",
+      "Keep a slight bend in the elbow throughout",
+      "Lower slowly in 2-3 seconds",
+      "Do not swing or use momentum"
+    ],
+    "common_mistakes": [
+      "Swinging the weight up with momentum",
+      "Going above shoulder height — strains the joint",
+      "Shrugging the shoulders at the top"
+    ],
+    "coach_tip": "Front raises isolate the anterior delt. Use lighter weight than you think — strict form matters far more than load here.",
+    "secondary_muscles": [
+      "Upper chest",
+      "Serratus anterior"
+    ],
+    "swap_alternatives": [],
+    "demo_video_url": null
+  },
+  {
+    "id": "lateral-raises",
+    "name": "Lateral Raises",
+    "muscle_group": "SHOULDERS",
+    "equipment": "DUMBBELL",
+    "is_bodyweight": false,
+    "steps": [
+      "Stand with dumbbells at sides",
+      "Raise arms to shoulder level with a slight elbow bend",
+      "Lead with your elbows, not your wrists",
+      "Lower slowly in 2-3 seconds",
+      "Do not swing or shrug at any point"
+    ],
+    "common_mistakes": [
+      "Using momentum to swing the weight up",
+      "Going above shoulder height",
+      "Shrugging at the top",
+      "Too heavy — defeats the isolation purpose"
+    ],
+    "coach_tip": "If you need to lean or swing, the weight is too heavy. Lighter and stricter always wins on lateral raises.",
+    "secondary_muscles": [
+      "Upper traps"
+    ],
+    "swap_alternatives": [
+      "Cable lateral raise",
+      "Machine lateral raise",
+      "Behind-back cable raise"
+    ],
+    "demo_video_url": null
+  },
+  {
+    "id": "overhead-press",
+    "name": "Overhead Press",
+    "muscle_group": "SHOULDERS",
+    "equipment": "BARBELL",
+    "is_bodyweight": false,
+    "steps": [
+      "Stand with feet shoulder width, bar at collarbone",
+      "Brace core hard before you press",
+      "Press directly overhead until arms are completely straight",
+      "Finish with arms vertical, biceps near ears",
+      "Lower under control to collarbone — do not drop"
+    ],
+    "common_mistakes": [
+      "Pressing in an arc instead of straight up",
+      "Lower back overextension — core not braced",
+      "Bar drifting forward of the body on the way up"
+    ],
+    "coach_tip": "Push your head through the window as the bar passes your face. This keeps the bar path perfectly vertical.",
+    "secondary_muscles": [
+      "Triceps",
+      "Upper traps",
+      "Core",
+      "Serratus anterior"
+    ],
+    "swap_alternatives": [
+      "Dumbbell shoulder press",
+      "Push press",
+      "Landmine press"
+    ],
+    "demo_video_url": null
+  },
+  {
+    "id": "push-press",
+    "name": "Push Press",
+    "muscle_group": "SHOULDERS",
+    "equipment": "BARBELL",
+    "is_bodyweight": false,
+    "steps": [
+      "Hold bar at shoulder height, slight knee bend",
+      "Dip slightly by bending knees",
+      "Drive legs up and use momentum to press bar overhead",
+      "Lock out arms fully at the top",
+      "Lower bar back to shoulders with control"
+    ],
+    "common_mistakes": [
+      "Dipping too deep — becomes a thruster",
+      "Not locking out at the top",
+      "Leaning back excessively when pressing"
+    ],
+    "coach_tip": "The leg drive allows you to move heavier than a strict press. Use it for overload — not to compensate for weakness.",
+    "secondary_muscles": [
+      "Triceps",
+      "Upper traps",
+      "Core"
+    ],
+    "swap_alternatives": [],
+    "demo_video_url": null
+  },
+  {
+    "id": "shoulder-press",
+    "name": "Shoulder Press",
+    "muscle_group": "SHOULDERS",
+    "equipment": "BARBELL",
+    "is_bodyweight": false,
+    "steps": [
+      "Sit with back supported, bar at collarbone",
+      "Grip bar at shoulder width, elbows at 90°",
+      "Press directly overhead until arms are straight",
+      "Lower to chin level — do not go lower",
+      "Re-rack safely after final rep"
+    ],
+    "common_mistakes": [
+      "Pressing in front of face instead of directly overhead",
+      "Arching lower back excessively",
+      "Using momentum — strict form builds more strength"
+    ],
+    "coach_tip": "Keep your core braced throughout. If your lower back arches noticeably, reduce the weight.",
+    "secondary_muscles": [
+      "Triceps",
+      "Upper traps",
+      "Serratus anterior"
+    ],
+    "swap_alternatives": [
+      "Standing overhead press",
+      "Arnold press",
+      "Machine shoulder press"
+    ],
+    "demo_video_url": null
+  },
+  {
+    "id": "close-grip-bench",
+    "name": "Close Grip Bench Press",
+    "muscle_group": "TRICEPS",
+    "equipment": "BARBELL",
+    "is_bodyweight": false,
+    "steps": [
+      "Lie on flat bench, grip bar shoulder width apart",
+      "Unrack and lower bar to lower chest",
+      "Keep elbows tucked close to your body",
+      "Press back up until arms are fully extended",
+      "Do not let elbows flare out"
+    ],
+    "common_mistakes": [
+      "Gripping too narrow — strains the wrists",
+      "Letting elbows flare wide — becomes a regular bench",
+      "Bouncing bar off chest"
+    ],
+    "coach_tip": "Shoulder width grip is ideal — not as narrow as people think. Focus on keeping elbows tucked throughout.",
+    "secondary_muscles": [
+      "Chest",
+      "Front delts"
+    ],
+    "swap_alternatives": [],
+    "demo_video_url": null
+  },
+  {
+    "id": "dips",
+    "name": "Dips",
+    "muscle_group": "TRICEPS",
+    "equipment": "BODYWEIGHT",
+    "is_bodyweight": true,
+    "steps": [
+      "Grip parallel bars with straight arms, body vertical",
+      "Lean slightly forward for more chest involvement",
+      "Lower until elbows reach 90°",
+      "Press back up without fully locking out",
+      "Control the descent — 2-3 seconds down"
+    ],
+    "common_mistakes": [
+      "Going too deep below 90° — shoulder impingement risk",
+      "Flaring elbows wide — shoulder joint stress",
+      "Rushing the movement with partial reps"
+    ],
+    "coach_tip": "The more you lean forward, the more chest involvement. Staying upright isolates triceps more directly.",
+    "secondary_muscles": [
+      "Chest",
+      "Front delts",
+      "Core"
+    ],
+    "swap_alternatives": [
+      "Tricep pushdown",
+      "Skull crushers",
+      "Close-grip push-up"
+    ],
+    "demo_video_url": null
+  },
+  {
+    "id": "skull-crushers",
+    "name": "Skull Crushers",
+    "muscle_group": "TRICEPS",
+    "equipment": "BARBELL",
+    "is_bodyweight": false,
+    "steps": [
+      "Lie on bench, hold bar with narrow grip above chest",
+      "Lower bar toward forehead by bending only the elbows",
+      "Keep upper arms completely still throughout",
+      "Extend back to start by straightening elbows",
+      "Do not let elbows flare out during movement"
+    ],
+    "common_mistakes": [
+      "Moving upper arms — only forearms should move",
+      "Going too heavy — high injury risk",
+      "Lowering bar behind the head instead of toward forehead"
+    ],
+    "coach_tip": "The name says it all — control this movement. Upper arms must stay locked. Use an EZ bar if straight bar causes wrist pain.",
+    "secondary_muscles": [
+      "Anconeus"
+    ],
+    "swap_alternatives": [],
+    "demo_video_url": null
+  },
+  {
+    "id": "tricep-kickback",
+    "name": "Tricep Kickback",
+    "muscle_group": "TRICEPS",
+    "equipment": "DUMBBELL",
+    "is_bodyweight": false,
+    "steps": [
+      "Hinge forward at hips, upper arm parallel to floor",
+      "Hold dumbbell with elbow bent at 90 degrees",
+      "Extend forearm back until arm is fully straight",
+      "Hold for 1 second at full extension",
+      "Lower slowly back to 90 degrees"
+    ],
+    "common_mistakes": [
+      "Upper arm dropping during the movement",
+      "Using momentum to swing the weight back",
+      "Not reaching full extension"
+    ],
+    "coach_tip": "The key is keeping your upper arm completely still. Only your forearm moves. Use a lighter weight than you think you need.",
+    "secondary_muscles": [
+      "Anconeus"
+    ],
+    "swap_alternatives": [],
+    "demo_video_url": null
+  },
+  {
+    "id": "tricep-overhead-extension",
+    "name": "Tricep Overhead Extension",
+    "muscle_group": "TRICEPS",
+    "equipment": "DUMBBELL",
+    "is_bodyweight": false,
+    "steps": [
+      "Stand or sit holding one dumbbell with both hands",
+      "Raise dumbbell overhead with arms fully extended",
+      "Lower dumbbell behind head by bending elbows",
+      "Keep upper arms close to your head throughout",
+      "Extend back up to start position"
+    ],
+    "common_mistakes": [
+      "Letting elbows flare out to the sides",
+      "Moving upper arms instead of just forearms",
+      "Using too heavy weight — reduces range of motion"
+    ],
+    "coach_tip": "The overhead position stretches the long head of the tricep maximally. This is one of the best tricep exercises for growth.",
+    "secondary_muscles": [
+      "Serratus anterior"
+    ],
+    "swap_alternatives": [],
+    "demo_video_url": null
+  },
+  {
+    "id": "tricep-pushdowns",
+    "name": "Tricep Pushdowns",
+    "muscle_group": "TRICEPS",
+    "equipment": "CABLE",
+    "is_bodyweight": false,
+    "steps": [
+      "Set cable at head height with straight bar",
+      "Grip with overhand grip, elbows at sides",
+      "Keep elbows pinned to your sides throughout",
+      "Extend fully — lock out at the bottom",
+      "Return slowly without letting elbows drift"
+    ],
+    "common_mistakes": [
+      "Letting elbows drift forward during the movement",
+      "Not reaching full extension at the bottom",
+      "Using shoulder muscles to initiate the pull"
+    ],
+    "coach_tip": "Elbows should not move at all. If they drift, reduce the weight and focus on the lockout.",
+    "secondary_muscles": [
+      "Anconeus",
+      "Forearm extensors"
+    ],
+    "swap_alternatives": [
+      "Tricep overhead extension",
+      "Close-grip bench press",
+      "Tricep dips"
+    ],
+    "demo_video_url": null
+  }
+]
