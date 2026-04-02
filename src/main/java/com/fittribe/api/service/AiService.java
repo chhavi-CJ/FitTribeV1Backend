@@ -66,20 +66,10 @@ public class AiService {
 
             List<SetLog> logs = setLogRepo.findBySessionId(sessionId);
             log.debug("Set logs count: {}", logs.size());
-            log.debug("Min sets required: {}", MIN_SETS);
-            log.debug("Logs size >= MIN_SETS: {}", logs.size() >= MIN_SETS);
             log.debug("Total volume on session: {}", session.getTotalVolumeKg());
             log.debug("All null weight: {}", logs.stream().allMatch(l -> l.getWeightKg() == null));
             logs.forEach(sl -> log.debug("  SetLog id={} exerciseId={} weightKg={} reps={} isPr={}",
                     sl.getId(), sl.getExerciseId(), sl.getWeightKg(), sl.getReps(), sl.getIsPr()));
-
-            // Gate is set COUNT only — never volume. Bodyweight sessions (null weightKg) are
-            // valid and must reach OpenAI as long as enough sets were logged.
-            if (logs.size() < MIN_SETS) {
-                log.debug("RETURNING MOCK — reason: logs.size()={} < MIN_SETS={}", logs.size(), MIN_SETS);
-                sessionRepo.updateAiInsight(sessionId, MOCK_INSIGHT);
-                return;
-            }
 
             User user = userRepo.findById(userId).orElse(null);
             log.debug("OpenAI key present: {}", openAiKey != null && !openAiKey.isBlank());
