@@ -1,16 +1,17 @@
 package com.fittribe.api.dto.response;
 
 import java.math.BigDecimal;
-import java.time.Instant;
 import java.util.UUID;
 
 public record TodaySessionResponse(
         UUID sessionId,
-        String dayType,
-        String muscleGroups,
-        BigDecimal kgVolume,
-        int sets,
-        Integer durationMinutes,
+        String name,
+        String date,
+        BigDecimal totalVolumeKg,
+        int totalSets,
+        Integer durationMins,
         String aiCoachInsight,
-        String status
+        String status,
+        int streak,
+        int completedThisWeek
 ) {}

@@ -448,19 +448,31 @@ public class SessionController {
                 .findFirstByUserIdAndStartedAtBetweenOrderByStartedAtDesc(userId, dayStart, dayEnd)
                 .orElseThrow(() -> ApiException.notFound("Session"));
 
-        // Derive muscle groups from set_logs exercise IDs (same logic as AiService)
         List<SetLog> logs = setLogRepo.findBySessionId(session.getId());
-        String muscleGroups = deriveMuscleGroups(logs);
+
+        User user = userRepo.findById(userId).orElseThrow(() -> ApiException.notFound("User"));
+
+        LocalDate monday   = LocalDate.now(ZoneOffset.UTC).with(DayOfWeek.MONDAY);
+        Instant weekFrom   = monday.atStartOfDay(ZoneOffset.UTC).toInstant();
+        Instant weekTo     = monday.plusDays(7).atStartOfDay(ZoneOffset.UTC).toInstant();
+        int completedThisWeek = sessionRepo.countByUserIdAndStatusAndFinishedAtBetween(
+                userId, "COMPLETED", weekFrom, weekTo);
+
+        String date = session.getStartedAt() != null
+                ? LocalDate.ofInstant(session.getStartedAt(), ZoneOffset.UTC).toString()
+                : null;
 
         TodaySessionResponse response = new TodaySessionResponse(
                 session.getId(),
                 session.getName(),
-                muscleGroups,
+                date,
                 session.getTotalVolumeKg() != null ? session.getTotalVolumeKg() : BigDecimal.ZERO,
                 session.getTotalSets()     != null ? session.getTotalSets()     : logs.size(),
                 session.getDurationMins(),
                 session.getAiInsight(),
-                session.getStatus());
+                session.getStatus(),
+                user.getStreak(),
+                completedThisWeek);
 
         return ResponseEntity.ok(ApiResponse.success(response));
     }
