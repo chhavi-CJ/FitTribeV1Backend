@@ -46,6 +46,12 @@ public class User {
     @Column(name = "weekly_goal")
     private Integer weeklyGoal = 4;
 
+    @Column(name = "pending_weekly_goal")
+    private Integer pendingWeeklyGoal;
+
+    @Column(name = "weight_unit", nullable = false)
+    private String weightUnit = "KG";
+
     @Column(name = "coins")
     private Integer coins = 0;
 
@@ -95,6 +101,12 @@ public class User {
 
     public Integer getWeeklyGoal()                     { return weeklyGoal; }
     public void setWeeklyGoal(Integer weeklyGoal)      { this.weeklyGoal = weeklyGoal; }
+
+    public Integer getPendingWeeklyGoal()                        { return pendingWeeklyGoal; }
+    public void setPendingWeeklyGoal(Integer pendingWeeklyGoal) { this.pendingWeeklyGoal = pendingWeeklyGoal; }
+
+    public String getWeightUnit()                  { return weightUnit; }
+    public void setWeightUnit(String weightUnit)   { this.weightUnit = weightUnit; }
 
     public Integer getCoins()              { return coins; }
     public void setCoins(Integer coins)    { this.coins = coins; }
