@@ -357,8 +357,8 @@ public class SessionController {
         tx.setLabel("Workout completed");
         coinRepo.save(tx);
 
-        // Trigger async AI insight (non-blocking)
-        aiService.generateAndSaveInsight(userId, session.getId());
+        // Generate AI insight synchronously so it's included in the finish response
+        String aiCoachInsight = aiService.generateInsightSync(userId, session.getId());
 
         // Trigger async weekly report when goal is hit
         if (weeklyGoalHit) {
@@ -376,7 +376,8 @@ public class SessionController {
                 COINS_PER_SESSION,
                 weeklyGoalHit,
                 weekNumber,
-                count)));
+                count,
+                aiCoachInsight)));
     }
 
     // ── POST /sessions/{id}/feedback ─────────────────────────────────
@@ -520,6 +521,7 @@ public class SessionController {
                 0,               // coinsEarned not re-credited
                 Boolean.TRUE.equals(session.getWeeklyGoalHit()),
                 session.getWeekNumber() != null ? session.getWeekNumber() : 0,
-                0);              // completedThisWeek not re-counted
+                0,               // completedThisWeek not re-counted
+                session.getAiInsight()); // already saved from original finish call
     }
 }

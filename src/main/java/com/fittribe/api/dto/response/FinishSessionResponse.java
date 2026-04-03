@@ -15,5 +15,6 @@ public record FinishSessionResponse(
         int coinsEarned,
         boolean weeklyGoalHit,
         int weekNumber,
-        int completedThisWeek
+        int completedThisWeek,
+        String aiCoachInsight
 ) {}

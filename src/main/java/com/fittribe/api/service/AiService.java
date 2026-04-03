@@ -52,24 +52,25 @@ public class AiService {
         this.mapper      = mapper;
     }
 
-    @Async
-    public void generateAndSaveInsight(UUID userId, UUID sessionId) {
+    /**
+     * Synchronous version — generates the insight, saves it to DB, and returns it.
+     * Called from finishSession so the insight is included in the finish response.
+     */
+    public String generateInsightSync(UUID userId, UUID sessionId) {
         try {
-            log.debug("=== AI INSIGHT DEBUG ===");
+            log.debug("=== AI INSIGHT DEBUG (sync) ===");
             log.debug("Session: {}", sessionId);
 
             WorkoutSession session = sessionRepo.findById(sessionId).orElse(null);
             if (session == null) {
                 log.debug("RETURNING MOCK — reason: session not found in DB");
-                return;
+                return MOCK_INSIGHT;
             }
 
             List<SetLog> logs = setLogRepo.findBySessionId(sessionId);
             log.debug("Set logs count: {}", logs.size());
             log.debug("Total volume on session: {}", session.getTotalVolumeKg());
             log.debug("All null weight: {}", logs.stream().allMatch(l -> l.getWeightKg() == null));
-            logs.forEach(sl -> log.debug("  SetLog id={} exerciseId={} weightKg={} reps={} isPr={}",
-                    sl.getId(), sl.getExerciseId(), sl.getWeightKg(), sl.getReps(), sl.getIsPr()));
 
             User user = userRepo.findById(userId).orElse(null);
             log.debug("OpenAI key present: {}", openAiKey != null && !openAiKey.isBlank());
@@ -85,10 +86,18 @@ public class AiService {
 
             sessionRepo.updateAiInsight(sessionId, insight);
             log.info("AI insight saved for session {} ({} chars)", sessionId, insight != null ? insight.length() : 0);
+            return insight;
 
         } catch (Exception e) {
             log.error("AI insight generation failed for session {}", sessionId, e);
+            return MOCK_INSIGHT;
         }
+    }
+
+    /** Async wrapper kept for any background callers. Delegates to the sync path. */
+    @Async
+    public void generateAndSaveInsight(UUID userId, UUID sessionId) {
+        generateInsightSync(userId, sessionId);
     }
 
     // ── Prompt builder ────────────────────────────────────────────────
