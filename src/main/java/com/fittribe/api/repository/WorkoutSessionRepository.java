@@ -32,6 +32,10 @@ public interface WorkoutSessionRepository extends JpaRepository<WorkoutSession, 
     List<WorkoutSession> findByUserIdInAndStatusAndStartedAtAfter(
             Collection<UUID> userIds, String status, Instant after);
 
+    // Used for GET /sessions/today: most recent session started today (any status)
+    Optional<WorkoutSession> findFirstByUserIdAndStartedAtBetweenOrderByStartedAtDesc(
+            UUID userId, Instant from, Instant to);
+
     // Targeted update — only writes ai_insight, never touches status
     @Modifying
     @Transactional

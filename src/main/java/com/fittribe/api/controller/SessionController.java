@@ -11,6 +11,7 @@ import com.fittribe.api.dto.response.FinishSessionResponse;
 import com.fittribe.api.dto.response.LogSetResponse;
 import com.fittribe.api.dto.response.SessionHistoryItem;
 import com.fittribe.api.dto.response.StartSessionResponse;
+import com.fittribe.api.dto.response.TodaySessionResponse;
 import com.fittribe.api.dto.request.SessionFeedbackRequest;
 import com.fittribe.api.entity.CoinTransaction;
 import com.fittribe.api.entity.SessionFeedback;
@@ -435,6 +436,35 @@ public class SessionController {
         return ResponseEntity.ok(ApiResponse.success(Map.of("discarded", true)));
     }
 
+    // ── GET /sessions/today ───────────────────────────────────────────
+    @GetMapping("/today")
+    public ResponseEntity<ApiResponse<TodaySessionResponse>> todaySession(Authentication auth) {
+        UUID userId = userId(auth);
+
+        Instant dayStart = LocalDate.now(ZoneOffset.UTC).atStartOfDay(ZoneOffset.UTC).toInstant();
+        Instant dayEnd   = dayStart.plus(1, ChronoUnit.DAYS);
+
+        WorkoutSession session = sessionRepo
+                .findFirstByUserIdAndStartedAtBetweenOrderByStartedAtDesc(userId, dayStart, dayEnd)
+                .orElseThrow(() -> ApiException.notFound("Session"));
+
+        // Derive muscle groups from set_logs exercise IDs (same logic as AiService)
+        List<SetLog> logs = setLogRepo.findBySessionId(session.getId());
+        String muscleGroups = deriveMuscleGroups(logs);
+
+        TodaySessionResponse response = new TodaySessionResponse(
+                session.getId(),
+                session.getName(),
+                muscleGroups,
+                session.getTotalVolumeKg() != null ? session.getTotalVolumeKg() : BigDecimal.ZERO,
+                session.getTotalSets()     != null ? session.getTotalSets()     : logs.size(),
+                session.getDurationMins(),
+                session.getAiInsight(),
+                session.getStatus());
+
+        return ResponseEntity.ok(ApiResponse.success(response));
+    }
+
     // ── GET /sessions/history ─────────────────────────────────────────
     @GetMapping("/history")
     public ResponseEntity<ApiResponse<List<SessionHistoryItem>>> history(Authentication auth) {
@@ -485,6 +515,22 @@ public class SessionController {
 
     private UUID userId(Authentication auth) {
         return (UUID) auth.getPrincipal();
+    }
+
+    /** Derives a comma-separated muscle group label from set_log exercise IDs. */
+    private String deriveMuscleGroups(List<SetLog> logs) {
+        java.util.Set<String> muscles = new java.util.LinkedHashSet<>();
+        for (SetLog sl : logs) {
+            String id = sl.getExerciseId() != null ? sl.getExerciseId().toLowerCase() : "";
+            if (id.contains("bench") || id.contains("pec") || id.contains("flye") || id.contains("push-up") || id.contains("dip")) muscles.add("Chest");
+            if (id.contains("shoulder") || id.contains("lateral") || id.contains("front-raise") || id.contains("overhead") || id.contains("arnold") || id.contains("face-pull") || id.contains("reverse-flye")) muscles.add("Shoulders");
+            if (id.contains("pull") || id.contains("row") || id.contains("deadlift") || id.contains("lat-pulldown") || id.contains("chin")) muscles.add("Back");
+            if (id.contains("tricep") || id.contains("skull") || id.contains("close-grip")) muscles.add("Triceps");
+            if (id.contains("bicep") || id.contains("curl") || id.contains("hammer")) muscles.add("Biceps");
+            if (id.contains("squat") || id.contains("lunge") || id.contains("leg-press") || id.contains("leg-curl") || id.contains("leg-extension") || id.contains("hip-thrust") || id.contains("glute") || id.contains("calf") || id.contains("romanian")) muscles.add("Legs");
+            if (id.contains("plank") || id.contains("crunch") || id.contains("dead-bug") || id.contains("mountain") || id.contains("russian-twist") || id.contains("leg-raise") || id.contains("bicycle") || id.contains("ab-wheel") || id.contains("dragon-flag")) muscles.add("Core");
+        }
+        return muscles.isEmpty() ? "Mixed" : String.join(", ", muscles);
     }
 
     /** Load session, verify it belongs to the authenticated user. */
