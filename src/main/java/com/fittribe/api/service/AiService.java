@@ -95,6 +95,8 @@ public class AiService {
 
     private String buildPrompt(User user, WorkoutSession session, List<SetLog> logs) {
         String base = AiPrompts.DAILY_INSIGHT_USER
+                .replace("{dayLabel}",     session.getName() != null ? session.getName() : "Custom Workout")
+                .replace("{muscleGroups}", buildMuscleGroupsLabel(logs))
                 .replace("{name}",         str(user, "displayName"))
                 .replace("{gender}",       str(user, "gender"))
                 .replace("{weightKg}",     user != null && user.getWeightKg() != null
@@ -110,6 +112,22 @@ public class AiService {
                 .replace("{comparisonLines}", buildComparisonLines(session, logs))
                 .replace("{historyBlock}",  buildHistoryBlock(session));
         return base + buildUnderweightBlock(user) + buildAdvancedBlock(user);
+    }
+
+    private String buildMuscleGroupsLabel(List<SetLog> logs) {
+        // Derive muscle groups from exercise IDs using a simple keyword map
+        Set<String> muscles = new LinkedHashSet<>();
+        for (SetLog sl : logs) {
+            String id = sl.getExerciseId() != null ? sl.getExerciseId().toLowerCase() : "";
+            if (id.contains("bench") || id.contains("chest") || id.contains("pec") || id.contains("flye") || id.contains("push-up") || id.contains("push_up") || id.contains("dip")) muscles.add("Chest");
+            if (id.contains("shoulder") || id.contains("lateral") || id.contains("front-raise") || id.contains("overhead") || id.contains("arnold") || id.contains("face-pull") || id.contains("reverse-flye")) muscles.add("Shoulders");
+            if (id.contains("pull") || id.contains("row") || id.contains("deadlift") || id.contains("lat-pulldown") || id.contains("chin")) muscles.add("Back");
+            if (id.contains("tricep") || id.contains("skull") || id.contains("close-grip")) muscles.add("Triceps");
+            if (id.contains("bicep") || id.contains("curl") || id.contains("hammer")) muscles.add("Biceps");
+            if (id.contains("squat") || id.contains("lunge") || id.contains("leg-press") || id.contains("leg-curl") || id.contains("leg-extension") || id.contains("hip-thrust") || id.contains("glute") || id.contains("calf") || id.contains("rdl") || id.contains("romanian")) muscles.add("Legs");
+            if (id.contains("plank") || id.contains("crunch") || id.contains("dead-bug") || id.contains("mountain") || id.contains("russian-twist") || id.contains("leg-raise") || id.contains("bicycle") || id.contains("ab-wheel") || id.contains("dragon-flag")) muscles.add("Core");
+        }
+        return muscles.isEmpty() ? "Mixed" : String.join(", ", muscles);
     }
 
     private String buildUnderweightBlock(User user) {
