@@ -2,11 +2,13 @@ package com.fittribe.api.repository;
 
 import com.fittribe.api.entity.SetLog;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 import org.springframework.stereotype.Repository;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.math.BigDecimal;
 import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
@@ -20,6 +22,36 @@ public interface SetLogRepository extends JpaRepository<SetLog, UUID> {
 
     @Transactional
     void deleteBySessionId(UUID sessionId);
+
+    @Transactional
+    void deleteBySessionIdAndExerciseIdAndSetNumber(UUID sessionId, String exerciseId, int setNumber);
+
+    @Transactional
+    void deleteBySessionIdAndExerciseId(UUID sessionId, String exerciseId);
+
+    @Modifying
+    @Transactional
+    @Query(value = """
+        INSERT INTO set_logs
+            (id, session_id, exercise_id, exercise_name,
+             set_number, weight_kg, reps, is_pr, logged_at)
+        VALUES (gen_random_uuid(), :sessionId, :exerciseId,
+            :exerciseName, :setNumber, :weightKg, :reps,
+            false, now())
+        ON CONFLICT (session_id, exercise_id, set_number)
+        DO UPDATE SET
+            weight_kg  = EXCLUDED.weight_kg,
+            reps       = EXCLUDED.reps,
+            logged_at  = now()
+        """, nativeQuery = true)
+    void upsertSetLog(
+            @Param("sessionId")    UUID       sessionId,
+            @Param("exerciseId")   String     exerciseId,
+            @Param("exerciseName") String     exerciseName,
+            @Param("setNumber")    int        setNumber,
+            @Param("weightKg")     BigDecimal weightKg,
+            @Param("reps")         int        reps
+    );
 
     /**
      * PR check: find the heaviest set this user has ever logged for this exercise

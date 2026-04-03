@@ -8,6 +8,7 @@ import org.springframework.data.repository.query.Param;
 import org.springframework.stereotype.Repository;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.math.BigDecimal;
 import java.time.Instant;
 import java.util.Collection;
 import java.util.List;
@@ -46,4 +47,23 @@ public interface WorkoutSessionRepository extends JpaRepository<WorkoutSession, 
     /** Used by the streak reset job: did this user complete any session in a time window? */
     boolean existsByUserIdAndStatusAndFinishedAtBetween(
             UUID userId, String status, Instant from, Instant to);
+
+    /**
+     * Returns the historical max weight ever logged for a given exercise by this user,
+     * read from the JSONB exercises snapshot stored at session finish.
+     * Excludes the current session so a finish can be compared against prior history.
+     */
+    @Query(value = """
+        SELECT COALESCE(MAX((ex->>'maxWeightKg')::numeric), 0)
+        FROM workout_sessions ws,
+             jsonb_array_elements(ws.exercises) ex
+        WHERE ws.user_id    = :userId
+          AND ws.status     = 'COMPLETED'
+          AND ex->>'exerciseId' = :exerciseId
+          AND ws.id        != :sessionId
+        """, nativeQuery = true)
+    BigDecimal findMaxWeightForExercise(
+            @Param("userId")     UUID   userId,
+            @Param("exerciseId") String exerciseId,
+            @Param("sessionId")  UUID   sessionId);
 }

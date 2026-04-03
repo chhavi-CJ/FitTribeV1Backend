@@ -1,3 +1,8 @@
 package com.fittribe.api.dto.request;
 
-public record FinishSessionRequest(Integer durationMins) {}
+import java.util.List;
+
+public record FinishSessionRequest(
+        Integer durationMins,
+        List<ExerciseLogRequest> exercises
+) {}

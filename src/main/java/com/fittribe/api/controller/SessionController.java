@@ -1,8 +1,11 @@
 package com.fittribe.api.controller;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fittribe.api.dto.ApiResponse;
+import com.fittribe.api.dto.request.ExerciseLogRequest;
 import com.fittribe.api.dto.request.FinishSessionRequest;
 import com.fittribe.api.dto.request.LogSetRequest;
+import com.fittribe.api.dto.request.SetLogRequest;
 import com.fittribe.api.dto.request.StartSessionRequest;
 import com.fittribe.api.dto.response.FinishSessionResponse;
 import com.fittribe.api.dto.response.LogSetResponse;
@@ -23,6 +26,8 @@ import com.fittribe.api.repository.WorkoutSessionRepository;
 import com.fittribe.api.service.AiService;
 import com.fittribe.api.service.WeeklyReportService;
 import jakarta.validation.Valid;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.Authentication;
@@ -35,6 +40,7 @@ import java.time.Instant;
 import java.time.LocalDate;
 import java.time.ZoneOffset;
 import java.time.temporal.ChronoUnit;
+import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -44,6 +50,8 @@ import java.util.stream.Collectors;
 @RestController
 @RequestMapping("/api/v1/sessions")
 public class SessionController {
+
+    private static final Logger log = LoggerFactory.getLogger(SessionController.class);
 
     private static final int COOLDOWN_HOURS    = 8;
     private static final int COINS_PER_SESSION = 10;
@@ -55,6 +63,7 @@ public class SessionController {
     private final SessionFeedbackRepository feedbackRepo;
     private final AiService                 aiService;
     private final WeeklyReportService       weeklyReportService;
+    private final ObjectMapper              objectMapper;
 
     public SessionController(WorkoutSessionRepository sessionRepo,
                              SetLogRepository setLogRepo,
@@ -62,7 +71,8 @@ public class SessionController {
                              CoinTransactionRepository coinRepo,
                              SessionFeedbackRepository feedbackRepo,
                              AiService aiService,
-                             WeeklyReportService weeklyReportService) {
+                             WeeklyReportService weeklyReportService,
+                             ObjectMapper objectMapper) {
         this.sessionRepo         = sessionRepo;
         this.setLogRepo          = setLogRepo;
         this.userRepo            = userRepo;
@@ -70,6 +80,7 @@ public class SessionController {
         this.feedbackRepo        = feedbackRepo;
         this.aiService           = aiService;
         this.weeklyReportService = weeklyReportService;
+        this.objectMapper        = objectMapper;
     }
 
     // ── POST /sessions/start ──────────────────────────────────────────
@@ -114,7 +125,8 @@ public class SessionController {
             @RequestBody @Valid LogSetRequest request,
             Authentication auth) {
 
-        WorkoutSession session = requireOwnedInProgress(id, userId(auth));
+        UUID userId = userId(auth);
+        WorkoutSession session = requireOwnedInProgress(id, userId);
 
         // weightKg range validation — null is allowed (bodyweight), but numeric values must be 0-500
         if (request.weightKg() != null) {
@@ -131,30 +143,79 @@ public class SessionController {
         // unless this is literally the first time they've logged the exercise.
         boolean isPr;
         if (request.weightKg() == null) {
-            // Bodyweight set — only a PR if no prior set exists for this exercise
             isPr = setLogRepo
-                    .findTopByUserIdAndExerciseIdOrderByWeightKgDesc(userId(auth), request.exerciseId())
+                    .findTopByUserIdAndExerciseIdOrderByWeightKgDesc(userId, request.exerciseId())
                     .isEmpty();
         } else {
             isPr = setLogRepo
-                    .findTopByUserIdAndExerciseIdOrderByWeightKgDesc(userId(auth), request.exerciseId())
+                    .findTopByUserIdAndExerciseIdOrderByWeightKgDesc(userId, request.exerciseId())
                     .map(best -> best.getWeightKg() == null
                             || request.weightKg().compareTo(best.getWeightKg()) > 0)
-                    .orElse(true); // first-ever set for this exercise is always a PR
+                    .orElse(true);
         }
 
-        SetLog log = new SetLog();
-        log.setSessionId(session.getId());
-        log.setExerciseId(request.exerciseId());
-        log.setExerciseName(request.exerciseName());
-        log.setSetNumber(request.setNumber());
-        log.setWeightKg(request.weightKg());
-        log.setReps(request.reps());
-        log.setIsPr(isPr);
-        SetLog saved = setLogRepo.save(log);
+        // Upsert: insert or update if same session+exercise+setNumber already exists
+        setLogRepo.upsertSetLog(
+                session.getId(),
+                request.exerciseId(),
+                request.exerciseName(),
+                request.setNumber(),
+                request.weightKg(),
+                request.reps() != null ? request.reps() : 0);
+
+        // Fetch the saved row to return its id (upsert doesn't return the entity)
+        SetLog saved = setLogRepo.findBySessionId(session.getId()).stream()
+                .filter(sl -> sl.getExerciseId().equals(request.exerciseId())
+                           && sl.getSetNumber().equals(request.setNumber()))
+                .findFirst()
+                .orElseThrow(() -> new ApiException(HttpStatus.INTERNAL_SERVER_ERROR,
+                        "SET_LOG_ERROR", "Failed to retrieve saved set."));
+
+        if (isPr && !Boolean.TRUE.equals(saved.getIsPr())) {
+            saved.setIsPr(true);
+            setLogRepo.save(saved);
+        }
 
         return ResponseEntity.ok(ApiResponse.success(
                 new LogSetResponse(saved.getId(), saved.getIsPr())));
+    }
+
+    // ── DELETE /sessions/{id}/log-set/{exerciseId}/{setNumber} ───────
+    @DeleteMapping("/{id}/log-set/{exerciseId}/{setNumber}")
+    @Transactional
+    public ResponseEntity<ApiResponse<Map<String, Boolean>>> deleteSet(
+            @PathVariable UUID id,
+            @PathVariable String exerciseId,
+            @PathVariable int setNumber,
+            Authentication auth) {
+
+        requireOwnedInProgress(id, userId(auth));
+        setLogRepo.deleteBySessionIdAndExerciseIdAndSetNumber(id, exerciseId, setNumber);
+        return ResponseEntity.ok(ApiResponse.success(Map.of("deleted", true)));
+    }
+
+    // ── DELETE /sessions/{id}/log-set/exercise/{exerciseId} ──────────
+    @DeleteMapping("/{id}/log-set/exercise/{exerciseId}")
+    @Transactional
+    public ResponseEntity<ApiResponse<Map<String, Boolean>>> deleteExerciseSets(
+            @PathVariable UUID id,
+            @PathVariable String exerciseId,
+            Authentication auth) {
+
+        requireOwnedInProgress(id, userId(auth));
+        setLogRepo.deleteBySessionIdAndExerciseId(id, exerciseId);
+        return ResponseEntity.ok(ApiResponse.success(Map.of("deleted", true)));
+    }
+
+    // ── GET /sessions/{id}/sets ───────────────────────────────────────
+    @GetMapping("/{id}/sets")
+    public ResponseEntity<ApiResponse<List<SetLog>>> getSets(
+            @PathVariable UUID id,
+            Authentication auth) {
+
+        requireOwned(id, userId(auth));
+        List<SetLog> sets = setLogRepo.findBySessionId(id);
+        return ResponseEntity.ok(ApiResponse.success(sets));
     }
 
     // ── POST /sessions/{id}/finish ────────────────────────────────────
@@ -166,40 +227,117 @@ public class SessionController {
             Authentication auth) {
 
         UUID userId = userId(auth);
-        WorkoutSession session = requireOwnedInProgress(id, userId);
+        WorkoutSession session = requireOwned(id, userId);
 
-        List<SetLog> logs = setLogRepo.findBySessionId(session.getId());
+        // Idempotency: already finished — return saved data without reprocessing
+        if ("COMPLETED".equals(session.getStatus())) {
+            return ResponseEntity.ok(ApiResponse.success(buildExistingResponse(session)));
+        }
 
-        BigDecimal totalVolume = logs.stream()
-                .map(sl -> sl.getWeightKg() != null && sl.getReps() != null
-                        ? sl.getWeightKg().multiply(BigDecimal.valueOf(sl.getReps()))
-                        : BigDecimal.ZERO)
-                .reduce(BigDecimal.ZERO, BigDecimal::add);
+        if (!"IN_PROGRESS".equals(session.getStatus())) {
+            throw new ApiException(HttpStatus.CONFLICT, "SESSION_NOT_IN_PROGRESS",
+                    "This session is already " + session.getStatus() + ".");
+        }
 
-        Instant finishedAt = Instant.now();
+        // ── Compute totals and build exercises JSONB from request ─────
+        int totalSets;
+        BigDecimal totalVolumeKg;
+        String exercisesJson;
 
-        // Lock the user row before reading coins — prevents concurrent requests from
-        // both passing a future balance check and both deducting.
+        List<ExerciseLogRequest> exercises = request.exercises();
+        if (exercises == null || exercises.isEmpty()) {
+            totalSets       = 0;
+            totalVolumeKg   = BigDecimal.ZERO;
+            exercisesJson   = "[]";
+        } else {
+            totalSets = exercises.stream()
+                    .mapToInt(ex -> ex.sets() != null ? ex.sets().size() : 0)
+                    .sum();
+
+            totalVolumeKg = exercises.stream()
+                    .filter(ex -> ex.sets() != null)
+                    .flatMap(ex -> ex.sets().stream())
+                    .map(s -> s.weightKg() != null
+                            ? s.weightKg().multiply(BigDecimal.valueOf(s.reps()))
+                            : BigDecimal.ZERO)
+                    .reduce(BigDecimal.ZERO, BigDecimal::add);
+
+            // Build per-exercise data with PR detection
+            List<Map<String, Object>> exerciseData = new ArrayList<>();
+            for (ExerciseLogRequest ex : exercises) {
+                if (ex.sets() == null || ex.sets().isEmpty()) continue;
+
+                // Max weight logged today for this exercise
+                BigDecimal todayMax = ex.sets().stream()
+                        .map(s -> s.weightKg() != null ? s.weightKg() : BigDecimal.ZERO)
+                        .max(BigDecimal::compareTo)
+                        .orElse(BigDecimal.ZERO);
+
+                // PR detection: bodyweight exercises (all sets weightKg = 0) never get weight PR
+                boolean isPr = false;
+                boolean isBodyweight = ex.sets().stream()
+                        .allMatch(s -> s.weightKg() == null
+                                || s.weightKg().compareTo(BigDecimal.ZERO) == 0);
+                if (!isBodyweight && todayMax.compareTo(BigDecimal.ZERO) > 0) {
+                    BigDecimal historicalMax = sessionRepo.findMaxWeightForExercise(
+                            userId, ex.exerciseId(), session.getId());
+                    isPr = historicalMax == null
+                            || todayMax.compareTo(historicalMax) > 0;
+                }
+
+                BigDecimal exVolume = ex.sets().stream()
+                        .map(s -> s.weightKg() != null
+                                ? s.weightKg().multiply(BigDecimal.valueOf(s.reps()))
+                                : BigDecimal.ZERO)
+                        .reduce(BigDecimal.ZERO, BigDecimal::add);
+
+                List<Map<String, Object>> setsData = ex.sets().stream()
+                        .map(s -> {
+                            Map<String, Object> m = new LinkedHashMap<>();
+                            m.put("setNumber", s.setNumber());
+                            m.put("reps",      s.reps());
+                            m.put("weightKg",  s.weightKg());
+                            return m;
+                        })
+                        .collect(Collectors.toList());
+
+                Map<String, Object> exMap = new LinkedHashMap<>();
+                exMap.put("exerciseId",   ex.exerciseId());
+                exMap.put("exerciseName", ex.exerciseName());
+                exMap.put("sets",         setsData);
+                exMap.put("maxWeightKg",  todayMax);
+                exMap.put("totalVolume",  exVolume);
+                exMap.put("isPr",         isPr);
+                exerciseData.add(exMap);
+            }
+
+            try {
+                exercisesJson = objectMapper.writeValueAsString(exerciseData);
+            } catch (Exception e) {
+                log.error("Failed to serialize exercises for session {}", id, e);
+                exercisesJson = "[]";
+            }
+        }
+
+        // ── Week / goal calculations ──────────────────────────────────
         User user = userRepo.findByIdForUpdate(userId).orElseThrow(() -> ApiException.notFound("User"));
-        LocalDate monday = LocalDate.now(ZoneOffset.UTC).with(DayOfWeek.MONDAY);
-        int weekNumber = weeklyReportService.weekNumberFor(user, monday);
-        int weeklyGoal = user.getWeeklyGoal() != null ? user.getWeeklyGoal() : 4;
-
-        Instant weekFrom = monday.atStartOfDay(ZoneOffset.UTC).toInstant();
-        Instant weekTo   = monday.plusDays(7).atStartOfDay(ZoneOffset.UTC).toInstant();
+        LocalDate monday   = LocalDate.now(ZoneOffset.UTC).with(DayOfWeek.MONDAY);
+        int weekNumber     = weeklyReportService.weekNumberFor(user, monday);
+        int weeklyGoal     = user.getWeeklyGoal() != null ? user.getWeeklyGoal() : 4;
+        Instant weekFrom   = monday.atStartOfDay(ZoneOffset.UTC).toInstant();
+        Instant weekTo     = monday.plusDays(7).atStartOfDay(ZoneOffset.UTC).toInstant();
 
         // Save session as COMPLETED first so the DB row exists before we count
         session.setStatus("COMPLETED");
-        session.setFinishedAt(finishedAt);
-        session.setTotalSets(logs.size());
-        session.setTotalVolumeKg(totalVolume);
+        session.setFinishedAt(Instant.now());
+        session.setTotalSets(totalSets);
+        session.setTotalVolumeKg(totalVolumeKg);
         session.setDurationMins(request.durationMins());
+        session.setExercises(exercisesJson);
         session.setWeekNumber(weekNumber);
         sessionRepo.save(session);
 
         // Count COMPLETED sessions this week AFTER save — no +1 needed
-        // Session 1 finish → count=1, 1>=2=false
-        // Session 2 finish → count=2, 2>=2=true
         int count = sessionRepo.countByUserIdAndStatusAndFinishedAtBetween(
                 userId, "COMPLETED", weekFrom, weekTo);
         boolean weeklyGoalHit = count >= weeklyGoal;
@@ -230,8 +368,8 @@ public class SessionController {
         return ResponseEntity.ok(ApiResponse.success(new FinishSessionResponse(
                 session.getId(),
                 session.getName(),
-                totalVolume,
-                logs.size(),
+                totalVolumeKg,
+                totalSets,
                 request.durationMins(),
                 session.getFinishedAt(),
                 user.getStreak(),
@@ -364,5 +502,24 @@ public class SessionController {
                     "This session is already " + session.getStatus() + ".");
         }
         return session;
+    }
+
+    /**
+     * Builds a FinishSessionResponse from an already-completed session.
+     * Used by the idempotency check — avoids reprocessing coins/streak/goals.
+     */
+    private FinishSessionResponse buildExistingResponse(WorkoutSession session) {
+        return new FinishSessionResponse(
+                session.getId(),
+                session.getName(),
+                session.getTotalVolumeKg() != null ? session.getTotalVolumeKg() : BigDecimal.ZERO,
+                session.getTotalSets()     != null ? session.getTotalSets()     : 0,
+                session.getDurationMins(),
+                session.getFinishedAt(),
+                0,               // streak not re-read — idempotent replay, use 0 as sentinel
+                0,               // coinsEarned not re-credited
+                Boolean.TRUE.equals(session.getWeeklyGoalHit()),
+                session.getWeekNumber() != null ? session.getWeekNumber() : 0,
+                0);              // completedThisWeek not re-counted
     }
 }
