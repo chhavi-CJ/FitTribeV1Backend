@@ -3,9 +3,12 @@ package com.fittribe.api.controller;
 import com.fittribe.api.dto.ApiResponse;
 import com.fittribe.api.dto.request.HealthConditionsRequest;
 import com.fittribe.api.dto.request.UpdateProfileRequest;
+import com.fittribe.api.dto.request.UpdateUserProfileRequest;
+import com.fittribe.api.dto.response.UserProfileResponse;
 import com.fittribe.api.entity.User;
 import com.fittribe.api.exception.ApiException;
 import com.fittribe.api.repository.UserRepository;
+import com.fittribe.api.repository.WorkoutSessionRepository;
 import com.fittribe.api.util.PromptSanitiser;
 import jakarta.validation.Valid;
 import org.springframework.http.HttpStatus;
@@ -13,6 +16,10 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.*;
 
+import java.time.DayOfWeek;
+import java.time.Instant;
+import java.time.LocalDate;
+import java.time.ZoneOffset;
 import java.util.Set;
 import java.util.UUID;
 
@@ -25,10 +32,13 @@ public class UserController {
     private static final Set<String> VALID_LEVELS =
             Set.of("BEGINNER", "INTERMEDIATE", "ADVANCED");
 
-    private final UserRepository userRepository;
+    private final UserRepository            userRepository;
+    private final WorkoutSessionRepository  sessionRepository;
 
-    public UserController(UserRepository userRepository) {
-        this.userRepository = userRepository;
+    public UserController(UserRepository userRepository,
+                          WorkoutSessionRepository sessionRepository) {
+        this.userRepository    = userRepository;
+        this.sessionRepository = sessionRepository;
     }
 
     // ── GET /api/v1/users/me ──────────────────────────────────────────
@@ -95,10 +105,84 @@ public class UserController {
         return ResponseEntity.ok(ApiResponse.success(userRepository.save(user)));
     }
 
+    // ── GET /api/v1/users/profile ─────────────────────────────────────
+    @GetMapping("/profile")
+    public ResponseEntity<ApiResponse<UserProfileResponse>> getProfile(Authentication auth) {
+        UUID userId = (UUID) auth.getPrincipal();
+        User user = userRepository.findById(userId)
+                .orElseThrow(() -> ApiException.notFound("User"));
+        return ResponseEntity.ok(ApiResponse.success(buildProfileResponse(userId, user)));
+    }
+
+    // ── PUT /api/v1/users/profile ─────────────────────────────────────
+    @PutMapping("/profile")
+    public ResponseEntity<ApiResponse<UserProfileResponse>> updateUserProfile(
+            @RequestBody @Valid UpdateUserProfileRequest request,
+            Authentication auth) {
+
+        UUID userId = (UUID) auth.getPrincipal();
+        User user = userRepository.findById(userId)
+                .orElseThrow(() -> ApiException.notFound("User"));
+
+        if (request.displayName() != null) {
+            String trimmed = request.displayName().trim();
+            user.setDisplayName(trimmed.substring(0, Math.min(trimmed.length(), 50)));
+        }
+        if (request.currentWeightKg() != null) user.setWeightKg(request.currentWeightKg());
+        if (request.primaryGoal() != null) {
+            if (!VALID_GOALS.contains(request.primaryGoal())) {
+                throw new ApiException(HttpStatus.BAD_REQUEST, "VALIDATION_ERROR",
+                        "Invalid primaryGoal. Must be one of: " + String.join(", ", VALID_GOALS));
+            }
+            user.setGoal(request.primaryGoal());
+        }
+        if (request.fitnessLevel() != null) {
+            if (!VALID_LEVELS.contains(request.fitnessLevel())) {
+                throw new ApiException(HttpStatus.BAD_REQUEST, "VALIDATION_ERROR",
+                        "Invalid fitnessLevel. Must be one of: " + String.join(", ", VALID_LEVELS));
+            }
+            user.setFitnessLevel(request.fitnessLevel());
+        }
+        // Weekly goal always goes to pending — promoted to live on Monday by scheduler
+        if (request.weeklyGoal() != null) user.setPendingWeeklyGoal(request.weeklyGoal());
+
+        userRepository.save(user);
+        return ResponseEntity.ok(ApiResponse.success(buildProfileResponse(userId, user)));
+    }
+
     // ── Helper ────────────────────────────────────────────────────────
     private User resolveUser(Authentication auth) {
         UUID userId = (UUID) auth.getPrincipal();
         return userRepository.findById(userId)
                 .orElseThrow(() -> ApiException.notFound("User"));
+    }
+
+    private UserProfileResponse buildProfileResponse(UUID userId, User user) {
+        LocalDate monday         = LocalDate.now(ZoneOffset.UTC).with(DayOfWeek.MONDAY);
+        Instant weekFrom         = monday.atStartOfDay(ZoneOffset.UTC).toInstant();
+        Instant weekTo           = monday.plusDays(7).atStartOfDay(ZoneOffset.UTC).toInstant();
+
+        int completedThisWeek = sessionRepository.countByUserIdAndStatusAndFinishedAtBetween(
+                userId, "COMPLETED", weekFrom, weekTo);
+        int sessionsTotal = sessionRepository.countByUserIdAndStatus(userId, "COMPLETED");
+
+        return new UserProfileResponse(
+                userId,
+                user.getDisplayName(),
+                user.getFitnessLevel(),
+                user.getGoal(),
+                user.getWeightKg(),
+                user.getWeeklyGoal() != null ? user.getWeeklyGoal() : 4,
+                user.getPendingWeeklyGoal(),
+                completedThisWeek,
+                user.getStreak() != null ? user.getStreak() : 0,
+                sessionsTotal,
+                0,       // prsTotal — placeholder
+                user.getCoins() != null ? user.getCoins() : 0,
+                0,       // streakFreezeBalance — placeholder
+                "ROOKIE", // rank — placeholder
+                true,    // notificationsEnabled — placeholder
+                true,    // showInLeaderboard — placeholder
+                user.getWeightUnit() != null ? user.getWeightUnit() : "KG");
     }
 }
