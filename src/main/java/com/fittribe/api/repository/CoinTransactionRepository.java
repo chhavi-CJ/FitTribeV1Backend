@@ -11,4 +11,7 @@ import java.util.UUID;
 public interface CoinTransactionRepository extends JpaRepository<CoinTransaction, UUID> {
 
     List<CoinTransaction> findTop20ByUserIdOrderByCreatedAtDesc(UUID userId);
+
+    /** Idempotency check: returns true if this exact event has already been awarded. */
+    boolean existsByUserIdAndTypeAndReferenceId(UUID userId, String type, String referenceId);
 }

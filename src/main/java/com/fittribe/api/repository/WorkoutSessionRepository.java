@@ -60,6 +60,23 @@ public interface WorkoutSessionRepository extends JpaRepository<WorkoutSession, 
      * read from the JSONB exercises snapshot stored at session finish.
      * Excludes the current session so a finish can be compared against prior history.
      */
+    /**
+     * Sum of total_volume_kg for all completed sessions in a time window.
+     * Used for week-over-week volume improvement detection.
+     */
+    @Query(value = """
+        SELECT COALESCE(SUM(total_volume_kg), 0)
+        FROM workout_sessions
+        WHERE user_id = :userId
+          AND status  = 'COMPLETED'
+          AND finished_at >= :from
+          AND finished_at <  :to
+        """, nativeQuery = true)
+    BigDecimal sumVolumeByUserIdAndFinishedAtBetween(
+            @Param("userId") UUID    userId,
+            @Param("from")   Instant from,
+            @Param("to")     Instant to);
+
     @Query(value = """
         SELECT COALESCE(MAX((ex->>'maxWeightKg')::numeric), 0)
         FROM workout_sessions ws,

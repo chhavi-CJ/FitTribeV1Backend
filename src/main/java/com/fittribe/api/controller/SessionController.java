@@ -26,6 +26,7 @@ import com.fittribe.api.repository.SetLogRepository;
 import com.fittribe.api.repository.UserRepository;
 import com.fittribe.api.repository.WorkoutSessionRepository;
 import com.fittribe.api.service.AiService;
+import com.fittribe.api.service.CoinService;
 import com.fittribe.api.service.RankService;
 import com.fittribe.api.service.WeeklyReportService;
 import jakarta.validation.Valid;
@@ -70,6 +71,7 @@ public class SessionController {
     private final ObjectMapper              objectMapper;
     private final PersonalRecordRepository  prRepo;
     private final RankService               rankService;
+    private final CoinService               coinService;
 
     public SessionController(WorkoutSessionRepository sessionRepo,
                              SetLogRepository setLogRepo,
@@ -80,7 +82,8 @@ public class SessionController {
                              WeeklyReportService weeklyReportService,
                              ObjectMapper objectMapper,
                              PersonalRecordRepository prRepo,
-                             RankService rankService) {
+                             RankService rankService,
+                             CoinService coinService) {
         this.sessionRepo         = sessionRepo;
         this.setLogRepo          = setLogRepo;
         this.userRepo            = userRepo;
@@ -91,6 +94,7 @@ public class SessionController {
         this.objectMapper        = objectMapper;
         this.prRepo              = prRepo;
         this.rankService         = rankService;
+        this.coinService         = coinService;
     }
 
     // ── POST /sessions/start ──────────────────────────────────────────
@@ -253,6 +257,8 @@ public class SessionController {
         int totalSets;
         BigDecimal totalVolumeKg;
         String exercisesJson;
+        // Collects exercises where a new PR was set — used later for coin awards
+        List<ExerciseLogRequest> newPrExercises = new ArrayList<>();
 
         List<ExerciseLogRequest> exercises = request.exercises();
         if (exercises == null || exercises.isEmpty()) {
@@ -319,6 +325,7 @@ public class SessionController {
                 exMap.put("totalVolume",  exVolume);
                 exMap.put("isPr",         isPr);
                 exerciseData.add(exMap);
+                if (isPr) newPrExercises.add(ex);
             }
 
             try {
@@ -375,20 +382,12 @@ public class SessionController {
             }
         }
 
-        // Update user streak + coins (floor at 0 — streak must never go negative)
+        // Update user streak (floor at 0 — streak must never go negative)
+        // Coin balance is now managed entirely by CoinService via atomic SQL updates
         user.setStreak(Math.max(0, user.getStreak() + 1));
-        user.setCoins(user.getCoins() + COINS_PER_SESSION);
         userRepo.save(user);
         // Atomically update max_streak_ever if new streak beats stored value
         userRepo.updateMaxStreakIfHigher(userId, user.getStreak());
-
-        // Record coin transaction
-        CoinTransaction tx = new CoinTransaction();
-        tx.setUserId(userId);
-        tx.setAmount(COINS_PER_SESSION);
-        tx.setDirection("CREDIT");
-        tx.setLabel("Workout completed");
-        coinRepo.save(tx);
 
         // Generate AI insight synchronously so it's included in the finish response
         String aiCoachInsight = aiService.generateInsightSync(userId, session.getId());
@@ -398,8 +397,52 @@ public class SessionController {
             weeklyReportService.generateWeeklyReport(userId, weekNumber);
         }
 
-        // Rank promotion check — last step before returning
+        // Rank promotion check
         rankService.checkAndPromote(userId);
+
+        // ── Coin awards (idempotent via CoinService) ──────────────────
+        // weekEpoch = start of current ISO week as epoch string (idempotency key for week events)
+        String weekEpoch = String.valueOf(weekFrom.getEpochSecond());
+
+        // 1. Log workout +10
+        coinService.awardCoins(userId, COINS_PER_SESSION, "LOG_WORKOUT",
+                "Logged " + session.getName(), id.toString());
+
+        // 2. Personal record awards +25 per new PR
+        for (ExerciseLogRequest prEx : newPrExercises) {
+            String exerciseName = prEx.exerciseName() != null ? prEx.exerciseName() : prEx.exerciseId();
+            coinService.awardCoins(userId, 25, "PERSONAL_RECORD",
+                    exerciseName + " PR",
+                    "PR_" + id + "_" + prEx.exerciseId());
+        }
+
+        // 3. Weekly goal +50 — only on the exact session that hits the goal
+        if (count == weeklyGoal) {
+            coinService.awardCoins(userId, 50, "WEEKLY_GOAL",
+                    "Weekly goal hit", weekEpoch);
+        }
+
+        // 4. Volume improvement vs last week +30
+        Instant lastWeekFrom = weekFrom.minus(7, ChronoUnit.DAYS);
+        BigDecimal thisWeekVol = sessionRepo.sumVolumeByUserIdAndFinishedAtBetween(userId, weekFrom, weekTo);
+        BigDecimal lastWeekVol = sessionRepo.sumVolumeByUserIdAndFinishedAtBetween(userId, lastWeekFrom, weekFrom);
+        if (lastWeekVol != null && lastWeekVol.compareTo(BigDecimal.ZERO) > 0
+                && thisWeekVol != null && thisWeekVol.compareTo(lastWeekVol) > 0) {
+            coinService.awardCoins(userId, 30, "IMPROVE_VOLUME",
+                    "Improved vs last week", weekEpoch);
+        }
+
+        // 5. Streak milestones
+        int currentStreak = user.getStreak();
+        if (currentStreak > 0 && currentStreak % 7 == 0) {
+            coinService.awardCoins(userId, 35, "STREAK_MILESTONE",
+                    currentStreak + "-day streak milestone",
+                    String.valueOf(currentStreak));
+        }
+        if (currentStreak == 30) {
+            coinService.awardCoins(userId, 100, "STREAK_30",
+                    "30-day streak milestone", "30");
+        }
 
         return ResponseEntity.ok(ApiResponse.success(new FinishSessionResponse(
                 session.getId(),
