@@ -1,20 +1,18 @@
 package com.fittribe.api.repository;
 
+import com.fittribe.api.entity.PersonalRecord;
+import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
-import org.springframework.data.repository.Repository;
 import org.springframework.data.repository.query.Param;
+import org.springframework.stereotype.Repository;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
 import java.util.UUID;
 
-/**
- * Native-query-only repository for personal_records.
- * No JPA entity needed — all operations are raw SQL.
- */
-@org.springframework.stereotype.Repository
-public interface PersonalRecordRepository extends Repository<Object, Long> {
+@Repository
+public interface PersonalRecordRepository extends JpaRepository<PersonalRecord, Long> {
 
     /**
      * Upsert a personal record for one exercise.
