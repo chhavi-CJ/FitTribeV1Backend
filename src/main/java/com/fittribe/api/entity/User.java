@@ -58,6 +58,12 @@ public class User {
     @Column(name = "streak")
     private Integer streak = 0;
 
+    @Column(name = "rank", nullable = false)
+    private String rank = "ROOKIE";
+
+    @Column(name = "max_streak_ever", nullable = false)
+    private Integer maxStreakEver = 0;
+
     @Column(name = "health_conditions", columnDefinition = "text[]")
     @JdbcTypeCode(SqlTypes.ARRAY)
     private String[] healthConditions = new String[0];
@@ -113,6 +119,12 @@ public class User {
 
     public Integer getStreak()               { return streak; }
     public void setStreak(Integer streak)    { this.streak = streak; }
+
+    public String getRank()                  { return rank; }
+    public void setRank(String rank)         { this.rank = rank; }
+
+    public Integer getMaxStreakEver()                      { return maxStreakEver; }
+    public void setMaxStreakEver(Integer maxStreakEver)    { this.maxStreakEver = maxStreakEver; }
 
     public String[] getHealthConditions()                        { return healthConditions; }
     public void setHealthConditions(String[] healthConditions)   { this.healthConditions = healthConditions; }

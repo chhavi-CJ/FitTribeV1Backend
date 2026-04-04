@@ -207,11 +207,12 @@ public class UserController {
                 user.getPendingWeeklyGoal(),
                 completedThisWeek,
                 user.getStreak() != null ? user.getStreak() : 0,
+                user.getMaxStreakEver() != null ? user.getMaxStreakEver() : 0,
                 sessionsTotal,
                 prsTotal,
                 user.getCoins() != null ? user.getCoins() : 0,
                 0,       // streakFreezeBalance — placeholder
-                "ROOKIE", // rank — placeholder
+                user.getRank() != null ? user.getRank() : "ROOKIE",
                 true,    // notificationsEnabled — placeholder
                 true,    // showInLeaderboard — placeholder
                 user.getWeightUnit() != null ? user.getWeightUnit() : "KG");
