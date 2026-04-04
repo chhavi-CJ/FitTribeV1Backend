@@ -26,6 +26,9 @@ public class GroupMember {
     @Column(name = "joined_at", insertable = false, updatable = false)
     private Instant joinedAt;
 
+    @Column(name = "crown_expires_at")
+    private Instant crownExpiresAt;
+
     public GroupMember() {}
 
     public UUID getId()              { return id; }
@@ -39,5 +42,8 @@ public class GroupMember {
     public String getRole()          { return role; }
     public void setRole(String v)    { this.role = v; }
 
-    public Instant getJoinedAt()     { return joinedAt; }
+    public Instant getJoinedAt()          { return joinedAt; }
+
+    public Instant getCrownExpiresAt()                  { return crownExpiresAt; }
+    public void setCrownExpiresAt(Instant crownExpiresAt){ this.crownExpiresAt = crownExpiresAt; }
 }
