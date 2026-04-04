@@ -39,7 +39,6 @@ public final class AiPrompts {
             "USER PROFILE:\n" +
             "Name: {name} | Gender: {gender} | Weight: {weightKg}kg\n" +
             "Level: {fitnessLevel} | Goal: {goal}\n\n" +
-            "{healthConditions}" +
             "TODAY'S SESSION:\n" +
             "Duration: {durationMins} min | Volume: {totalVolumeKg}kg\n" +
             "{exerciseLines}\n" +

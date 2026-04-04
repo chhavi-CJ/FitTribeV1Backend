@@ -112,7 +112,6 @@ public class AiService {
                                                ? user.getWeightKg().toString() : "unknown")
                 .replace("{fitnessLevel}", str(user, "fitnessLevel"))
                 .replace("{goal}",         str(user, "goal"))
-                .replace("{healthConditions}", buildHealthConditionsBlock(user))
                 .replace("{durationMins}", session.getDurationMins() != null
                                                ? session.getDurationMins().toString() : "?")
                 .replace("{totalVolumeKg}", buildVolumeDisplay(session, logs))
