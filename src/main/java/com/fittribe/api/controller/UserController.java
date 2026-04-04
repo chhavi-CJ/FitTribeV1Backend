@@ -6,7 +6,9 @@ import com.fittribe.api.dto.request.UpdateProfileRequest;
 import com.fittribe.api.dto.request.UpdateUserProfileRequest;
 import com.fittribe.api.dto.response.UserProfileResponse;
 import com.fittribe.api.entity.User;
+import com.fittribe.api.entity.UserPlan;
 import com.fittribe.api.exception.ApiException;
+import com.fittribe.api.repository.UserPlanRepository;
 import com.fittribe.api.repository.UserRepository;
 import com.fittribe.api.repository.WorkoutSessionRepository;
 import com.fittribe.api.util.PromptSanitiser;
@@ -14,12 +16,15 @@ import jakarta.validation.Valid;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.Authentication;
+import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.bind.annotation.*;
 
 import java.time.DayOfWeek;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.time.ZoneOffset;
+import java.time.temporal.TemporalAdjusters;
+import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
 
@@ -34,11 +39,14 @@ public class UserController {
 
     private final UserRepository            userRepository;
     private final WorkoutSessionRepository  sessionRepository;
+    private final UserPlanRepository        planRepository;
 
     public UserController(UserRepository userRepository,
-                          WorkoutSessionRepository sessionRepository) {
+                          WorkoutSessionRepository sessionRepository,
+                          UserPlanRepository planRepository) {
         this.userRepository    = userRepository;
         this.sessionRepository = sessionRepository;
+        this.planRepository    = planRepository;
     }
 
     // ── GET /api/v1/users/me ──────────────────────────────────────────
@@ -50,6 +58,7 @@ public class UserController {
 
     // ── PUT /api/v1/users/me ──────────────────────────────────────────
     @PutMapping("/me")
+    @Transactional
     public ResponseEntity<ApiResponse<User>> updateProfile(
             @RequestBody @Valid UpdateProfileRequest request,
             Authentication auth) {
@@ -76,7 +85,13 @@ public class UserController {
         }
         if (request.weightKg() != null)    user.setWeightKg(request.weightKg());
         if (request.heightCm() != null)    user.setHeightCm(request.heightCm());
-        if (request.weeklyGoal() != null)  user.setWeeklyGoal(request.weeklyGoal());
+        if (request.weeklyGoal() != null) {
+            // Invalidate current week's plan if goal changed — forces regeneration with correct split
+            if (!request.weeklyGoal().equals(user.getWeeklyGoal())) {
+                invalidateCurrentWeekPlan(user.getId());
+            }
+            user.setWeeklyGoal(request.weeklyGoal());
+        }
         if (request.healthConditions() != null) {
             user.setHealthConditions(request.healthConditions().toArray(new String[0]));
         }
@@ -155,6 +170,17 @@ public class UserController {
         UUID userId = (UUID) auth.getPrincipal();
         return userRepository.findById(userId)
                 .orElseThrow(() -> ApiException.notFound("User"));
+    }
+
+    /**
+     * Deletes the user_plans row for the current week so generatePlan()
+     * will regenerate it with the correct split on next app open.
+     */
+    private void invalidateCurrentWeekPlan(UUID userId) {
+        LocalDate monday = LocalDate.now(ZoneOffset.UTC)
+                .with(TemporalAdjusters.previousOrSame(DayOfWeek.MONDAY));
+        Optional<UserPlan> existing = planRepository.findByUserIdAndWeekStartDate(userId, monday);
+        existing.ifPresent(planRepository::delete);
     }
 
     private UserProfileResponse buildProfileResponse(UUID userId, User user) {
