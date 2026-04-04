@@ -4,9 +4,11 @@ import com.fittribe.api.entity.User;
 import jakarta.persistence.LockModeType;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Lock;
+import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 import org.springframework.stereotype.Repository;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.util.Collection;
 import java.util.List;
@@ -46,4 +48,14 @@ public interface UserRepository extends JpaRepository<User, UUID> {
 
     /** All users with a pending weekly goal — used by the Monday promotion scheduler. */
     List<User> findAllByPendingWeeklyGoalIsNotNull();
+
+    /**
+     * Atomically updates max_streak_ever only when the new streak beats the stored value.
+     * Single conditional write — no read-modify-write race.
+     */
+    @Modifying
+    @Transactional
+    @Query(value = "UPDATE users SET max_streak_ever = :streak WHERE id = :userId AND max_streak_ever < :streak",
+           nativeQuery = true)
+    void updateMaxStreakIfHigher(@Param("userId") UUID userId, @Param("streak") int streak);
 }

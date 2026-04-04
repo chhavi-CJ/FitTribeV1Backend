@@ -13,6 +13,7 @@ public record UserProfileResponse(
         Integer pendingWeeklyGoal,
         int completedThisWeek,
         int streak,
+        int maxStreakEver,
         int sessionsTotal,
         int prsTotal,
         int fitcoinsBalance,

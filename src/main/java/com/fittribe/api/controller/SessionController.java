@@ -26,6 +26,7 @@ import com.fittribe.api.repository.SetLogRepository;
 import com.fittribe.api.repository.UserRepository;
 import com.fittribe.api.repository.WorkoutSessionRepository;
 import com.fittribe.api.service.AiService;
+import com.fittribe.api.service.RankService;
 import com.fittribe.api.service.WeeklyReportService;
 import jakarta.validation.Valid;
 import org.slf4j.Logger;
@@ -68,6 +69,7 @@ public class SessionController {
     private final WeeklyReportService       weeklyReportService;
     private final ObjectMapper              objectMapper;
     private final PersonalRecordRepository  prRepo;
+    private final RankService               rankService;
 
     public SessionController(WorkoutSessionRepository sessionRepo,
                              SetLogRepository setLogRepo,
@@ -77,7 +79,8 @@ public class SessionController {
                              AiService aiService,
                              WeeklyReportService weeklyReportService,
                              ObjectMapper objectMapper,
-                             PersonalRecordRepository prRepo) {
+                             PersonalRecordRepository prRepo,
+                             RankService rankService) {
         this.sessionRepo         = sessionRepo;
         this.setLogRepo          = setLogRepo;
         this.userRepo            = userRepo;
@@ -87,6 +90,7 @@ public class SessionController {
         this.weeklyReportService = weeklyReportService;
         this.objectMapper        = objectMapper;
         this.prRepo              = prRepo;
+        this.rankService         = rankService;
     }
 
     // ── POST /sessions/start ──────────────────────────────────────────
@@ -375,6 +379,8 @@ public class SessionController {
         user.setStreak(Math.max(0, user.getStreak() + 1));
         user.setCoins(user.getCoins() + COINS_PER_SESSION);
         userRepo.save(user);
+        // Atomically update max_streak_ever if new streak beats stored value
+        userRepo.updateMaxStreakIfHigher(userId, user.getStreak());
 
         // Record coin transaction
         CoinTransaction tx = new CoinTransaction();
@@ -391,6 +397,9 @@ public class SessionController {
         if (weeklyGoalHit) {
             weeklyReportService.generateWeeklyReport(userId, weekNumber);
         }
+
+        // Rank promotion check — last step before returning
+        rankService.checkAndPromote(userId);
 
         return ResponseEntity.ok(ApiResponse.success(new FinishSessionResponse(
                 session.getId(),
