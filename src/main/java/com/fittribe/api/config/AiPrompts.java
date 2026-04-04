@@ -97,7 +97,8 @@ public final class AiPrompts {
             "plank, dead-bug, mountain-climbers, russian-twist, leg-raises, bicycle-crunches, hanging-leg-raises, ab-wheel-rollout\n\n" +
             "EXERCISE RULES:\n" +
             "- MANDATORY: include EXACTLY 5 exercises per day — no more, no fewer\n" +
-            "- Always include 1 core exercise per day from: plank, dead-bug, mountain-climbers, russian-twist, leg-raises, bicycle-crunches, hanging-leg-raises, ab-wheel-rollout\n" +
+            "- Always include 1 core exercise per day from: dead-bug, mountain-climbers, russian-twist, leg-raises, bicycle-crunches, hanging-leg-raises, ab-wheel-rollout\n" +
+            "- NEVER select 'plank' as a core exercise — it is duration-based and not supported in the app. Use any of the 7 core exercises listed above instead.\n" +
             "- Do NOT include REST days in the response — only return training days\n" +
             "- Use ONLY exerciseIds from this exact catalog. The format is id → name:\n" +
             "  CHEST:\n" +
@@ -275,6 +276,7 @@ public final class AiPrompts {
             "- Order: compound movements first, isolation last\n" +
             "- If includesCore is TRUE: 5th exercise MUST be a core exercise\n" +
             "- If includesCore is FALSE: do NOT include any core exercises\n" +
+            "- NEVER select 'plank' as a core exercise — it is duration-based and not supported in the app. For core, choose from: dead-bug, mountain-climbers, russian-twist, leg-raises, bicycle-crunches, hanging-leg-raises, ab-wheel-rollout\n" +
             "- Do NOT repeat any exercise listed in recentExercises block\n\n" +
 
             "WEIGHT SUGGESTION RULES — FOLLOW EXACTLY:\n" +
