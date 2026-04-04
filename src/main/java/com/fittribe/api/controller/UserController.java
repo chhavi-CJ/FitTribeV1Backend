@@ -280,7 +280,7 @@ public class UserController {
                 sessionsTotal,
                 prsTotal,
                 user.getCoins() != null ? user.getCoins() : 0,
-                0,       // streakFreezeBalance — placeholder
+                user.getStreakFreezeBalance() != null ? user.getStreakFreezeBalance() : 0,
                 user.getRank() != null ? user.getRank() : "ROOKIE",
                 Boolean.TRUE.equals(user.getNotificationsEnabled()),
                 Boolean.TRUE.equals(user.getShowInLeaderboard()),

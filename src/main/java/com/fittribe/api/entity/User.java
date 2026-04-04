@@ -68,6 +68,9 @@ public class User {
     @JdbcTypeCode(SqlTypes.ARRAY)
     private String[] healthConditions = new String[0];
 
+    @Column(name = "streak_freeze_balance", nullable = false)
+    private Integer streakFreezeBalance = 0;
+
     @Column(name = "notifications_enabled", nullable = false)
     private Boolean notificationsEnabled = true;
 
@@ -140,6 +143,9 @@ public class User {
 
     public String[] getHealthConditions()                        { return healthConditions; }
     public void setHealthConditions(String[] healthConditions)   { this.healthConditions = healthConditions; }
+
+    public Integer getStreakFreezeBalance()                          { return streakFreezeBalance; }
+    public void setStreakFreezeBalance(Integer streakFreezeBalance)  { this.streakFreezeBalance = streakFreezeBalance; }
 
     public Boolean getNotificationsEnabled()                           { return notificationsEnabled; }
     public void setNotificationsEnabled(Boolean notificationsEnabled) { this.notificationsEnabled = notificationsEnabled; }

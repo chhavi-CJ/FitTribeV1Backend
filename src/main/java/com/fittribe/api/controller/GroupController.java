@@ -168,6 +168,8 @@ public class GroupController {
                     m.put("role",        gm.getRole());
                     m.put("streak",      user != null ? user.getStreak() : 0);
                     m.put("joinedAt",    gm.getJoinedAt());
+                    m.put("hasCrown",    gm.getCrownExpiresAt() != null
+                            && gm.getCrownExpiresAt().isAfter(Instant.now()));
                     return m;
                 })
                 .filter(Objects::nonNull)
