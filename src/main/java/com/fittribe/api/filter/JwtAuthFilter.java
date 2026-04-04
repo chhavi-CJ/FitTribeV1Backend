@@ -1,5 +1,6 @@
 package com.fittribe.api.filter;
 
+import com.fittribe.api.repository.UserRepository;
 import com.fittribe.api.service.JwtService;
 import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;
@@ -17,10 +18,12 @@ import java.util.UUID;
 @Component
 public class JwtAuthFilter extends OncePerRequestFilter {
 
-    private final JwtService jwtService;
+    private final JwtService     jwtService;
+    private final UserRepository userRepository;
 
-    public JwtAuthFilter(JwtService jwtService) {
-        this.jwtService = jwtService;
+    public JwtAuthFilter(JwtService jwtService, UserRepository userRepository) {
+        this.jwtService     = jwtService;
+        this.userRepository = userRepository;
     }
 
     @Override
@@ -41,9 +44,17 @@ public class JwtAuthFilter extends OncePerRequestFilter {
             String token = header.substring(7);
             try {
                 UUID userId = jwtService.validateToken(token);
-                UsernamePasswordAuthenticationToken auth =
-                        new UsernamePasswordAuthenticationToken(userId, null, List.of());
-                SecurityContextHolder.getContext().setAuthentication(auth);
+                // Reject tokens for soft-deleted / deactivated accounts
+                boolean active = userRepository.findById(userId)
+                        .map(u -> Boolean.TRUE.equals(u.getIsActive()))
+                        .orElse(false);
+                if (active) {
+                    UsernamePasswordAuthenticationToken auth =
+                            new UsernamePasswordAuthenticationToken(userId, null, List.of());
+                    SecurityContextHolder.getContext().setAuthentication(auth);
+                } else {
+                    SecurityContextHolder.clearContext();
+                }
             } catch (Exception e) {
                 // Invalid token — clear context, let Spring Security reject if endpoint needs auth
                 SecurityContextHolder.clearContext();
