@@ -3,6 +3,7 @@ package com.fittribe.api.controller;
 import com.fittribe.api.dto.ApiResponse;
 import com.fittribe.api.dto.request.HealthConditionsRequest;
 import com.fittribe.api.dto.request.UpdateProfileRequest;
+import com.fittribe.api.dto.request.UpdateSettingsRequest;
 import com.fittribe.api.dto.request.UpdateUserProfileRequest;
 import com.fittribe.api.dto.response.UserProfileResponse;
 import com.fittribe.api.entity.User;
@@ -25,6 +26,10 @@ import java.time.Instant;
 import java.time.LocalDate;
 import java.time.ZoneOffset;
 import java.time.temporal.TemporalAdjusters;
+import java.util.Arrays;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
@@ -124,6 +129,70 @@ public class UserController {
         return ResponseEntity.ok(ApiResponse.success(userRepository.save(user)));
     }
 
+    // ── PUT /api/v1/users/settings ────────────────────────────────────
+    @PutMapping("/settings")
+    public ResponseEntity<ApiResponse<Map<String, Object>>> updateSettings(
+            @RequestBody UpdateSettingsRequest request,
+            Authentication auth) {
+        User user = resolveUser(auth);
+
+        if (request.notificationsEnabled() != null)
+            user.setNotificationsEnabled(request.notificationsEnabled());
+        if (request.showInLeaderboard() != null)
+            user.setShowInLeaderboard(request.showInLeaderboard());
+
+        userRepository.save(user);
+
+        Map<String, Object> result = new LinkedHashMap<>();
+        result.put("notificationsEnabled", user.getNotificationsEnabled());
+        result.put("showInLeaderboard",    user.getShowInLeaderboard());
+        return ResponseEntity.ok(ApiResponse.success(result));
+    }
+
+    // ── GET /api/v1/users/health-conditions ──────────────────────────
+    @GetMapping("/health-conditions")
+    public ResponseEntity<ApiResponse<Map<String, Object>>> getHealthConditions(Authentication auth) {
+        User user = resolveUser(auth);
+
+        Map<String, Object> result = new LinkedHashMap<>();
+        result.put("conditions", user.getHealthConditions() != null
+                ? Arrays.asList(user.getHealthConditions())
+                : List.of());
+        result.put("gender", user.getGender());
+        return ResponseEntity.ok(ApiResponse.success(result));
+    }
+
+    // ── PUT /api/v1/users/health-conditions ──────────────────────────
+    @PutMapping("/health-conditions")
+    public ResponseEntity<ApiResponse<Map<String, Object>>> updateHealthConditionsV2(
+            @RequestBody HealthConditionsRequest request,
+            Authentication auth) {
+        User user = resolveUser(auth);
+
+        String[] conditions = (request.conditions() != null)
+                ? request.conditions().toArray(new String[0])
+                : new String[0];
+        user.setHealthConditions(conditions);
+        userRepository.save(user);
+
+        Map<String, Object> result = new LinkedHashMap<>();
+        result.put("conditions", Arrays.asList(conditions));
+        return ResponseEntity.ok(ApiResponse.success(result));
+    }
+
+    // ── DELETE /api/v1/users/account ─────────────────────────────────
+    @DeleteMapping("/account")
+    @Transactional
+    public ResponseEntity<ApiResponse<Map<String, Object>>> deleteAccount(Authentication auth) {
+        User user = resolveUser(auth);
+
+        user.setIsActive(false);
+        user.setDeletionRequestedAt(Instant.now());
+        userRepository.save(user);
+
+        return ResponseEntity.ok(ApiResponse.success(Map.of("deleted", true)));
+    }
+
     // ── GET /api/v1/users/profile ─────────────────────────────────────
     @GetMapping("/profile")
     public ResponseEntity<ApiResponse<UserProfileResponse>> getProfile(Authentication auth) {
@@ -213,8 +282,8 @@ public class UserController {
                 user.getCoins() != null ? user.getCoins() : 0,
                 0,       // streakFreezeBalance — placeholder
                 user.getRank() != null ? user.getRank() : "ROOKIE",
-                true,    // notificationsEnabled — placeholder
-                true,    // showInLeaderboard — placeholder
+                Boolean.TRUE.equals(user.getNotificationsEnabled()),
+                Boolean.TRUE.equals(user.getShowInLeaderboard()),
                 user.getWeightUnit() != null ? user.getWeightUnit() : "KG");
     }
 }

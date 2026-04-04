@@ -68,6 +68,18 @@ public class User {
     @JdbcTypeCode(SqlTypes.ARRAY)
     private String[] healthConditions = new String[0];
 
+    @Column(name = "notifications_enabled", nullable = false)
+    private Boolean notificationsEnabled = true;
+
+    @Column(name = "show_in_leaderboard", nullable = false)
+    private Boolean showInLeaderboard = true;
+
+    @Column(name = "is_active", nullable = false)
+    private Boolean isActive = true;
+
+    @Column(name = "deletion_requested_at")
+    private Instant deletionRequestedAt;
+
     @Column(name = "ai_context", length = 500)
     private String aiContext;
 
@@ -128,6 +140,18 @@ public class User {
 
     public String[] getHealthConditions()                        { return healthConditions; }
     public void setHealthConditions(String[] healthConditions)   { this.healthConditions = healthConditions; }
+
+    public Boolean getNotificationsEnabled()                           { return notificationsEnabled; }
+    public void setNotificationsEnabled(Boolean notificationsEnabled) { this.notificationsEnabled = notificationsEnabled; }
+
+    public Boolean getShowInLeaderboard()                        { return showInLeaderboard; }
+    public void setShowInLeaderboard(Boolean showInLeaderboard)  { this.showInLeaderboard = showInLeaderboard; }
+
+    public Boolean getIsActive()               { return isActive; }
+    public void setIsActive(Boolean isActive)  { this.isActive = isActive; }
+
+    public Instant getDeletionRequestedAt()                         { return deletionRequestedAt; }
+    public void setDeletionRequestedAt(Instant deletionRequestedAt) { this.deletionRequestedAt = deletionRequestedAt; }
 
     public String getAiContext()               { return aiContext; }
     public void setAiContext(String aiContext) { this.aiContext = aiContext; }

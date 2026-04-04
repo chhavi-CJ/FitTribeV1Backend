@@ -160,6 +160,8 @@ public class GroupController {
         List<Map<String, Object>> result = memberRepo.findByGroupId(id).stream()
                 .map(gm -> {
                     User user = userRepo.findById(gm.getUserId()).orElse(null);
+                    // Skip members who have opted out of the leaderboard
+                    if (user != null && !Boolean.TRUE.equals(user.getShowInLeaderboard())) return null;
                     Map<String, Object> m = new LinkedHashMap<>();
                     m.put("userId",      gm.getUserId());
                     m.put("displayName", user != null ? user.getDisplayName() : null);
@@ -168,6 +170,7 @@ public class GroupController {
                     m.put("joinedAt",    gm.getJoinedAt());
                     return m;
                 })
+                .filter(Objects::nonNull)
                 .collect(Collectors.toList());
 
         return ResponseEntity.ok(ApiResponse.success(result));
