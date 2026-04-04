@@ -26,6 +26,12 @@ public class CoinTransaction {
     @Column(name = "label")
     private String label;
 
+    @Column(name = "type")
+    private String type;
+
+    @Column(name = "reference_id")
+    private String referenceId;
+
     @Column(name = "created_at", insertable = false, updatable = false)
     private Instant createdAt;
 
@@ -44,6 +50,12 @@ public class CoinTransaction {
 
     public String getLabel()         { return label; }
     public void setLabel(String v)   { this.label = v; }
+
+    public String getType()          { return type; }
+    public void setType(String v)    { this.type = v; }
+
+    public String getReferenceId()           { return referenceId; }
+    public void setReferenceId(String v)     { this.referenceId = v; }
 
     public Instant getCreatedAt()    { return createdAt; }
 }
