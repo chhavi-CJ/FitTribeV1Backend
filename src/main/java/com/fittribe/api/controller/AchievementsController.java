@@ -6,6 +6,7 @@ import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.*;
 
+import java.sql.Timestamp;
 import java.time.DayOfWeek;
 import java.time.Instant;
 import java.time.LocalDate;
@@ -77,8 +78,8 @@ public class AchievementsController {
         for (int w = 1; w <= 12; w++) {
             LocalDate weekStart = todayMonday.minusWeeks(w);
             LocalDate weekEnd   = weekStart.plusDays(7);
-            Instant from = weekStart.atStartOfDay(ZoneOffset.UTC).toInstant();
-            Instant to   = weekEnd.atStartOfDay(ZoneOffset.UTC).toInstant();
+            Timestamp from = Timestamp.from(weekStart.atStartOfDay(ZoneOffset.UTC).toInstant());
+            Timestamp to   = Timestamp.from(weekEnd.atStartOfDay(ZoneOffset.UTC).toInstant());
 
             Integer count = jdbcTemplate.queryForObject(
                     "SELECT COUNT(*) FROM workout_sessions " +
