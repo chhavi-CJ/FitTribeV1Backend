@@ -8,6 +8,7 @@ import com.fittribe.api.dto.response.UserProfileResponse;
 import com.fittribe.api.entity.User;
 import com.fittribe.api.entity.UserPlan;
 import com.fittribe.api.exception.ApiException;
+import com.fittribe.api.repository.PersonalRecordRepository;
 import com.fittribe.api.repository.UserPlanRepository;
 import com.fittribe.api.repository.UserRepository;
 import com.fittribe.api.repository.WorkoutSessionRepository;
@@ -40,13 +41,16 @@ public class UserController {
     private final UserRepository            userRepository;
     private final WorkoutSessionRepository  sessionRepository;
     private final UserPlanRepository        planRepository;
+    private final PersonalRecordRepository  prRepository;
 
     public UserController(UserRepository userRepository,
                           WorkoutSessionRepository sessionRepository,
-                          UserPlanRepository planRepository) {
+                          UserPlanRepository planRepository,
+                          PersonalRecordRepository prRepository) {
         this.userRepository    = userRepository;
         this.sessionRepository = sessionRepository;
         this.planRepository    = planRepository;
+        this.prRepository      = prRepository;
     }
 
     // ── GET /api/v1/users/me ──────────────────────────────────────────
@@ -191,6 +195,7 @@ public class UserController {
         int completedThisWeek = sessionRepository.countByUserIdAndStatusAndFinishedAtBetween(
                 userId, "COMPLETED", weekFrom, weekTo);
         int sessionsTotal = sessionRepository.countByUserIdAndStatus(userId, "COMPLETED");
+        int prsTotal      = prRepository.countByUserId(userId);
 
         return new UserProfileResponse(
                 userId,
@@ -203,7 +208,7 @@ public class UserController {
                 completedThisWeek,
                 user.getStreak() != null ? user.getStreak() : 0,
                 sessionsTotal,
-                0,       // prsTotal — placeholder
+                prsTotal,
                 user.getCoins() != null ? user.getCoins() : 0,
                 0,       // streakFreezeBalance — placeholder
                 "ROOKIE", // rank — placeholder

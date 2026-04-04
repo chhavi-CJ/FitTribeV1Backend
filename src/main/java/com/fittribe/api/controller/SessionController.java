@@ -20,6 +20,7 @@ import com.fittribe.api.entity.User;
 import com.fittribe.api.entity.WorkoutSession;
 import com.fittribe.api.exception.ApiException;
 import com.fittribe.api.repository.CoinTransactionRepository;
+import com.fittribe.api.repository.PersonalRecordRepository;
 import com.fittribe.api.repository.SessionFeedbackRepository;
 import com.fittribe.api.repository.SetLogRepository;
 import com.fittribe.api.repository.UserRepository;
@@ -36,6 +37,7 @@ import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.bind.annotation.*;
 
 import java.math.BigDecimal;
+import java.util.Comparator;
 import java.time.DayOfWeek;
 import java.time.Instant;
 import java.time.LocalDate;
@@ -65,6 +67,7 @@ public class SessionController {
     private final AiService                 aiService;
     private final WeeklyReportService       weeklyReportService;
     private final ObjectMapper              objectMapper;
+    private final PersonalRecordRepository  prRepo;
 
     public SessionController(WorkoutSessionRepository sessionRepo,
                              SetLogRepository setLogRepo,
@@ -73,7 +76,8 @@ public class SessionController {
                              SessionFeedbackRepository feedbackRepo,
                              AiService aiService,
                              WeeklyReportService weeklyReportService,
-                             ObjectMapper objectMapper) {
+                             ObjectMapper objectMapper,
+                             PersonalRecordRepository prRepo) {
         this.sessionRepo         = sessionRepo;
         this.setLogRepo          = setLogRepo;
         this.userRepo            = userRepo;
@@ -82,6 +86,7 @@ public class SessionController {
         this.aiService           = aiService;
         this.weeklyReportService = weeklyReportService;
         this.objectMapper        = objectMapper;
+        this.prRepo              = prRepo;
     }
 
     // ── POST /sessions/start ──────────────────────────────────────────
@@ -344,6 +349,27 @@ public class SessionController {
         boolean weeklyGoalHit = count >= weeklyGoal;
         session.setWeeklyGoalHit(weeklyGoalHit);
         sessionRepo.save(session);
+
+        // ── PR upsert — personal_records table ───────────────────────
+        // Runs after session is COMPLETED so the history query in PR detection
+        // excludes today correctly. One upsert per exercise; skips bodyweight sets.
+        if (exercises != null) {
+            for (ExerciseLogRequest ex : exercises) {
+                if (ex.sets() == null || ex.sets().isEmpty()) continue;
+                // Skip bodyweight exercises (all sets have null or zero weightKg)
+                boolean isBodyweight = ex.sets().stream()
+                        .allMatch(s -> s.weightKg() == null
+                                || s.weightKg().compareTo(BigDecimal.ZERO) == 0);
+                if (isBodyweight) continue;
+                // Best set this session for this exercise
+                ex.sets().stream()
+                        .filter(s -> s.weightKg() != null
+                                && s.weightKg().compareTo(BigDecimal.ZERO) > 0)
+                        .max(Comparator.comparing(SetLogRequest::weightKg))
+                        .ifPresent(best -> prRepo.upsertPr(
+                                userId, ex.exerciseId(), best.weightKg(), best.reps()));
+            }
+        }
 
         // Update user streak + coins (floor at 0 — streak must never go negative)
         user.setStreak(Math.max(0, user.getStreak() + 1));
