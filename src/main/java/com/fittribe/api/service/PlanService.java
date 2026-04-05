@@ -194,11 +194,7 @@ public class PlanService {
                 .orElseGet(() -> generatePlan(userId));
 
         int weeklyGoal = user.getWeeklyGoal() != null ? user.getWeeklyGoal() : 4;
-        Instant weekStart = monday.atStartOfDay(ZoneOffset.UTC).toInstant();
-        Instant now = Instant.now();
-        int completedThisWeek = sessionRepo
-                .countByUserIdAndStatusAndFinishedAtBetween(
-                        userId, "COMPLETED", weekStart, now);
+        int completedThisWeek = sessionRepo.countCompletedThisWeekByStartedAt(userId);
 
         // Check user day status
         Optional<UserDayStatus> statusOpt = dayStatusRepo
