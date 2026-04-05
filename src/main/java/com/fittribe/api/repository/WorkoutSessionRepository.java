@@ -77,6 +77,34 @@ public interface WorkoutSessionRepository extends JpaRepository<WorkoutSession, 
             @Param("from")   Instant from,
             @Param("to")     Instant to);
 
+    /**
+     * Count COMPLETED sessions started in the current ISO week (Mon 00:00 UTC → next Mon 00:00 UTC).
+     * Uses started_at so a session started Monday but finished Tuesday still counts for that week.
+     */
+    @Query(value = """
+        SELECT COUNT(*) FROM workout_sessions
+        WHERE user_id = :userId
+          AND status = 'COMPLETED'
+          AND started_at >= date_trunc('week', NOW())
+          AND started_at <  date_trunc('week', NOW()) + INTERVAL '7 days'
+        """, nativeQuery = true)
+    int countCompletedThisWeekByStartedAt(@Param("userId") UUID userId);
+
+    /**
+     * ISO date strings (yyyy-MM-dd) for each day a completed session was started this ISO week.
+     * Used by GET /users/me to return workoutDatesThisWeek.
+     */
+    @Query(value = """
+        SELECT DISTINCT CAST(started_at AS DATE)::text
+        FROM workout_sessions
+        WHERE user_id = :userId
+          AND status = 'COMPLETED'
+          AND started_at >= date_trunc('week', NOW())
+          AND started_at <  date_trunc('week', NOW()) + INTERVAL '7 days'
+        ORDER BY 1 ASC
+        """, nativeQuery = true)
+    List<String> findWorkoutDatesThisWeekByStartedAt(@Param("userId") UUID userId);
+
     @Query(value = """
         SELECT COALESCE(MAX((ex->>'maxWeightKg')::numeric), 0)
         FROM workout_sessions ws,

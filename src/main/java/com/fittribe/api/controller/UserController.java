@@ -1,5 +1,6 @@
 package com.fittribe.api.controller;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fittribe.api.dto.ApiResponse;
 import com.fittribe.api.dto.request.HealthConditionsRequest;
 import com.fittribe.api.dto.request.UpdateProfileRequest;
@@ -47,22 +48,35 @@ public class UserController {
     private final WorkoutSessionRepository  sessionRepository;
     private final UserPlanRepository        planRepository;
     private final PersonalRecordRepository  prRepository;
+    private final ObjectMapper              objectMapper;
 
     public UserController(UserRepository userRepository,
                           WorkoutSessionRepository sessionRepository,
                           UserPlanRepository planRepository,
-                          PersonalRecordRepository prRepository) {
+                          PersonalRecordRepository prRepository,
+                          ObjectMapper objectMapper) {
         this.userRepository    = userRepository;
         this.sessionRepository = sessionRepository;
         this.planRepository    = planRepository;
         this.prRepository      = prRepository;
+        this.objectMapper      = objectMapper;
     }
 
     // ── GET /api/v1/users/me ──────────────────────────────────────────
     @GetMapping("/me")
-    public ResponseEntity<ApiResponse<User>> getMe(Authentication auth) {
+    @SuppressWarnings("unchecked")
+    public ResponseEntity<ApiResponse<Map<String, Object>>> getMe(Authentication auth) {
         User user = resolveUser(auth);
-        return ResponseEntity.ok(ApiResponse.success(user));
+        UUID userId = user.getId();
+
+        int completedThisWeek          = sessionRepository.countCompletedThisWeekByStartedAt(userId);
+        List<String> workoutDatesThisWeek = sessionRepository.findWorkoutDatesThisWeekByStartedAt(userId);
+
+        Map<String, Object> response = objectMapper.convertValue(user, Map.class);
+        response.put("completedThisWeek",    completedThisWeek);
+        response.put("workoutDatesThisWeek", workoutDatesThisWeek);
+
+        return ResponseEntity.ok(ApiResponse.success(response));
     }
 
     // ── PUT /api/v1/users/me ──────────────────────────────────────────
