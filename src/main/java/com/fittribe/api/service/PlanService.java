@@ -487,20 +487,16 @@ public class PlanService {
             exercises = buildFallbackExercisesJson(dayType, exMap, analysis, bw, level);
         }
 
-        // Store in daily_plan_generated
-        DailyPlanGenerated plan = new DailyPlanGenerated();
-        plan.setId(new DailyPlanGeneratedId(userId, today));
-        plan.setDayType(dayType);
-        plan.setExercises(exercises);
-        plan.setSessionNote(sessionNote);
-        plan.setDayCoachTip(dayCoachTip);
-        plan.setCardioSuggestion(cardioSuggestion);
-        dailyPlanRepo.save(plan);
-
-        // Build response
+        // Build response + enrich BEFORE saving to DB
         try {
             List<Map<String, Object>> exerciseList = mapper.readValue(
                     exercises, new TypeReference<>() {});
+
+            // Build full plan exercise ID list to exclude from swap suggestions
+            List<String> allExerciseIdsInPlan = exerciseList.stream()
+                    .map(ex -> (String) ex.getOrDefault("exerciseId", ""))
+                    .filter(id -> id != null && !id.isBlank())
+                    .collect(Collectors.toList());
 
             // Enrich with swap alternatives
             List<Map<String, Object>> enriched = new ArrayList<>();
@@ -510,9 +506,19 @@ public class PlanService {
                 Exercise entity = exMap.get(exId);
                 String muscleGrp = entity != null
                         ? entity.getMuscleGroup() : (String) copy.get("muscleGroup");
-                copy.put("swapAlternatives", getSwapsFromDb(exId, muscleGrp));
+                copy.put("swapAlternatives", getSwapsFromDb(exId, muscleGrp, allExerciseIdsInPlan));
                 enriched.add(copy);
             }
+
+            // Store enriched plan (with swapAlternatives) in daily_plan_generated
+            DailyPlanGenerated plan = new DailyPlanGenerated();
+            plan.setId(new DailyPlanGeneratedId(userId, today));
+            plan.setDayType(dayType);
+            plan.setExercises(mapper.writeValueAsString(enriched));
+            plan.setSessionNote(sessionNote);
+            plan.setDayCoachTip(dayCoachTip);
+            plan.setCardioSuggestion(cardioSuggestion);
+            dailyPlanRepo.save(plan);
 
             Map<String, Object> response = new LinkedHashMap<>();
             response.put("status",          "GENERATED");
@@ -1278,14 +1284,17 @@ When you change a weight from last week, explain why in that exercise's whyThisE
 
     // ── Plan reading helpers ──────────────────────────────────────────
 
-    private List<Map<String, Object>> getSwapsFromDb(String exerciseId, String muscleGroup) {
+    private List<Map<String, Object>> getSwapsFromDb(String exerciseId, String muscleGroup,
+                                                      List<String> allExerciseIdsInPlan) {
         if (muscleGroup == null || muscleGroup.isBlank()) {
             log.info("Swap lookup skipped — no muscleGroup for exerciseId={}", exerciseId);
             return Collections.emptyList();
         }
         log.info("Swap lookup: exerciseId={}, muscleGroup={}", exerciseId, muscleGroup);
+        List<String> excludeIds = (allExerciseIdsInPlan != null && !allExerciseIdsInPlan.isEmpty())
+                ? allExerciseIdsInPlan : List.of(exerciseId);
         List<Map<String, Object>> swaps = exerciseRepo
-                .findByMuscleGroupIgnoreCaseAndIdNot(muscleGroup, exerciseId)
+                .findByMuscleGroupIgnoreCaseAndIdNotIn(muscleGroup, excludeIds)
                 .stream()
                 .limit(3)
                 .map(e -> {
@@ -1375,6 +1384,12 @@ When you change a weight from last week, explain why in that exercise's whyThisE
                         user.getFitnessLevel() != null ? user.getFitnessLevel() : "INTERMEDIATE");
             }
 
+            // Build full plan exercise ID list to exclude from swap suggestions
+            List<String> allExerciseIdsInPlan = exercises.stream()
+                    .map(ex -> (String) ex.getOrDefault("exerciseId", ""))
+                    .filter(id -> id != null && !id.isBlank())
+                    .collect(Collectors.toList());
+
             // Enrich exercises with live swap alternatives
             List<Map<String, Object>> enrichedExercises = new ArrayList<>();
             for (Map<String, Object> ex : exercises) {
@@ -1384,7 +1399,7 @@ When you change a weight from last week, explain why in that exercise's whyThisE
                 String muscleGrp = entity != null
                         ? entity.getMuscleGroup()
                         : (String) exCopy.get("muscleGroup");
-                exCopy.put("swapAlternatives", getSwapsFromDb(exId, muscleGrp));
+                exCopy.put("swapAlternatives", getSwapsFromDb(exId, muscleGrp, allExerciseIdsInPlan));
                 enrichedExercises.add(exCopy);
             }
 
