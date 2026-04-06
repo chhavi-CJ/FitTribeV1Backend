@@ -1,5 +1,6 @@
 package com.fittribe.api.controller;
 
+import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fittribe.api.dto.ApiResponse;
 import com.fittribe.api.dto.request.ExerciseLogRequest;
@@ -7,6 +8,7 @@ import com.fittribe.api.dto.request.FinishSessionRequest;
 import com.fittribe.api.dto.request.LogSetRequest;
 import com.fittribe.api.dto.request.SetLogRequest;
 import com.fittribe.api.dto.request.StartSessionRequest;
+import com.fittribe.api.dto.request.SwapExerciseRequest;
 import com.fittribe.api.dto.response.FinishSessionResponse;
 import com.fittribe.api.dto.response.LogSetResponse;
 import com.fittribe.api.dto.response.SessionHistoryItem;
@@ -219,6 +221,48 @@ public class SessionController {
         requireOwnedInProgress(id, userId(auth));
         setLogRepo.deleteBySessionIdAndExerciseId(id, exerciseId);
         return ResponseEntity.ok(ApiResponse.success(Map.of("deleted", true)));
+    }
+
+    // ── PATCH /sessions/{id}/swap ────────────────────────────────────
+    @PatchMapping("/{id}/swap")
+    @Transactional
+    public ResponseEntity<ApiResponse<Map<String, String>>> swapExercise(
+            @PathVariable UUID id,
+            @RequestBody SwapExerciseRequest request,
+            Authentication auth) {
+
+        UUID userId = userId(auth);
+        WorkoutSession session = requireOwnedInProgress(id, userId);
+
+        List<Map<String, Object>> swapLog;
+        try {
+            String raw = session.getSwapLog();
+            swapLog = (raw != null && !raw.isBlank())
+                    ? objectMapper.readValue(raw, new TypeReference<>() {})
+                    : new ArrayList<>();
+        } catch (Exception e) {
+            swapLog = new ArrayList<>();
+        }
+
+        Map<String, Object> entry = new LinkedHashMap<>();
+        entry.put("from",            request.fromExerciseId());
+        entry.put("to",              request.toExerciseId());
+        entry.put("toName",          request.toExerciseName());
+        entry.put("toMuscleGroup",   request.toMuscleGroup());
+        entry.put("toEquipment",     request.toEquipment());
+        entry.put("toIsBodyweight",  request.toIsBodyweight());
+        entry.put("swappedAt",       Instant.now().toString());
+        swapLog.add(entry);
+
+        try {
+            session.setSwapLog(objectMapper.writeValueAsString(swapLog));
+        } catch (Exception e) {
+            log.error("Failed to serialize swap log for session {}", id, e);
+            throw new RuntimeException("Could not update swap log", e);
+        }
+        sessionRepo.save(session);
+
+        return ResponseEntity.ok(ApiResponse.success(Map.of("status", "ok")));
     }
 
     // ── GET /sessions/{id}/sets ───────────────────────────────────────
@@ -540,6 +584,16 @@ public class SessionController {
                 ? LocalDate.ofInstant(session.getStartedAt(), ZoneOffset.UTC).toString()
                 : null;
 
+        List<Map<String, Object>> swapLog;
+        try {
+            String raw = session.getSwapLog();
+            swapLog = (raw != null && !raw.isBlank())
+                    ? objectMapper.readValue(raw, new TypeReference<>() {})
+                    : List.of();
+        } catch (Exception e) {
+            swapLog = List.of();
+        }
+
         TodaySessionResponse response = new TodaySessionResponse(
                 session.getId(),
                 session.getName(),
@@ -550,7 +604,8 @@ public class SessionController {
                 session.getAiInsight(),
                 session.getStatus(),
                 user.getStreak(),
-                completedThisWeek);
+                completedThisWeek,
+                swapLog);
 
         return ResponseEntity.ok(ApiResponse.success(response));
     }

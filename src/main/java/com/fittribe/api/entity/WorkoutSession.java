@@ -74,6 +74,10 @@ public class WorkoutSession {
     @Column(name = "week_number")
     private Integer weekNumber;
 
+    @Column(name = "swap_log", columnDefinition = "jsonb")
+    @JdbcTypeCode(SqlTypes.JSON)
+    private String swapLog = "[]";
+
     @PrePersist
     void prePersist() {
         if (startedAt == null) startedAt = Instant.now();
@@ -134,4 +138,7 @@ public class WorkoutSession {
 
     public Integer getWeekNumber()                   { return weekNumber; }
     public void setWeekNumber(Integer v)             { this.weekNumber = v; }
+
+    public String getSwapLog()                       { return swapLog; }
+    public void setSwapLog(String v)                 { this.swapLog = v; }
 }

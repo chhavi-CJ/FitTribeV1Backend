@@ -1,0 +1,1 @@
+ALTER TABLE workout_sessions ADD COLUMN IF NOT EXISTS swap_log JSONB DEFAULT '[]';
