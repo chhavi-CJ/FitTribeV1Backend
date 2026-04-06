@@ -123,6 +123,15 @@ public class SessionController {
                             unlocksAt.toString()));
         }
 
+        // Return existing IN_PROGRESS session instead of creating a duplicate
+        var inProgress = sessionRepo.findFirstByUserIdAndStatusOrderByStartedAtDesc(
+                userId, "IN_PROGRESS");
+        if (inProgress.isPresent()) {
+            WorkoutSession existing = inProgress.get();
+            return ResponseEntity.ok(ApiResponse.success(
+                    new StartSessionResponse(existing.getId(), existing.getStartedAt())));
+        }
+
         WorkoutSession session = new WorkoutSession();
         session.setUserId(userId);
         session.setName(request.name());

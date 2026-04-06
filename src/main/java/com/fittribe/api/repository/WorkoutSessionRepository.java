@@ -24,6 +24,10 @@ public interface WorkoutSessionRepository extends JpaRepository<WorkoutSession, 
 
     List<WorkoutSession> findTop3ByUserIdAndStatusOrderByStartedAtDesc(UUID userId, String status);
 
+    // Used to return an existing IN_PROGRESS session instead of creating a duplicate
+    Optional<WorkoutSession> findFirstByUserIdAndStatusOrderByStartedAtDesc(
+            UUID userId, String status);
+
     // Used for 8-hour cooldown check: any COMPLETED session finished within the last 8 hours
     Optional<WorkoutSession> findFirstByUserIdAndStatusAndFinishedAtAfter(
             UUID userId, String status, Instant after);
