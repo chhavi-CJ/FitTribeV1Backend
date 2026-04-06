@@ -1,6 +1,8 @@
 package com.fittribe.api.dto.response;
 
 import java.math.BigDecimal;
+import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 
 public record TodaySessionResponse(
@@ -13,5 +15,6 @@ public record TodaySessionResponse(
         String aiCoachInsight,
         String status,
         int streak,
-        int completedThisWeek
+        int completedThisWeek,
+        List<Map<String, Object>> swapLog
 ) {}
