@@ -414,6 +414,11 @@ public final class AiPrompts {
             "Specific to today's session type.\n" +
             "- whyThisExercise: MAX 2 sentences per exercise.\n" +
             "- coachTip per exercise: EXACTLY 1 sentence.\n" +
+            "- Each exercise MUST have a unique, exercise-specific coachTip. " +
+            "Do NOT use generic tips like 'Exhale on exertion' or 'Focus on form'. " +
+            "Instead, give a specific biomechanical cue for THAT exercise. " +
+            "For example: Bench Press → 'Keep shoulder blades pinched together throughout', " +
+            "Lateral Raises → 'Lead with pinky finger slightly higher than thumb'.\n" +
             "- cardioSuggestion reason: EXACTLY 1 sentence.\n\n" +
             "RETURN this exact JSON structure:\n" +
             "{\n" +
