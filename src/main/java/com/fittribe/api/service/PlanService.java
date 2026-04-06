@@ -506,6 +506,8 @@ public class PlanService {
                 Exercise entity = exMap.get(exId);
                 String muscleGrp = entity != null
                         ? entity.getMuscleGroup() : (String) copy.get("muscleGroup");
+                copy.put("equipment",    entity != null ? entity.getEquipment() : null);
+                copy.put("isBodyweight", entity != null && entity.isBodyweight());
                 copy.put("swapAlternatives", getSwapsFromDb(exId, muscleGrp, allExerciseIdsInPlan));
                 enriched.add(copy);
             }
