@@ -113,13 +113,6 @@ public class SessionController {
 
         UUID userId = userId(auth);
 
-        log.info("DEBUG startSession received: name={}, badge={}, source={}, sourceRoutineId={}, plannedExercisesSize={}",
-                request.name(),
-                request.badge(),
-                request.source(),
-                request.sourceRoutineId(),
-                request.plannedExercises() != null ? request.plannedExercises().size() : null);
-
         // 8-hour cooldown check
         Instant cooldownCutoff = Instant.now().minus(COOLDOWN_HOURS, ChronoUnit.HOURS);
         var recent = sessionRepo.findFirstByUserIdAndStatusAndFinishedAtAfter(
@@ -662,6 +655,16 @@ public class SessionController {
             swapLog = List.of();
         }
 
+        List<Map<String, Object>> plannedExercises;
+        try {
+            String raw = session.getPlannedExercises();
+            plannedExercises = (raw != null && !raw.isBlank())
+                    ? objectMapper.readValue(raw, new TypeReference<>() {})
+                    : null;
+        } catch (Exception e) {
+            plannedExercises = null;
+        }
+
         TodaySessionResponse response = new TodaySessionResponse(
                 session.getId(),
                 session.getName(),
@@ -673,7 +676,9 @@ public class SessionController {
                 session.getStatus(),
                 user.getStreak(),
                 completedThisWeek,
-                swapLog);
+                swapLog,
+                session.getSource(),
+                plannedExercises);
 
         return ResponseEntity.ok(ApiResponse.success(response));
     }

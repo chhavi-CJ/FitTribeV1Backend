@@ -16,5 +16,7 @@ public record TodaySessionResponse(
         String status,
         int streak,
         int completedThisWeek,
-        List<Map<String, Object>> swapLog
+        List<Map<String, Object>> swapLog,
+        String source,
+        List<Map<String, Object>> plannedExercises
 ) {}
