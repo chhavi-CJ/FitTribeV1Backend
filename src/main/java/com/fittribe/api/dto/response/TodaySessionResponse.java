@@ -18,5 +18,7 @@ public record TodaySessionResponse(
         int completedThisWeek,
         List<Map<String, Object>> swapLog,
         String source,
-        List<Map<String, Object>> plannedExercises
+        List<Map<String, Object>> plannedExercises,
+        String feedbackRating,
+        String feedbackNotes
 ) {}
