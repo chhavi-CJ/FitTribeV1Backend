@@ -16,6 +16,7 @@ import com.fittribe.api.dto.response.StartSessionResponse;
 import com.fittribe.api.dto.response.TodaySessionResponse;
 import com.fittribe.api.dto.request.SessionFeedbackRequest;
 import com.fittribe.api.entity.CoinTransaction;
+import com.fittribe.api.entity.SavedRoutine;
 import com.fittribe.api.entity.SessionFeedback;
 import com.fittribe.api.entity.SetLog;
 import com.fittribe.api.entity.User;
@@ -23,6 +24,7 @@ import com.fittribe.api.entity.WorkoutSession;
 import com.fittribe.api.exception.ApiException;
 import com.fittribe.api.repository.CoinTransactionRepository;
 import com.fittribe.api.repository.PersonalRecordRepository;
+import com.fittribe.api.repository.SavedRoutineRepository;
 import com.fittribe.api.repository.SessionFeedbackRepository;
 import com.fittribe.api.repository.SetLogRepository;
 import com.fittribe.api.repository.UserRepository;
@@ -74,6 +76,7 @@ public class SessionController {
     private final PersonalRecordRepository  prRepo;
     private final RankService               rankService;
     private final CoinService               coinService;
+    private final SavedRoutineRepository    routineRepo;
 
     public SessionController(WorkoutSessionRepository sessionRepo,
                              SetLogRepository setLogRepo,
@@ -85,7 +88,8 @@ public class SessionController {
                              ObjectMapper objectMapper,
                              PersonalRecordRepository prRepo,
                              RankService rankService,
-                             CoinService coinService) {
+                             CoinService coinService,
+                             SavedRoutineRepository routineRepo) {
         this.sessionRepo         = sessionRepo;
         this.setLogRepo          = setLogRepo;
         this.userRepo            = userRepo;
@@ -97,6 +101,7 @@ public class SessionController {
         this.prRepo              = prRepo;
         this.rankService         = rankService;
         this.coinService         = coinService;
+        this.routineRepo         = routineRepo;
     }
 
     // ── POST /sessions/start ──────────────────────────────────────────
@@ -136,6 +141,53 @@ public class SessionController {
         session.setUserId(userId);
         session.setName(request.name());
         session.setBadge(request.badge());
+
+        // Determine source — default to AI_PLAN for backward compat
+        String source = (request.source() != null && !request.source().isBlank())
+                ? request.source()
+                : "AI_PLAN";
+        session.setSource(source);
+
+        // Validate source value
+        if (!source.equals("AI_PLAN") && !source.equals("CUSTOM") && !source.equals("SAVED_ROUTINE")) {
+            throw new ApiException(HttpStatus.BAD_REQUEST, "INVALID_SOURCE",
+                    "Source must be AI_PLAN, CUSTOM, or SAVED_ROUTINE");
+        }
+
+        // For CUSTOM and SAVED_ROUTINE, plannedExercises is required
+        if ((source.equals("CUSTOM") || source.equals("SAVED_ROUTINE"))
+                && (request.plannedExercises() == null || request.plannedExercises().isEmpty())) {
+            throw new ApiException(HttpStatus.BAD_REQUEST, "PLANNED_EXERCISES_REQUIRED",
+                    "plannedExercises is required for CUSTOM and SAVED_ROUTINE sources");
+        }
+
+        // For SAVED_ROUTINE, sourceRoutineId is required and must be owned
+        if (source.equals("SAVED_ROUTINE")) {
+            if (request.sourceRoutineId() == null) {
+                throw new ApiException(HttpStatus.BAD_REQUEST, "ROUTINE_ID_REQUIRED",
+                        "sourceRoutineId is required for SAVED_ROUTINE source");
+            }
+            SavedRoutine routine = routineRepo.findByIdAndUserId(request.sourceRoutineId(), userId)
+                    .orElseThrow(() -> new ApiException(HttpStatus.NOT_FOUND, "ROUTINE_NOT_FOUND",
+                            "Routine not found"));
+            session.setSourceRoutineId(request.sourceRoutineId());
+
+            // Increment usage tracking
+            routine.setTimesUsed(routine.getTimesUsed() + 1);
+            routine.setLastUsedAt(Instant.now());
+            routineRepo.save(routine);
+        }
+
+        // Store planned exercises for CUSTOM and SAVED_ROUTINE
+        if (request.plannedExercises() != null && !request.plannedExercises().isEmpty()) {
+            try {
+                session.setPlannedExercises(objectMapper.writeValueAsString(request.plannedExercises()));
+            } catch (Exception e) {
+                log.error("Failed to serialize planned exercises", e);
+                throw new RuntimeException("Could not serialize planned exercises", e);
+            }
+        }
+
         WorkoutSession saved = sessionRepo.save(session);
 
         return ResponseEntity.ok(ApiResponse.success(

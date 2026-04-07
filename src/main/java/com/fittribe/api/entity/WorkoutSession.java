@@ -78,6 +78,16 @@ public class WorkoutSession {
     @JdbcTypeCode(SqlTypes.JSON)
     private String swapLog = "[]";
 
+    @Column(name = "source", nullable = false)
+    private String source = "AI_PLAN";
+
+    @Column(name = "source_routine_id")
+    private UUID sourceRoutineId;
+
+    @Column(name = "planned_exercises", columnDefinition = "jsonb")
+    @JdbcTypeCode(SqlTypes.JSON)
+    private String plannedExercises;
+
     @PrePersist
     void prePersist() {
         if (startedAt == null) startedAt = Instant.now();
@@ -141,4 +151,13 @@ public class WorkoutSession {
 
     public String getSwapLog()                       { return swapLog; }
     public void setSwapLog(String v)                 { this.swapLog = v; }
+
+    public String getSource()                        { return source; }
+    public void setSource(String v)                  { this.source = v; }
+
+    public UUID getSourceRoutineId()                 { return sourceRoutineId; }
+    public void setSourceRoutineId(UUID v)           { this.sourceRoutineId = v; }
+
+    public String getPlannedExercises()              { return plannedExercises; }
+    public void setPlannedExercises(String v)        { this.plannedExercises = v; }
 }
