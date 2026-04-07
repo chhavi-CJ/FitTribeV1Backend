@@ -50,6 +50,7 @@ import java.time.LocalDate;
 import java.time.ZoneOffset;
 import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
+import java.util.Optional;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -665,6 +666,14 @@ public class SessionController {
             plannedExercises = null;
         }
 
+        String feedbackRating = null;
+        String feedbackNotes = null;
+        Optional<SessionFeedback> existingFeedback = feedbackRepo.findBySessionId(session.getId());
+        if (existingFeedback.isPresent()) {
+            feedbackRating = existingFeedback.get().getRating();
+            feedbackNotes = existingFeedback.get().getNotes();
+        }
+
         TodaySessionResponse response = new TodaySessionResponse(
                 session.getId(),
                 session.getName(),
@@ -678,7 +687,9 @@ public class SessionController {
                 completedThisWeek,
                 swapLog,
                 session.getSource(),
-                plannedExercises);
+                plannedExercises,
+                feedbackRating,
+                feedbackNotes);
 
         return ResponseEntity.ok(ApiResponse.success(response));
     }
