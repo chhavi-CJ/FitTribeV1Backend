@@ -738,6 +738,7 @@ public class SessionController {
                 session.getTotalVolumeKg() != null ? session.getTotalVolumeKg() : BigDecimal.ZERO,
                 session.getTotalSets()     != null ? session.getTotalSets()     : logs.size(),
                 session.getDurationMins(),
+                session.getFinishedAt(),
                 session.getAiInsight(),
                 session.getStatus(),
                 user.getStreak(),
