@@ -235,10 +235,17 @@ public class GroupController {
         Map<UUID, Long> memberCountByGroup = memberRepo.findByGroupIdIn(groupIds).stream()
                 .collect(Collectors.groupingBy(GroupMember::getGroupId, Collectors.counting()));
 
+        Map<UUID, String> roleByGroup = myMemberships.stream()
+                .collect(Collectors.toMap(GroupMember::getGroupId, GroupMember::getRole));
+
         List<Map<String, Object>> result = myMemberships.stream()
                 .map(gm -> groupsById.get(gm.getGroupId()))
                 .filter(Objects::nonNull)
-                .map(g -> toGroupResponse(g, memberCountByGroup.getOrDefault(g.getId(), 0L)))
+                .map(g -> {
+                    Map<String, Object> resp = toGroupResponse(g, memberCountByGroup.getOrDefault(g.getId(), 0L));
+                    resp.put("currentUserRole", roleByGroup.get(g.getId()));
+                    return resp;
+                })
                 .collect(Collectors.toList());
 
         return ResponseEntity.ok(ApiResponse.success(result));
