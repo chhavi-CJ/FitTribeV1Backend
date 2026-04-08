@@ -71,6 +71,9 @@ public class User {
     @Column(name = "streak_freeze_balance", nullable = false)
     private Integer streakFreezeBalance = 0;
 
+    @Column(name = "auto_freeze_enabled", nullable = false)
+    private Boolean autoFreezeEnabled = true;
+
     @Column(name = "notifications_enabled", nullable = false)
     private Boolean notificationsEnabled = true;
 
@@ -146,6 +149,9 @@ public class User {
 
     public Integer getStreakFreezeBalance()                          { return streakFreezeBalance; }
     public void setStreakFreezeBalance(Integer streakFreezeBalance)  { this.streakFreezeBalance = streakFreezeBalance; }
+
+    public Boolean getAutoFreezeEnabled()                              { return autoFreezeEnabled; }
+    public void setAutoFreezeEnabled(Boolean autoFreezeEnabled)      { this.autoFreezeEnabled = autoFreezeEnabled; }
 
     public Boolean getNotificationsEnabled()                           { return notificationsEnabled; }
     public void setNotificationsEnabled(Boolean notificationsEnabled) { this.notificationsEnabled = notificationsEnabled; }
