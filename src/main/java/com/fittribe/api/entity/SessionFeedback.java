@@ -28,6 +28,9 @@ public class SessionFeedback {
     @Column(name = "created_at", insertable = false, updatable = false)
     private Instant createdAt;
 
+    @Column(name = "updated_at")
+    private Instant updatedAt;
+
     public SessionFeedback() {}
 
     public UUID getId()               { return id; }
@@ -45,5 +48,8 @@ public class SessionFeedback {
     public String getNotes()           { return notes; }
     public void setNotes(String notes) { this.notes = notes; }
 
-    public Instant getCreatedAt()      { return createdAt; }
+    public Instant getCreatedAt()              { return createdAt; }
+
+    public Instant getUpdatedAt()              { return updatedAt; }
+    public void setUpdatedAt(Instant updatedAt) { this.updatedAt = updatedAt; }
 }

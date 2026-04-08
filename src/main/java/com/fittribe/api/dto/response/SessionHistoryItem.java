@@ -11,7 +11,8 @@ public record SessionHistoryItem(
         BigDecimal totalVolumeKg,
         int totalSets,
         Integer durationMins,
-        List<ExerciseGroup> exercises
+        List<ExerciseGroup> exercises,
+        FeedbackInfo feedback
 ) {
     public record ExerciseGroup(String name, List<SetSummary> sets) {}
 

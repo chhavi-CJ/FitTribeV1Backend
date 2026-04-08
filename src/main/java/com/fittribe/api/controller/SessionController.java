@@ -9,6 +9,7 @@ import com.fittribe.api.dto.request.LogSetRequest;
 import com.fittribe.api.dto.request.SetLogRequest;
 import com.fittribe.api.dto.request.StartSessionRequest;
 import com.fittribe.api.dto.request.SwapExerciseRequest;
+import com.fittribe.api.dto.response.FeedbackInfo;
 import com.fittribe.api.dto.response.FinishSessionResponse;
 import com.fittribe.api.dto.response.LogSetResponse;
 import com.fittribe.api.dto.response.SessionHistoryItem;
@@ -565,9 +566,9 @@ public class SessionController {
                 aiCoachInsight)));
     }
 
-    // ── POST /sessions/{id}/feedback ─────────────────────────────────
+    // ── POST /sessions/{id}/feedback (upsert) ──────────────────────────
     @PostMapping("/{id}/feedback")
-    public ResponseEntity<ApiResponse<Map<String, Object>>> submitFeedback(
+    public ResponseEntity<ApiResponse<FeedbackInfo>> submitFeedback(
             @PathVariable UUID id,
             @RequestBody @Valid SessionFeedbackRequest request,
             Authentication auth) {
@@ -580,11 +581,6 @@ public class SessionController {
                     "SESSION_NOT_COMPLETE", "Can only rate completed sessions.");
         }
 
-        if (feedbackRepo.findBySessionId(id).isPresent()) {
-            throw new ApiException(HttpStatus.CONFLICT,
-                    "FEEDBACK_EXISTS", "Feedback already submitted for this session.");
-        }
-
         String notes = request.getNotes();
         if (notes != null) {
             notes = notes.replaceAll(
@@ -593,17 +589,20 @@ public class SessionController {
             if (notes.isEmpty()) notes = null;
         }
 
-        SessionFeedback feedback = new SessionFeedback();
-        feedback.setUserId(userId);
-        feedback.setSessionId(id);
+        SessionFeedback feedback = feedbackRepo.findBySessionId(id)
+                .orElseGet(() -> {
+                    SessionFeedback f = new SessionFeedback();
+                    f.setUserId(userId);
+                    f.setSessionId(id);
+                    return f;
+                });
         feedback.setRating(request.getRating());
         feedback.setNotes(notes);
+        feedback.setUpdatedAt(Instant.now());
         feedbackRepo.save(feedback);
 
-        return ResponseEntity.ok(ApiResponse.success(Map.of(
-                "message",   "Feedback saved successfully",
-                "sessionId", id,
-                "rating",    request.getRating())));
+        return ResponseEntity.ok(ApiResponse.success(
+                new FeedbackInfo(feedback.getRating(), feedback.getNotes(), feedback.getCreatedAt())));
     }
 
     // ── POST /sessions/{id}/discard ───────────────────────────────────
@@ -666,13 +665,9 @@ public class SessionController {
             plannedExercises = null;
         }
 
-        String feedbackRating = null;
-        String feedbackNotes = null;
-        Optional<SessionFeedback> existingFeedback = feedbackRepo.findBySessionId(session.getId());
-        if (existingFeedback.isPresent()) {
-            feedbackRating = existingFeedback.get().getRating();
-            feedbackNotes = existingFeedback.get().getNotes();
-        }
+        FeedbackInfo feedback = feedbackRepo.findBySessionId(session.getId())
+                .map(fb -> new FeedbackInfo(fb.getRating(), fb.getNotes(), fb.getCreatedAt()))
+                .orElse(null);
 
         TodaySessionResponse response = new TodaySessionResponse(
                 session.getId(),
@@ -688,8 +683,7 @@ public class SessionController {
                 swapLog,
                 session.getSource(),
                 plannedExercises,
-                feedbackRating,
-                feedbackNotes);
+                feedback);
 
         return ResponseEntity.ok(ApiResponse.success(response));
     }
@@ -699,9 +693,16 @@ public class SessionController {
     public ResponseEntity<ApiResponse<List<SessionHistoryItem>>> history(Authentication auth) {
         UUID userId = userId(auth);
 
-        List<SessionHistoryItem> items = sessionRepo
-                .findTop20ByUserIdAndStatusOrderByStartedAtDesc(userId, "COMPLETED")
+        List<WorkoutSession> sessions = sessionRepo
+                .findTop20ByUserIdAndStatusOrderByStartedAtDesc(userId, "COMPLETED");
+
+        // Batch-load feedback for all sessions in one query
+        List<UUID> sessionIds = sessions.stream().map(WorkoutSession::getId).collect(Collectors.toList());
+        Map<UUID, SessionFeedback> feedbackBySession = feedbackRepo.findBySessionIdIn(sessionIds)
                 .stream()
+                .collect(Collectors.toMap(SessionFeedback::getSessionId, fb -> fb));
+
+        List<SessionHistoryItem> items = sessions.stream()
                 .map(session -> {
                     List<SetLog> logs = setLogRepo.findBySessionId(session.getId());
 
@@ -726,6 +727,11 @@ public class SessionController {
                             ? LocalDate.ofInstant(session.getStartedAt(), ZoneOffset.UTC).toString()
                             : null;
 
+                    SessionFeedback fb = feedbackBySession.get(session.getId());
+                    FeedbackInfo feedback = fb != null
+                            ? new FeedbackInfo(fb.getRating(), fb.getNotes(), fb.getCreatedAt())
+                            : null;
+
                     return new SessionHistoryItem(
                             session.getId(),
                             session.getName(),
@@ -733,7 +739,8 @@ public class SessionController {
                             session.getTotalVolumeKg(),
                             session.getTotalSets() != null ? session.getTotalSets() : 0,
                             session.getDurationMins(),
-                            exercises);
+                            exercises,
+                            feedback);
                 })
                 .collect(Collectors.toList());
 
