@@ -24,10 +24,14 @@ public class NotificationController {
 
     // ── GET /notifications ────────────────────────────────────────────
     @GetMapping
-    public ResponseEntity<ApiResponse<?>> list(Authentication auth) {
+    public ResponseEntity<ApiResponse<?>> list(
+            @RequestParam(required = false) Boolean unread,
+            Authentication auth) {
         UUID userId = userId(auth);
 
-        List<Notification> notifs = notifRepo.findTop50ByUserIdOrderByCreatedAtDesc(userId);
+        List<Notification> notifs = Boolean.TRUE.equals(unread)
+                ? notifRepo.findTop30ByUserIdAndIsReadFalseOrderByCreatedAtDesc(userId)
+                : notifRepo.findTop30ByUserIdOrderByCreatedAtDesc(userId);
         long unreadCount = notifRepo.countByUserIdAndIsReadFalse(userId);
 
         List<Map<String, Object>> items = notifs.stream().map(n -> {

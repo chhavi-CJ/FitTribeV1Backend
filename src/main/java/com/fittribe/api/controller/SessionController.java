@@ -17,6 +17,8 @@ import com.fittribe.api.dto.response.StartSessionResponse;
 import com.fittribe.api.dto.response.TodaySessionResponse;
 import com.fittribe.api.dto.request.SessionFeedbackRequest;
 import com.fittribe.api.entity.CoinTransaction;
+import com.fittribe.api.entity.FeedItem;
+import com.fittribe.api.entity.GroupMember;
 import com.fittribe.api.entity.SavedRoutine;
 import com.fittribe.api.entity.SessionFeedback;
 import com.fittribe.api.entity.SetLog;
@@ -24,6 +26,8 @@ import com.fittribe.api.entity.User;
 import com.fittribe.api.entity.WorkoutSession;
 import com.fittribe.api.exception.ApiException;
 import com.fittribe.api.repository.CoinTransactionRepository;
+import com.fittribe.api.repository.FeedItemRepository;
+import com.fittribe.api.repository.GroupMemberRepository;
 import com.fittribe.api.repository.PersonalRecordRepository;
 import com.fittribe.api.repository.SavedRoutineRepository;
 import com.fittribe.api.repository.SessionFeedbackRepository;
@@ -79,6 +83,8 @@ public class SessionController {
     private final RankService               rankService;
     private final CoinService               coinService;
     private final SavedRoutineRepository    routineRepo;
+    private final GroupMemberRepository     groupMemberRepo;
+    private final FeedItemRepository        feedItemRepo;
 
     public SessionController(WorkoutSessionRepository sessionRepo,
                              SetLogRepository setLogRepo,
@@ -91,7 +97,9 @@ public class SessionController {
                              PersonalRecordRepository prRepo,
                              RankService rankService,
                              CoinService coinService,
-                             SavedRoutineRepository routineRepo) {
+                             SavedRoutineRepository routineRepo,
+                             GroupMemberRepository groupMemberRepo,
+                             FeedItemRepository feedItemRepo) {
         this.sessionRepo         = sessionRepo;
         this.setLogRepo          = setLogRepo;
         this.userRepo            = userRepo;
@@ -104,6 +112,8 @@ public class SessionController {
         this.rankService         = rankService;
         this.coinService         = coinService;
         this.routineRepo         = routineRepo;
+        this.groupMemberRepo     = groupMemberRepo;
+        this.feedItemRepo        = feedItemRepo;
     }
 
     // ── POST /sessions/start ──────────────────────────────────────────
@@ -549,6 +559,58 @@ public class SessionController {
         if (currentStreak == 30) {
             coinService.awardCoins(userId, 100, "STREAK_30",
                     "30-day streak milestone", "30");
+        }
+
+        // ── Feed items — post to all user's groups ───────────────────────
+        try {
+            List<GroupMember> memberships = groupMemberRepo.findByUserId(userId);
+            if (!memberships.isEmpty()) {
+                String displayName = user.getDisplayName() != null ? user.getDisplayName() : "Someone";
+
+                // WORKOUT_LOGGED feed item
+                String workoutBody = displayName + " finished a workout · " + totalSets + " sets · "
+                        + totalVolumeKg.toBigInteger() + " kg volume";
+                for (GroupMember gm : memberships) {
+                    try {
+                        FeedItem fi = new FeedItem();
+                        fi.setGroupId(gm.getGroupId());
+                        fi.setUserId(userId);
+                        fi.setType("WORKOUT_LOGGED");
+                        fi.setBody(workoutBody);
+                        feedItemRepo.save(fi);
+                    } catch (Exception e) {
+                        log.error("Failed to post WORKOUT_LOGGED feed for group={}", gm.getGroupId(), e);
+                    }
+                }
+
+                // PR feed items — one per PR exercise, posted to every group
+                for (ExerciseLogRequest prEx : newPrExercises) {
+                    String exerciseName = prEx.exerciseName() != null ? prEx.exerciseName() : prEx.exerciseId();
+                    BigDecimal prWeight = prEx.sets().stream()
+                            .map(s -> s.weightKg() != null ? s.weightKg() : BigDecimal.ZERO)
+                            .max(BigDecimal::compareTo).orElse(BigDecimal.ZERO);
+                    int prReps = prEx.sets().stream()
+                            .filter(s -> s.weightKg() != null && s.weightKg().compareTo(prWeight) == 0)
+                            .mapToInt(SetLogRequest::reps)
+                            .max().orElse(0);
+                    String prBody = displayName + " hit a new PR · " + exerciseName + " · "
+                            + prWeight.stripTrailingZeros().toPlainString() + "kg × " + prReps;
+                    for (GroupMember gm : memberships) {
+                        try {
+                            FeedItem fi = new FeedItem();
+                            fi.setGroupId(gm.getGroupId());
+                            fi.setUserId(userId);
+                            fi.setType("PR");
+                            fi.setBody(prBody);
+                            feedItemRepo.save(fi);
+                        } catch (Exception e) {
+                            log.error("Failed to post PR feed for group={}", gm.getGroupId(), e);
+                        }
+                    }
+                }
+            }
+        } catch (Exception e) {
+            log.error("Failed to post feed items for session={}", id, e);
         }
 
         return ResponseEntity.ok(ApiResponse.success(new FinishSessionResponse(
