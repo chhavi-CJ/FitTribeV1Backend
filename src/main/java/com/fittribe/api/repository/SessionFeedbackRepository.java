@@ -5,6 +5,7 @@ import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.stereotype.Repository;
 
 import java.time.Instant;
+import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
@@ -13,6 +14,8 @@ import java.util.UUID;
 public interface SessionFeedbackRepository extends JpaRepository<SessionFeedback, UUID> {
 
     Optional<SessionFeedback> findBySessionId(UUID sessionId);
+
+    List<SessionFeedback> findBySessionIdIn(Collection<UUID> sessionIds);
 
     List<SessionFeedback> findByUserIdOrderByCreatedAtDesc(UUID userId);
 
