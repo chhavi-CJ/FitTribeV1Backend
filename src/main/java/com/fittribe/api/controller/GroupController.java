@@ -3,9 +3,12 @@ package com.fittribe.api.controller;
 import com.fittribe.api.dto.ApiResponse;
 import com.fittribe.api.dto.request.CreateGroupRequest;
 import com.fittribe.api.dto.request.JoinGroupRequest;
+import com.fittribe.api.dto.request.ReactRequest;
+import com.fittribe.api.dto.request.UpdateGroupRequest;
 import com.fittribe.api.entity.*;
 import com.fittribe.api.exception.ApiException;
 import com.fittribe.api.repository.*;
+import jakarta.validation.Valid;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.Authentication;
@@ -29,6 +32,7 @@ public class GroupController {
     private final NotificationRepository  notifRepo;
     private final WorkoutSessionRepository sessionRepo;
     private final SetLogRepository        setLogRepo;
+    private final ReactionRepository      reactionRepo;
 
     public GroupController(GroupRepository groupRepo,
                            GroupMemberRepository memberRepo,
@@ -36,14 +40,16 @@ public class GroupController {
                            UserRepository userRepo,
                            NotificationRepository notifRepo,
                            WorkoutSessionRepository sessionRepo,
-                           SetLogRepository setLogRepo) {
-        this.groupRepo   = groupRepo;
-        this.memberRepo  = memberRepo;
-        this.feedRepo    = feedRepo;
-        this.userRepo    = userRepo;
-        this.notifRepo   = notifRepo;
-        this.sessionRepo = sessionRepo;
-        this.setLogRepo  = setLogRepo;
+                           SetLogRepository setLogRepo,
+                           ReactionRepository reactionRepo) {
+        this.groupRepo    = groupRepo;
+        this.memberRepo   = memberRepo;
+        this.feedRepo     = feedRepo;
+        this.userRepo     = userRepo;
+        this.notifRepo    = notifRepo;
+        this.sessionRepo  = sessionRepo;
+        this.setLogRepo   = setLogRepo;
+        this.reactionRepo = reactionRepo;
     }
 
     // ── POST /groups ──────────────────────────────────────────────────
@@ -121,6 +127,94 @@ public class GroupController {
         return ResponseEntity.ok(ApiResponse.success(toGroupResponse(group, memberCount)));
     }
 
+    // ── GET /groups/{id} ───────────────────────────────────────────────
+    @GetMapping("/{id}")
+    public ResponseEntity<ApiResponse<?>> getGroup(
+            @PathVariable UUID id, Authentication auth) {
+
+        UUID userId = userId(auth);
+        GroupMember membership = memberRepo.findByGroupIdAndUserId(id, userId)
+                .orElseThrow(() -> ApiException.forbidden());
+
+        Group group = groupRepo.findById(id)
+                .orElseThrow(() -> ApiException.notFound("Group"));
+
+        long memberCount = memberRepo.findByGroupId(id).size();
+
+        Map<String, Object> response = toGroupResponse(group, memberCount);
+        response.put("createdBy",       group.getCreatedBy());
+        response.put("createdAt",       group.getCreatedAt());
+        response.put("currentUserRole", membership.getRole());
+
+        return ResponseEntity.ok(ApiResponse.success(response));
+    }
+
+    // ── PATCH /groups/{id} ───────────────────────────────────────────
+    @PatchMapping("/{id}")
+    @Transactional
+    public ResponseEntity<ApiResponse<?>> updateGroup(
+            @PathVariable UUID id,
+            @RequestBody UpdateGroupRequest request,
+            Authentication auth) {
+
+        UUID userId = userId(auth);
+        GroupMember membership = memberRepo.findByGroupIdAndUserId(id, userId)
+                .orElseThrow(() -> ApiException.notFound("Group"));
+
+        if (!"ADMIN".equals(membership.getRole())) {
+            throw ApiException.forbidden();
+        }
+
+        Group group = groupRepo.findById(id)
+                .orElseThrow(() -> ApiException.notFound("Group"));
+
+        if (request.name() != null)  group.setName(request.name());
+        if (request.icon() != null)  group.setIcon(request.icon());
+        if (request.color() != null) group.setColor(request.color());
+        groupRepo.save(group);
+
+        long memberCount = memberRepo.findByGroupId(id).size();
+        return ResponseEntity.ok(ApiResponse.success(toGroupResponse(group, memberCount)));
+    }
+
+    // ── POST /groups/{id}/leave ──────────────────────────────────────
+    @PostMapping("/{id}/leave")
+    @Transactional
+    public ResponseEntity<ApiResponse<?>> leave(
+            @PathVariable UUID id, Authentication auth) {
+
+        UUID userId = userId(auth);
+
+        GroupMember leaving = memberRepo.findByGroupIdAndUserId(id, userId)
+                .orElseThrow(() -> ApiException.notFound("Membership"));
+
+        List<GroupMember> allMembers = memberRepo.findByGroupId(id);
+
+        if (allMembers.size() == 1) {
+            // Sole member — delete the entire group (cascades to members, feed, reactions)
+            groupRepo.deleteById(id);
+        } else {
+            // If leaving user is the only ADMIN, promote longest-tenured member
+            boolean isOnlyAdmin = "ADMIN".equals(leaving.getRole())
+                    && allMembers.stream().filter(m -> "ADMIN".equals(m.getRole())).count() == 1;
+
+            if (isOnlyAdmin) {
+                allMembers.stream()
+                        .filter(m -> !m.getUserId().equals(userId))
+                        .min(Comparator.comparing(GroupMember::getJoinedAt,
+                                Comparator.nullsLast(Comparator.naturalOrder())))
+                        .ifPresent(m -> {
+                            m.setRole("ADMIN");
+                            memberRepo.save(m);
+                        });
+            }
+
+            memberRepo.delete(leaving);
+        }
+
+        return ResponseEntity.ok(ApiResponse.success(Map.of("success", true)));
+    }
+
     // ── GET /groups/mine ──────────────────────────────────────────────
     @GetMapping("/mine")
     public ResponseEntity<ApiResponse<?>> myGroups(Authentication auth) {
@@ -183,7 +277,8 @@ public class GroupController {
     public ResponseEntity<ApiResponse<?>> getFeed(
             @PathVariable UUID id, Authentication auth) {
 
-        requireMembership(id, userId(auth));
+        UUID currentUserId = userId(auth);
+        requireMembership(id, currentUserId);
 
         // 1 query: top 30 feed items
         List<FeedItem> feedItems = feedRepo.findTop30ByGroupIdOrderByCreatedAtDesc(id);
@@ -197,6 +292,13 @@ public class GroupController {
                         .collect(Collectors.toMap(User::getId, u -> u.getDisplayName() != null
                                 ? u.getDisplayName() : "Someone"));
 
+        // 1 query: batch load all reactions for these feed items
+        Set<UUID> feedItemIds = feedItems.stream().map(FeedItem::getId).collect(Collectors.toSet());
+        Map<UUID, List<Reaction>> reactionsByItem = feedItemIds.isEmpty()
+                ? Map.of()
+                : reactionRepo.findByFeedItemIdIn(feedItemIds).stream()
+                        .collect(Collectors.groupingBy(Reaction::getFeedItemId));
+
         List<Map<String, Object>> result = feedItems.stream()
                 .map(fi -> {
                     Map<String, Object> m = new LinkedHashMap<>();
@@ -207,11 +309,74 @@ public class GroupController {
                     m.put("displayName", fi.getUserId() != null
                             ? nameByUserId.get(fi.getUserId()) : null);
                     m.put("createdAt",   fi.getCreatedAt());
+
+                    // Reactions
+                    List<Reaction> itemReactions = reactionsByItem.getOrDefault(fi.getId(), List.of());
+                    Map<String, Long> counts = new LinkedHashMap<>();
+                    counts.put("STRONG", 0L);
+                    counts.put("RESPECT", 0L);
+                    counts.put("KEEP_GOING", 0L);
+                    counts.put("COMMENDABLE", 0L);
+                    itemReactions.forEach(r -> counts.merge(r.getKind(), 1L, Long::sum));
+                    m.put("reactions",  counts);
+                    m.put("myReaction", itemReactions.stream()
+                            .filter(r -> r.getUserId().equals(currentUserId))
+                            .map(Reaction::getKind).findFirst().orElse(null));
+
                     return m;
                 })
                 .collect(Collectors.toList());
 
         return ResponseEntity.ok(ApiResponse.success(result));
+    }
+
+    // ── POST /groups/feed/{feedItemId}/react ──────────────────────────
+    @PostMapping("/feed/{feedItemId}/react")
+    @Transactional
+    public ResponseEntity<ApiResponse<?>> react(
+            @PathVariable UUID feedItemId,
+            @RequestBody @Valid ReactRequest request,
+            Authentication auth) {
+
+        UUID userId = userId(auth);
+
+        FeedItem fi = feedRepo.findById(feedItemId)
+                .orElseThrow(() -> ApiException.notFound("FeedItem"));
+        requireMembership(fi.getGroupId(), userId);
+
+        // Toggle logic: same type → remove, different type → update, none → insert
+        Optional<Reaction> existing = reactionRepo.findByFeedItemIdAndUserId(feedItemId, userId);
+        if (existing.isPresent()) {
+            if (existing.get().getKind().equals(request.type())) {
+                reactionRepo.delete(existing.get());
+            } else {
+                existing.get().setKind(request.type());
+                reactionRepo.save(existing.get());
+            }
+        } else {
+            Reaction r = new Reaction();
+            r.setFeedItemId(feedItemId);
+            r.setUserId(userId);
+            r.setKind(request.type());
+            reactionRepo.save(r);
+        }
+
+        // Build response with counts + myReaction
+        List<Reaction> allReactions = reactionRepo.findByFeedItemIdIn(List.of(feedItemId));
+        Map<String, Long> counts = new LinkedHashMap<>();
+        counts.put("STRONG", 0L);
+        counts.put("RESPECT", 0L);
+        counts.put("KEEP_GOING", 0L);
+        counts.put("COMMENDABLE", 0L);
+        allReactions.forEach(r -> counts.merge(r.getKind(), 1L, Long::sum));
+
+        String myReaction = reactionRepo.findByFeedItemIdAndUserId(feedItemId, userId)
+                .map(Reaction::getKind).orElse(null);
+
+        Map<String, Object> response = new LinkedHashMap<>();
+        response.put("reactions",  counts);
+        response.put("myReaction", myReaction);
+        return ResponseEntity.ok(ApiResponse.success(response));
     }
 
     // ── GET /groups/pulse ─────────────────────────────────────────────

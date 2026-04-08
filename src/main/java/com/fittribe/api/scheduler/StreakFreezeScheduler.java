@@ -79,6 +79,24 @@ public class StreakFreezeScheduler {
                         userId);
 
                 log.info("StreakFreezeScheduler: freeze applied for userId={}", userId);
+
+                // Post FREEZE_USED feed item to all user's groups
+                try {
+                    String displayName = jdbcTemplate.queryForObject(
+                            "SELECT display_name FROM users WHERE id = ?", String.class, userId);
+                    if (displayName == null) displayName = "Someone";
+                    List<UUID> groupIds = jdbcTemplate.queryForList(
+                            "SELECT group_id FROM group_members WHERE user_id = ?", UUID.class, userId);
+                    String body = displayName + " used a freeze ❄ to protect their streak";
+                    for (UUID gId : groupIds) {
+                        jdbcTemplate.update(
+                                "INSERT INTO feed_items (id, group_id, user_id, type, body, created_at) " +
+                                "VALUES (gen_random_uuid(), ?, ?, 'FREEZE_USED', ?, NOW())",
+                                gId, userId, body);
+                    }
+                } catch (Exception fe) {
+                    log.error("StreakFreezeScheduler: feed post failed for userId={}", userId, fe);
+                }
             } catch (Exception e) {
                 log.error("StreakFreezeScheduler: failed for userId={}", userId, e);
             }
