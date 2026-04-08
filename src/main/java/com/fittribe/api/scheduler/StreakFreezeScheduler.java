@@ -43,6 +43,7 @@ public class StreakFreezeScheduler {
                 "SELECT u.id FROM users u " +
                 "WHERE u.streak > 0 " +
                 "  AND u.streak_freeze_balance > 0 " +
+                "  AND u.auto_freeze_enabled = TRUE " +
                 "  AND NOT EXISTS (" +
                 "    SELECT 1 FROM workout_sessions ws " +
                 "    WHERE ws.user_id = u.id " +

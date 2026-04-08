@@ -18,6 +18,7 @@ public record UserProfileResponse(
         int prsTotal,
         int fitcoinsBalance,
         int streakFreezeBalance,
+        boolean autoFreezeEnabled,
         String rank,
         boolean notificationsEnabled,
         boolean showInLeaderboard,

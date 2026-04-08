@@ -154,12 +154,15 @@ public class UserController {
             user.setNotificationsEnabled(request.notificationsEnabled());
         if (request.showInLeaderboard() != null)
             user.setShowInLeaderboard(request.showInLeaderboard());
+        if (request.autoFreezeEnabled() != null)
+            user.setAutoFreezeEnabled(request.autoFreezeEnabled());
 
         userRepository.save(user);
 
         Map<String, Object> result = new LinkedHashMap<>();
         result.put("notificationsEnabled", user.getNotificationsEnabled());
         result.put("showInLeaderboard",    user.getShowInLeaderboard());
+        result.put("autoFreezeEnabled",    user.getAutoFreezeEnabled());
         return ResponseEntity.ok(ApiResponse.success(result));
     }
 
@@ -295,6 +298,7 @@ public class UserController {
                 prsTotal,
                 user.getCoins() != null ? user.getCoins() : 0,
                 user.getStreakFreezeBalance() != null ? user.getStreakFreezeBalance() : 0,
+                Boolean.TRUE.equals(user.getAutoFreezeEnabled()),
                 user.getRank() != null ? user.getRank() : "ROOKIE",
                 Boolean.TRUE.equals(user.getNotificationsEnabled()),
                 Boolean.TRUE.equals(user.getShowInLeaderboard()),
