@@ -691,7 +691,11 @@ public class SessionController {
 
         WorkoutSession session = sessionRepo
                 .findFirstByUserIdAndStartedAtBetweenOrderByStartedAtDesc(userId, dayStart, dayEnd)
-                .orElseThrow(() -> ApiException.notFound("Session"));
+                .orElse(null);
+
+        if (session == null) {
+            return ResponseEntity.ok(ApiResponse.success(null));
+        }
 
         List<SetLog> logs = setLogRepo.findBySessionId(session.getId());
 
