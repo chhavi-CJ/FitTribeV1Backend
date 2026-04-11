@@ -50,6 +50,14 @@ public interface WeeklyReportRepository extends JpaRepository<WeeklyReport, Long
     Optional<WeeklyReport> findByUserIdAndWeekStart(UUID userId, LocalDate weekStart);
 
     /**
+     * Fetch the most recent report for a user, ordered by week start
+     * date descending. Used by
+     * {@code GET /api/v1/weekly-reports/latest} (Wynners A4.1).
+     * Returns empty when no report has been computed yet for this user.
+     */
+    Optional<WeeklyReport> findTopByUserIdOrderByWeekStartDesc(UUID userId);
+
+    /**
      * Insert-or-overwrite one report. All JSONB strings must be
      * serialized by the caller via the shared {@code ObjectMapper} bean
      * (normalizing {@code BigDecimal} via {@code stripTrailingZeros()}
