@@ -191,6 +191,15 @@ public class ProgressSnapshotService {
             muscleScores.get(muscle).add(exerciseScore);
         }
 
+        // ── Guard: skip if no muscles got qualifying exercises ─────────
+        boolean hasAnyMuscleScores = muscleScores.values().stream()
+                .anyMatch(scores -> !scores.isEmpty());
+        if (!hasAnyMuscleScores) {
+            log.info("No qualifying exercises for user {} week {}, skipping snapshot",
+                    userId, weekStart);
+            return;
+        }
+
         // ── Aggregate and persist ──────────────────────────────────────
         transactionTemplate.executeWithoutResult(status -> {
             // Upsert strength_score_history rows (one per muscle with qualifying exercises)
