@@ -71,3 +71,13 @@ logging:
 # ── Mock auth (local dev only — never enable on Railway) ──────────────
 app:
   mock-auth-enabled: false
+
+# ── Admin endpoints (Wynners A1.5) ────────────────────────────────────
+# Shared secret required on the X-Admin-Secret header for
+# /api/v1/admin/jobs/**. The default is intentionally empty so the app
+# starts cleanly without ADMIN_SECRET set — the controller treats an
+# empty/missing config as "reject all admin requests", so leaving this
+# unset is a safe deny-by-default posture for local dev.
+fittribe:
+  admin:
+    secret: ${ADMIN_SECRET:}
