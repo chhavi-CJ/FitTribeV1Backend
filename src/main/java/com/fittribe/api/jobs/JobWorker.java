@@ -3,6 +3,7 @@ package com.fittribe.api.jobs;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fittribe.api.weeklyreport.WeeklyReportComputer;
+import com.fittribe.api.strengthscore.ProgressSnapshotService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.scheduling.annotation.Scheduled;
@@ -76,15 +77,18 @@ public class JobWorker {
     private final ObjectMapper mapper;
     private final TransactionTemplate txTemplate;
     private final WeeklyReportComputer weeklyReportComputer;
+    private final ProgressSnapshotService progressSnapshotService;
 
     public JobWorker(PendingJobRepository repo,
                      ObjectMapper mapper,
                      PlatformTransactionManager txManager,
-                     WeeklyReportComputer weeklyReportComputer) {
+                     WeeklyReportComputer weeklyReportComputer,
+                     ProgressSnapshotService progressSnapshotService) {
         this.repo = repo;
         this.mapper = mapper;
         this.txTemplate = new TransactionTemplate(txManager);
         this.weeklyReportComputer = weeklyReportComputer;
+        this.progressSnapshotService = progressSnapshotService;
     }
 
     /**
@@ -169,6 +173,10 @@ public class JobWorker {
             handleComputeWeeklyReport(job);
             return;
         }
+        if (JobType.COMPUTE_STRENGTH_PROGRESSION.name().equals(type)) {
+            handleComputeStrengthProgression(job);
+            return;
+        }
         // Unknown job types are a programming error — fail fast so the
         // operator notices rather than silently looping.
         throw new IllegalStateException(
@@ -214,6 +222,47 @@ public class JobWorker {
         }
 
         weeklyReportComputer.compute(userId, weekStart);
+    }
+
+    /**
+     * Parse the payload, resolve {@code userId} (required) and
+     * {@code weekStart} (optional, falls back to the previous IST
+     * Monday), then delegate to {@link ProgressSnapshotService}. Any
+     * failure — bad payload, missing user id, service exception —
+     * bubbles up to {@link #tick()} and hits the retry path.
+     */
+    private void handleComputeStrengthProgression(PendingJob job) {
+        Map<String, Object> payload = parsePayload(job);
+
+        Object rawUserId = payload.get("userId");
+        if (rawUserId == null) {
+            throw new IllegalArgumentException(
+                    "JobWorker: COMPUTE_STRENGTH_PROGRESSION payload missing required 'userId' (job id=" + job.getId() + ")");
+        }
+        UUID userId;
+        try {
+            userId = UUID.fromString(rawUserId.toString());
+        } catch (IllegalArgumentException e) {
+            throw new IllegalArgumentException(
+                    "JobWorker: COMPUTE_STRENGTH_PROGRESSION 'userId' is not a valid UUID (job id=" + job.getId() + ")", e);
+        }
+
+        LocalDate weekStart;
+        Object rawWeekStart = payload.get("weekStart");
+        if (rawWeekStart == null) {
+            weekStart = previousMondayIst();
+            log.info("JobWorker: COMPUTE_STRENGTH_PROGRESSION job id={} missing 'weekStart' — defaulting to {} (previous IST Monday)",
+                    job.getId(), weekStart);
+        } else {
+            try {
+                weekStart = LocalDate.parse(rawWeekStart.toString());
+            } catch (Exception e) {
+                throw new IllegalArgumentException(
+                        "JobWorker: COMPUTE_STRENGTH_PROGRESSION 'weekStart' is not ISO-8601 date (job id=" + job.getId() + ")", e);
+            }
+        }
+
+        progressSnapshotService.computeForUserWeek(userId, weekStart);
     }
 
     /**

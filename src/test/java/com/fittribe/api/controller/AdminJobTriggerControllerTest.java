@@ -109,7 +109,7 @@ class AdminJobTriggerControllerTest {
     // ── Single-user path ───────────────────────────────────────────────
 
     @Test
-    void validUserIdEnqueuesOneJob() {
+    void validUserIdEnqueuesBothJobs() {
         UUID userId = UUID.fromString("aaaaaaaa-0000-0000-0000-000000000001");
         User user = activeUser(userId);
         when(userRepo.findById(userId)).thenReturn(Optional.of(user));
@@ -123,15 +123,22 @@ class AdminJobTriggerControllerTest {
         assertEquals(HttpStatus.OK, response.getStatusCode());
         assertNotNull(response.getBody());
         assertNotNull(response.getBody().getData());
-        assertEquals(1, ((Number) response.getBody().getData().get("enqueued")).intValue());
+        assertEquals(2, ((Number) response.getBody().getData().get("enqueued")).intValue(),
+                "should enqueue 2 jobs: COMPUTE_WEEKLY_REPORT and COMPUTE_STRENGTH_PROGRESSION");
 
-        // Enqueued exactly one row with the right shape
-        assertEquals(1, enqueuer.calls.size());
-        FakeJobEnqueuer.Call c = enqueuer.calls.get(0);
-        assertEquals(JobType.COMPUTE_WEEKLY_REPORT, c.type);
-        assertEquals(userId.toString(), c.payload.get("userId"));
-        assertEquals(JobWorker.previousMondayIst().toString(), c.payload.get("weekStart"));
-        assertEquals(2, c.payload.size(), "payload must contain only userId + weekStart");
+        // Enqueued exactly two rows with the right shape
+        assertEquals(2, enqueuer.calls.size());
+        FakeJobEnqueuer.Call c0 = enqueuer.calls.get(0);
+        assertEquals(JobType.COMPUTE_WEEKLY_REPORT, c0.type);
+        assertEquals(userId.toString(), c0.payload.get("userId"));
+        assertEquals(JobWorker.previousMondayIst().toString(), c0.payload.get("weekStart"));
+        assertEquals(2, c0.payload.size(), "payload must contain only userId + weekStart");
+
+        FakeJobEnqueuer.Call c1 = enqueuer.calls.get(1);
+        assertEquals(JobType.COMPUTE_STRENGTH_PROGRESSION, c1.type);
+        assertEquals(userId.toString(), c1.payload.get("userId"));
+        assertEquals(JobWorker.previousMondayIst().toString(), c1.payload.get("weekStart"));
+        assertEquals(2, c1.payload.size(), "payload must contain only userId + weekStart");
 
         // Fan-out path must NOT have been touched
         assertEquals(0, cron.fanOutCalls);
@@ -278,7 +285,7 @@ class AdminJobTriggerControllerTest {
         int fanOutCalls;
         FakeWeeklyReportCron() { super(null, null); }
         @Override
-        public int fanOutActiveUsers() {
+        public int fanOutSundayJobs() {
             fanOutCalls++;
             return fanOutResult;
         }

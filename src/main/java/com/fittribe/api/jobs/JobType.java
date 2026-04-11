@@ -15,5 +15,13 @@ public enum JobType {
      * Compute and persist a weekly report for a single user.
      * Payload: {@code {"userId": "<uuid>"}}.
      */
-    COMPUTE_WEEKLY_REPORT
+    COMPUTE_WEEKLY_REPORT,
+
+    /**
+     * Compute and persist strength score snapshot for a single user week.
+     * Runs on every session finish (SessionController hook) and on Sunday
+     * cron for users with no sessions that week (so zero data is also recorded).
+     * Payload: {@code {"userId": "<uuid>", "weekStart": "<ISO-8601 date>"}}.
+     */
+    COMPUTE_STRENGTH_PROGRESSION
 }

@@ -13,19 +13,21 @@ import java.util.Map;
 import java.util.UUID;
 
 /**
- * Sunday-night fan-out scheduler for the weekly-report pipeline
- * (Wynners A1.3). Runs once a week at 23:00 IST on Sunday — the
- * "week just ending" is Monday … Sunday in {@code Asia/Kolkata}, so
- * by 23:00 Sunday every user who is going to log anything this week
- * already has.
+ * Sunday-night fan-out scheduler for the weekly-report and strength-progression
+ * pipelines (Wynners A1.3 + B-Silent). Runs once a week at 23:00 IST on Sunday —
+ * the "week just ending" is Monday … Sunday in {@code Asia/Kolkata}, so by 23:00
+ * Sunday every user who is going to log anything this week already has.
  *
- * <p>The cron itself does no work: it queries {@code users} for
- * active, non-deleting accounts and enqueues one
- * {@link JobType#COMPUTE_WEEKLY_REPORT} row per user into
- * {@code pending_jobs}. A pool of {@link JobWorker} ticks then drains
- * the queue asynchronously — this keeps the fan-out constant-time and
- * isolates any single user's failure (bad data, OpenAI hiccup) to its
- * own retry/backoff cycle inside the worker instead of cascading
+ * <p>The cron itself does no work: it queries {@code users} for active,
+ * non-deleting accounts and enqueues TWO jobs per user:
+ * <ul>
+ *   <li>{@link JobType#COMPUTE_WEEKLY_REPORT} — generate a weekly summary report</li>
+ *   <li>{@link JobType#COMPUTE_STRENGTH_PROGRESSION} — compute weekly strength scores</li>
+ * </ul>
+ * Both share the same weekStart (the previous IST Monday) so they target the same window.
+ * A pool of {@link JobWorker} ticks then drains the queue asynchronously — this keeps
+ * the fan-out constant-time and isolates any single user's failure (bad data, OpenAI
+ * hiccup) to its own retry/backoff cycle inside the worker instead of cascading
  * through one giant transaction.
  *
  * <h3>Payload shape</h3>
@@ -58,10 +60,10 @@ public class WeeklyReportCron {
 
     /**
      * Scheduler entry point. Fires every Sunday at 23:00 IST and
-     * delegates to {@link #fanOutActiveUsers()}. Spring's
+     * delegates to {@link #fanOutSundayJobs()}. Spring's
      * {@code @Scheduled} contract requires a {@code void} return, so
      * the success count is discarded here; use
-     * {@link #fanOutActiveUsers()} directly from admin endpoints or
+     * {@link #fanOutSundayJobs()} directly from admin endpoints or
      * tests that need the count.
      *
      * <p>Package-private {@code run()} seam lets unit tests invoke the
@@ -69,14 +71,14 @@ public class WeeklyReportCron {
      */
     @Scheduled(cron = "0 0 23 * * SUN", zone = "Asia/Kolkata")
     public void run() {
-        fanOutActiveUsers();
+        fanOutSundayJobs();
     }
 
     /**
-     * Fan out one {@link JobType#COMPUTE_WEEKLY_REPORT} per active
-     * user and return the number of jobs successfully enqueued. This
-     * is the shared body called by the Sunday-night {@link #run()}
-     * scheduler and by the admin endpoint
+     * Fan out both COMPUTE_WEEKLY_REPORT and COMPUTE_STRENGTH_PROGRESSION
+     * jobs for each active user and return the total number of jobs
+     * successfully enqueued. This is the shared body called by the
+     * Sunday-night {@link #run()} scheduler and by the admin endpoint
      * {@code POST /admin/jobs/trigger-weekly-report} when the body
      * omits {@code userId}.
      *
@@ -84,9 +86,11 @@ public class WeeklyReportCron {
      * job targets the same window, even if the loop spills past
      * midnight IST. Each enqueue is isolated in its own try/catch so
      * one bad row (JSON hiccup, transient DB error) can't skip the
-     * whole cohort.
+     * whole cohort. Per-job isolation means a failure to enqueue
+     * weekly report doesn't prevent strength progression for the same
+     * user, and vice versa.
      */
-    public int fanOutActiveUsers() {
+    public int fanOutSundayJobs() {
         LocalDate weekStart = JobWorker.previousMondayIst();
         String weekStartIso = weekStart.toString();
 
@@ -94,24 +98,33 @@ public class WeeklyReportCron {
         log.info("WeeklyReportCron: starting fan-out weekStart={} cohort={}",
                 weekStartIso, userIds.size());
 
-        int enqueued = 0;
+        int enqueuedCount = 0;
         for (UUID userId : userIds) {
+            Map<String, Object> payload = new LinkedHashMap<>();
+            payload.put("userId", userId.toString());
+            payload.put("weekStart", weekStartIso);
+
+            // Enqueue weekly report
             try {
-                Map<String, Object> payload = new LinkedHashMap<>();
-                payload.put("userId", userId.toString());
-                payload.put("weekStart", weekStartIso);
                 jobEnqueuer.enqueue(JobType.COMPUTE_WEEKLY_REPORT, payload);
-                enqueued++;
+                enqueuedCount++;
             } catch (Exception e) {
-                // One bad row must not skip the cohort. JobEnqueuer can
-                // only throw on serialization failure or a DB write
-                // error; both are per-user, so keep going.
-                log.error("WeeklyReportCron: failed to enqueue for user {} — skipping", userId, e);
+                log.error("WeeklyReportCron: failed to enqueue COMPUTE_WEEKLY_REPORT for user {} — continuing",
+                        userId, e);
+            }
+
+            // Enqueue strength progression
+            try {
+                jobEnqueuer.enqueue(JobType.COMPUTE_STRENGTH_PROGRESSION, payload);
+                enqueuedCount++;
+            } catch (Exception e) {
+                log.error("WeeklyReportCron: failed to enqueue COMPUTE_STRENGTH_PROGRESSION for user {} — continuing",
+                        userId, e);
             }
         }
 
-        log.info("WeeklyReportCron: enqueued {} COMPUTE_WEEKLY_REPORT job(s) for weekStart={}",
-                enqueued, weekStartIso);
-        return enqueued;
+        log.info("WeeklyReportCron: enqueued {} jobs for {} active users",
+                enqueuedCount, userIds.size());
+        return enqueuedCount;
     }
 }

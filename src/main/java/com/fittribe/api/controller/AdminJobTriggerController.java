@@ -26,22 +26,24 @@ import java.util.Optional;
 import java.util.UUID;
 
 /**
- * Admin-only endpoint for manually triggering a weekly-report
- * computation (Wynners A1.5). Two call shapes:
+ * Admin-only endpoint for manually triggering weekly-report and
+ * strength-progression computations (Wynners A1.5 + B-Silent). Two
+ * call shapes:
  *
  * <ul>
  *   <li>{@code POST /api/v1/admin/jobs/trigger-weekly-report}
- *       with body {@code {"userId": "<uuid>"}} — enqueues a single
- *       {@link JobType#COMPUTE_WEEKLY_REPORT} for that user, after
- *       verifying the user exists, is active, and has not requested
- *       deletion.</li>
+ *       with body {@code {"userId": "<uuid>"}} — enqueues both
+ *       {@link JobType#COMPUTE_WEEKLY_REPORT} and
+ *       {@link JobType#COMPUTE_STRENGTH_PROGRESSION} for that user,
+ *       after verifying the user exists, is active, and has not
+ *       requested deletion.</li>
  *   <li>Same endpoint with body {@code {}} (or {@code userId} null) —
- *       delegates to {@link WeeklyReportCron#fanOutActiveUsers()} to
- *       fire one job per active user. Same cohort as the Sunday-night
+ *       delegates to {@link WeeklyReportCron#fanOutSundayJobs()} to
+ *       fire both jobs per active user. Same cohort as the Sunday-night
  *       cron.</li>
  * </ul>
  *
- * Both paths stamp the job payload with {@code weekStart =
+ * Both paths stamp the job payloads with {@code weekStart =
  * JobWorker.previousMondayIst()} — the Monday strictly before today
  * in {@code Asia/Kolkata}. An admin retrying a Sunday-night miss on
  * Monday morning will therefore target the same week the cron would
@@ -84,12 +86,14 @@ public class AdminJobTriggerController {
     }
 
     /**
-     * Manually trigger a {@link JobType#COMPUTE_WEEKLY_REPORT}
-     * enqueue — either for a single user (when {@code userId} is
-     * present in the body) or for the full active cohort (when it's
-     * absent).
+     * Manually trigger enqueues for both COMPUTE_WEEKLY_REPORT and
+     * COMPUTE_STRENGTH_PROGRESSION — either for a single user (when
+     * {@code userId} is present in the body) or for the full active
+     * cohort (when it's absent).
      *
-     * @return {@code 200 {"enqueued": N}} on success.
+     * @return {@code 200 {"enqueued": N}} on success, where N is 2 for
+     *         a single-user trigger (both jobs) or 2×(number of active
+     *         users) for a cohort trigger.
      * @throws ApiException {@code 401} when the secret is missing,
      *         unset in config, or doesn't match; {@code 400} when
      *         {@code userId} is provided but not a valid UUID;
@@ -114,9 +118,9 @@ public class AdminJobTriggerController {
             // Sunday cron calls so there's no logic drift between the
             // two triggers.
             log.info("AdminJobTrigger: fan-out requested (no userId in body), weekStart={}", weekStartIso);
-            enqueued = weeklyReportCron.fanOutActiveUsers();
+            enqueued = weeklyReportCron.fanOutSundayJobs();
         } else {
-            // Single-user path.
+            // Single-user path — enqueue both job types.
             UUID userId = parseUserId(rawUserId);
             User user = userRepo.findById(userId)
                     .orElseThrow(() -> ApiException.notFound("User"));
@@ -131,9 +135,30 @@ public class AdminJobTriggerController {
             Map<String, Object> payload = new LinkedHashMap<>();
             payload.put("userId", userId.toString());
             payload.put("weekStart", weekStartIso);
-            jobEnqueuer.enqueue(JobType.COMPUTE_WEEKLY_REPORT, payload);
-            enqueued = 1;
-            log.info("AdminJobTrigger: single-user enqueue userId={} weekStart={}", userId, weekStartIso);
+
+            int enqueuedJobs = 0;
+
+            // Enqueue weekly report
+            try {
+                jobEnqueuer.enqueue(JobType.COMPUTE_WEEKLY_REPORT, payload);
+                enqueuedJobs++;
+            } catch (Exception e) {
+                log.error("AdminJobTrigger: failed to enqueue COMPUTE_WEEKLY_REPORT for user {} — continuing",
+                        userId, e);
+            }
+
+            // Enqueue strength progression
+            try {
+                jobEnqueuer.enqueue(JobType.COMPUTE_STRENGTH_PROGRESSION, payload);
+                enqueuedJobs++;
+            } catch (Exception e) {
+                log.error("AdminJobTrigger: failed to enqueue COMPUTE_STRENGTH_PROGRESSION for user {} — continuing",
+                        userId, e);
+            }
+
+            enqueued = enqueuedJobs;
+            log.info("AdminJobTrigger: single-user enqueue userId={} weekStart={} enqueued={} jobs",
+                    userId, weekStartIso, enqueuedJobs);
         }
 
         return ResponseEntity.ok(ApiResponse.success(Map.of("enqueued", enqueued)));
@@ -194,7 +219,8 @@ public class AdminJobTriggerController {
     /**
      * Request body for {@code POST /admin/jobs/trigger-weekly-report}.
      * {@code userId} is optional: absent means "fan out to all active
-     * users" via {@link WeeklyReportCron#fanOutActiveUsers()}.
+     * users" via {@link WeeklyReportCron#fanOutSundayJobs()} to enqueue
+     * both COMPUTE_WEEKLY_REPORT and COMPUTE_STRENGTH_PROGRESSION.
      */
     public static class TriggerRequest {
         public String userId;

@@ -2,6 +2,7 @@ package com.fittribe.api.jobs;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fittribe.api.weeklyreport.WeeklyReportComputer;
+import com.fittribe.api.strengthscore.ProgressSnapshotService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
@@ -44,6 +45,7 @@ class JobWorkerTest {
     private PendingJobRepository repo;
     private PlatformTransactionManager txManager;
     private FakeWeeklyReportComputer computer;
+    private FakeProgressSnapshotService snapshotService;
     private JobWorker worker;
 
     @BeforeEach
@@ -55,11 +57,12 @@ class JobWorkerTest {
         // TransactionStatus in Stage 2), so we roll a concrete fake that
         // records invocations and can optionally throw on demand.
         computer = new FakeWeeklyReportComputer();
+        snapshotService = new FakeProgressSnapshotService();
         // SimpleTransactionStatus is a concrete no-op implementation —
         // Mockito on JDK 25 can't proxy the TransactionStatus interface
         // chain (which includes Flushable), so we return a real stub.
         when(txManager.getTransaction(any())).thenReturn(new SimpleTransactionStatus());
-        worker = new JobWorker(repo, new ObjectMapper(), txManager, computer);
+        worker = new JobWorker(repo, new ObjectMapper(), txManager, computer, snapshotService);
     }
 
     // ── Empty queue ──────────────────────────────────────────────────────
@@ -245,6 +248,73 @@ class JobWorkerTest {
         assertEquals(16L, JobWorker.backoffMinutes(4));
     }
 
+    // ── COMPUTE_STRENGTH_PROGRESSION dispatch ────────────────────────────
+
+    @Test
+    void tickDispatchesComputeStrengthProgressionAndMarksCompletedOnSuccess() {
+        PendingJob job = pending(10L, "COMPUTE_STRENGTH_PROGRESSION",
+                "{\"userId\":\"dddddddd-0000-0000-0000-000000000000\",\"weekStart\":\"2026-04-06\"}", 0);
+        when(repo.findNextClaimable()).thenReturn(Optional.of(job));
+
+        worker.tick();
+
+        verify(repo).markRunning(10L);
+        verify(repo).markCompleted(10L);
+        verify(repo, never()).markPendingWithBackoff(anyLong(), any(), anyString());
+        verify(repo, never()).markFailed(anyLong(), anyString());
+        // Snapshot service should have been invoked with the parsed payload
+        assertEquals(1, snapshotService.calls.size());
+        assertEquals(UUID.fromString("dddddddd-0000-0000-0000-000000000000"),
+                snapshotService.calls.get(0).userId);
+        assertEquals(LocalDate.of(2026, 4, 6), snapshotService.calls.get(0).weekStart);
+    }
+
+    @Test
+    void computeStrengthProgressionWithMissingWeekStartFallsBackToPreviousMondayIst() {
+        PendingJob job = pending(11L, "COMPUTE_STRENGTH_PROGRESSION",
+                "{\"userId\":\"eeeeeeee-0000-0000-0000-000000000000\"}", 0);
+        when(repo.findNextClaimable()).thenReturn(Optional.of(job));
+
+        worker.tick();
+
+        verify(repo).markCompleted(11L);
+        assertEquals(1, snapshotService.calls.size());
+        assertEquals(UUID.fromString("eeeeeeee-0000-0000-0000-000000000000"),
+                snapshotService.calls.get(0).userId);
+        assertEquals(JobWorker.previousMondayIst(), snapshotService.calls.get(0).weekStart);
+    }
+
+    @Test
+    void computeStrengthProgressionFailureTriggersBackoff() {
+        PendingJob job = pending(12L, "COMPUTE_STRENGTH_PROGRESSION",
+                "{\"userId\":\"ffffffff-0000-0000-0000-000000000000\",\"weekStart\":\"2026-04-06\"}", 0);
+        when(repo.findNextClaimable()).thenReturn(Optional.of(job));
+        snapshotService.throwOnCompute = new RuntimeException("snapshot compute failed");
+
+        worker.tick();
+
+        verify(repo).markRunning(12L);
+        verify(repo, never()).markCompleted(anyLong());
+        verify(repo).markPendingWithBackoff(eq(12L), any(), anyString());
+        assertEquals(1, snapshotService.calls.size());
+    }
+
+    @Test
+    void computeStrengthProgressionFailureOnMaxAttemptsMarksPermanentlyFailed() {
+        // attempts=4 in DB → claim increments to 5 → >= MAX_ATTEMPTS → markFailed
+        PendingJob job = pending(13L, "COMPUTE_STRENGTH_PROGRESSION",
+                "{\"userId\":\"abcdefab-0000-0000-0000-000000000000\",\"weekStart\":\"2026-04-06\"}", 4);
+        when(repo.findNextClaimable()).thenReturn(Optional.of(job));
+        snapshotService.throwOnCompute = new RuntimeException("permanent failure");
+
+        worker.tick();
+
+        verify(repo).markRunning(13L);
+        verify(repo).markFailed(eq(13L), anyString());
+        verify(repo, never()).markCompleted(anyLong());
+        verify(repo, never()).markPendingWithBackoff(anyLong(), any(), anyString());
+    }
+
     // ── Helper ───────────────────────────────────────────────────────────
 
     private static PendingJob pending(long id, String type, String payload, int attempts) {
@@ -278,6 +348,36 @@ class JobWorkerTest {
 
         @Override
         public void compute(UUID userId, LocalDate weekStart) {
+            calls.add(new Call(userId, weekStart));
+            if (throwOnCompute != null) {
+                throw throwOnCompute;
+            }
+        }
+
+        static final class Call {
+            final UUID userId;
+            final LocalDate weekStart;
+            Call(UUID userId, LocalDate weekStart) {
+                this.userId = userId;
+                this.weekStart = weekStart;
+            }
+        }
+    }
+
+    /**
+     * Hand-rolled stand-in for {@link ProgressSnapshotService}. Records
+     * invocations and can optionally throw to simulate compute failures.
+     */
+    static final class FakeProgressSnapshotService extends ProgressSnapshotService {
+        final List<Call> calls = new ArrayList<>();
+        RuntimeException throwOnCompute;
+
+        FakeProgressSnapshotService() {
+            super(null, null, null, null, null, null, null, null, null);
+        }
+
+        @Override
+        public void computeForUserWeek(UUID userId, LocalDate weekStart) {
             calls.add(new Call(userId, weekStart));
             if (throwOnCompute != null) {
                 throw throwOnCompute;
