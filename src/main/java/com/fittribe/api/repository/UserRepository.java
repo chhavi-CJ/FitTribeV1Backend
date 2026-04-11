@@ -58,4 +58,15 @@ public interface UserRepository extends JpaRepository<User, UUID> {
     @Query(value = "UPDATE users SET max_streak_ever = :streak WHERE id = :userId AND max_streak_ever < :streak",
            nativeQuery = true)
     void updateMaxStreakIfHigher(@Param("userId") UUID userId, @Param("streak") int streak);
+
+    /**
+     * Atomically sets the user's current streak. Single unconditional UPDATE —
+     * no read-modify-write race, no entity load, no risk of stale-field overwrite
+     * via JPA merge semantics. Used by SessionController.finishSession outside
+     * the core save transaction, where the User entity is detached.
+     */
+    @Modifying
+    @Transactional
+    @Query(value = "UPDATE users SET streak = :streak WHERE id = :userId", nativeQuery = true)
+    void updateStreak(@Param("userId") UUID userId, @Param("streak") int streak);
 }

@@ -1,0 +1,84 @@
+#
+# Findings templates — loaded by FindingsConfig via @ConfigurationProperties.
+# Wynners Implementation Plan v1.1 — step A1.3.
+#
+# Rule IDs under `fittribe.findings.templates` must match the getRuleId()
+# returned by each FindingsRule implementation (see step A2.1). Placeholder
+# tokens (e.g. {exercise_name}, {pct}) are interpolated by the rule at
+# evaluate() time — the YAML just carries the copy and metadata.
+#
+# Editing this file is safe at runtime only after a redeploy — bindings
+# resolve at Spring Boot context startup, not on every request.
+#
+fittribe:
+  findings:
+    templates:
+
+      pr_regression:
+        severity: RED
+        weight: 90
+        title: "{exercise_name} went backwards"
+        detail: "Top set dropped {pct}% from last week. Worth checking sleep and recovery."
+        week_one_eligible: false
+
+      push_pull_imbalance:
+        severity: RED
+        weight: 85
+        title: "Push-pull imbalance"
+        detail: "{push_count}× push vs {pull_count}× pull. Sustained, this elevates shoulder injury risk."
+        week_one_eligible: true
+
+      missing_muscle:
+        severity: RED
+        weight: 95
+        title: "{muscle_name} completely absent"
+        detail: "You did not train {muscle_name} at all this week. Skipping a major muscle reduces overall growth."
+        week_one_eligible: true
+
+      multiple_too_light:
+        severity: AMBER
+        weight: 70
+        title: "Targets too aggressive"
+        detail: "{count} exercises came in well below target. We are recalibrating down."
+        week_one_eligible: false
+
+      single_too_light:
+        severity: AMBER
+        weight: 60
+        title: "{exercise_name} too conservative"
+        detail: "{logged_kg} kg vs {target_kg} kg target — {pct}% below plan. We will recalibrate."
+        week_one_eligible: false
+
+      low_adherence:
+        severity: AMBER
+        weight: 75
+        title: "Missed {missed_count} session{plural}"
+        detail: "What got in the way? Consistency is the single biggest predictor of progress."
+        week_one_eligible: true
+
+      multi_pr_week:
+        severity: GREEN
+        weight: 50
+        title: "{pr_count} PRs this week"
+        detail: "Best week so far."
+        detail_alt: "Solid progress."
+        week_one_eligible: false
+
+      full_consistency:
+        severity: GREEN
+        weight: 55
+        title: "Full consistency"
+        detail: "Every session, no misses."
+        week_one_eligible: true
+
+    # Fallback green findings for the "always one green" rule
+    fallback_greens:
+      - title: "{sessions} sessions logged"
+        detail: "You showed up {sessions} times this week. That is the foundation."
+        requires: "sessions >= 1"
+      - title: "Volume logged"
+        detail: "You moved {kg} kg of iron this week. Real work."
+        requires: "kg > 0"
+      - title: "Effort recorded"
+        detail: "Every set you log makes the next week smarter."
+        requires: "always"
