@@ -50,6 +50,17 @@ public interface UserRepository extends JpaRepository<User, UUID> {
     List<User> findAllByPendingWeeklyGoalIsNotNull();
 
     /**
+     * IDs of all users eligible for the Sunday weekly-report fan-out
+     * ({@code com.fittribe.api.jobs.WeeklyReportCron}): active accounts
+     * that have not requested deletion. Returning only the ids (rather
+     * than full {@link User} entities) keeps the Sunday-night memory
+     * footprint flat even if the user base grows — the cron doesn't
+     * need any other column from the row.
+     */
+    @Query("SELECT u.id FROM User u WHERE u.isActive = true AND u.deletionRequestedAt IS NULL")
+    List<UUID> findActiveUserIds();
+
+    /**
      * Atomically updates max_streak_ever only when the new streak beats the stored value.
      * Single conditional write — no read-modify-write race.
      */

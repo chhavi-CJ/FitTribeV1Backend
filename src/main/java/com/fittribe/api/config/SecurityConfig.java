@@ -59,7 +59,14 @@ public class SecurityConfig {
             .authorizeHttpRequests(auth -> {
                 auth.requestMatchers("/api/v1/health").permitAll()
                     .requestMatchers("/api/v1/auth/**").permitAll()
-                    .requestMatchers("/api/v1/exercises", "/api/v1/exercises/**").permitAll();
+                    .requestMatchers("/api/v1/exercises", "/api/v1/exercises/**").permitAll()
+                    // Admin job-trigger endpoints have their own shared-secret
+                    // check via the X-Admin-Secret header inside the controller
+                    // (an admin caller has no user account → no JWT). Spring
+                    // Security would otherwise 401 the request before the
+                    // secret check could run. The empty-secret deny-by-default
+                    // posture lives in the controller itself.
+                    .requestMatchers("/api/v1/admin/jobs/**").permitAll();
                 // Dev endpoints are only permitted when running in dev/test mode.
                 // In production (real FIREBASE_PROJECT_ID set), the DevController bean
                 // is not registered at all — this is a second layer of protection.
