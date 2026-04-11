@@ -9,6 +9,8 @@ import org.springframework.stereotype.Repository;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
+import java.time.Instant;
+import java.util.List;
 import java.util.UUID;
 
 @Repository
@@ -42,4 +44,33 @@ public interface PersonalRecordRepository extends JpaRepository<PersonalRecord, 
     @Query(value = "SELECT COUNT(*) FROM personal_records WHERE user_id = :userId",
            nativeQuery = true)
     int countByUserId(@Param("userId") UUID userId);
+
+    /**
+     * Personal records achieved in {@code [from, to)} for this user.
+     *
+     * Note: {@code personal_records.achieved_at} is declared as
+     * {@code TIMESTAMP} (tz-naive) in V22, while the bind parameters here
+     * are {@link Instant} (tz-aware). The cast
+     * {@code (pr.achieved_at AT TIME ZONE 'UTC')} promotes the column to
+     * {@code TIMESTAMPTZ} assuming the stored clock is UTC — which it is,
+     * because the DB server is set to UTC and {@code NOW()} at upsert time
+     * is UTC.
+     *
+     * Returns Object[] rows: [exercise_id (String), weight_kg (BigDecimal),
+     * reps (Integer), achieved_at (Instant)].
+     */
+    @Query(value = """
+        SELECT pr.exercise_id,
+               pr.weight_kg,
+               pr.reps,
+               (pr.achieved_at AT TIME ZONE 'UTC') AS achieved_at_tz
+        FROM personal_records pr
+        WHERE pr.user_id = :userId
+          AND (pr.achieved_at AT TIME ZONE 'UTC') >= :from
+          AND (pr.achieved_at AT TIME ZONE 'UTC') <  :to
+        """, nativeQuery = true)
+    List<Object[]> findAchievedInWindow(
+            @Param("userId") UUID    userId,
+            @Param("from")   Instant from,
+            @Param("to")     Instant to);
 }
