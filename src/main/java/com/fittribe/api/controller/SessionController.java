@@ -41,6 +41,7 @@ import com.fittribe.api.service.AiService;
 import com.fittribe.api.service.CoinService;
 import com.fittribe.api.service.PlanService;
 import com.fittribe.api.service.RankService;
+import com.fittribe.api.strengthscore.ProgressSnapshotService;
 import jakarta.validation.Valid;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -93,6 +94,7 @@ public class SessionController {
     private final GroupMemberRepository     groupMemberRepo;
     private final FeedItemRepository        feedItemRepo;
     private final TransactionTemplate       transactionTemplate;
+    private final ProgressSnapshotService   progressSnapshotService;
 
     public SessionController(WorkoutSessionRepository sessionRepo,
                              SetLogRepository setLogRepo,
@@ -109,7 +111,8 @@ public class SessionController {
                              SavedRoutineRepository routineRepo,
                              GroupMemberRepository groupMemberRepo,
                              FeedItemRepository feedItemRepo,
-                             PlatformTransactionManager transactionManager) {
+                             PlatformTransactionManager transactionManager,
+                             ProgressSnapshotService progressSnapshotService) {
         this.sessionRepo         = sessionRepo;
         this.setLogRepo          = setLogRepo;
         this.userRepo            = userRepo;
@@ -126,6 +129,7 @@ public class SessionController {
         this.groupMemberRepo     = groupMemberRepo;
         this.feedItemRepo        = feedItemRepo;
         this.transactionTemplate = new TransactionTemplate(transactionManager);
+        this.progressSnapshotService = progressSnapshotService;
     }
 
     // ── POST /sessions/start ──────────────────────────────────────────
@@ -599,6 +603,18 @@ public class SessionController {
             } catch (Exception e) {
                 log.error("Failed to trigger plan generation for user={}", userId, e);
             }
+        }
+
+        // Strength score snapshot — fire on every session finish, not just weekly goal hit,
+        // so the Trends tab can show mid-week progression. Isolated try/catch — failure
+        // here must not affect /finish 200 or any sibling derived-data blocks.
+        try {
+            LocalDate snapshotWeekStart = LocalDate.ofInstant(session.getFinishedAt(), ZoneOffset.UTC)
+                    .with(DayOfWeek.MONDAY);
+            progressSnapshotService.computeForUserWeek(userId, snapshotWeekStart);
+        } catch (Exception e) {
+            log.error("Failed to compute strength snapshot for user {} session {}",
+                    userId, session.getId(), e);
         }
 
         // Rank promotion check.

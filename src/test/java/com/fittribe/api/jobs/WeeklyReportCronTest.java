@@ -38,10 +38,10 @@ class WeeklyReportCronTest {
         cron = new WeeklyReportCron(userRepo, jobEnqueuer);
     }
 
-    // ── Happy path: one enqueue per active user ─────────────────────────
+    // ── Happy path: both job types per active user ──────────────────────
 
     @Test
-    void fanOutEnqueuesOneJobPerActiveUser() {
+    void fanOutEnqueuesBothJobTypesPerActiveUser() {
         UUID u1 = UUID.fromString("aaaaaaaa-0000-0000-0000-000000000001");
         UUID u2 = UUID.fromString("aaaaaaaa-0000-0000-0000-000000000002");
         UUID u3 = UUID.fromString("aaaaaaaa-0000-0000-0000-000000000003");
@@ -50,19 +50,27 @@ class WeeklyReportCronTest {
         LocalDate expectedWeekStart = JobWorker.previousMondayIst();
         String expectedWeekStartIso = expectedWeekStart.toString();
 
-        cron.run();
+        int result = cron.fanOutSundayJobs();
 
-        assertEquals(3, jobEnqueuer.calls.size(), "one enqueue per user");
+        // 2 jobs per user = 6 total
+        assertEquals(6, jobEnqueuer.calls.size(), "two enqueues per user");
+        assertEquals(6, result, "fanOutSundayJobs() should return total enqueued count");
 
-        // All rows are COMPUTE_WEEKLY_REPORT
-        for (FakeJobEnqueuer.Call c : jobEnqueuer.calls) {
-            assertEquals(JobType.COMPUTE_WEEKLY_REPORT, c.type);
-        }
+        // Verify both job types are present for each user
+        assertEquals(JobType.COMPUTE_WEEKLY_REPORT, jobEnqueuer.calls.get(0).type, "u1 first job");
+        assertEquals(JobType.COMPUTE_STRENGTH_PROGRESSION, jobEnqueuer.calls.get(1).type, "u1 second job");
+        assertEquals(JobType.COMPUTE_WEEKLY_REPORT, jobEnqueuer.calls.get(2).type, "u2 first job");
+        assertEquals(JobType.COMPUTE_STRENGTH_PROGRESSION, jobEnqueuer.calls.get(3).type, "u2 second job");
+        assertEquals(JobType.COMPUTE_WEEKLY_REPORT, jobEnqueuer.calls.get(4).type, "u3 first job");
+        assertEquals(JobType.COMPUTE_STRENGTH_PROGRESSION, jobEnqueuer.calls.get(5).type, "u3 second job");
 
         // Payload shape per row
         assertPayload(jobEnqueuer.calls.get(0), u1, expectedWeekStartIso);
-        assertPayload(jobEnqueuer.calls.get(1), u2, expectedWeekStartIso);
-        assertPayload(jobEnqueuer.calls.get(2), u3, expectedWeekStartIso);
+        assertPayload(jobEnqueuer.calls.get(1), u1, expectedWeekStartIso);
+        assertPayload(jobEnqueuer.calls.get(2), u2, expectedWeekStartIso);
+        assertPayload(jobEnqueuer.calls.get(3), u2, expectedWeekStartIso);
+        assertPayload(jobEnqueuer.calls.get(4), u3, expectedWeekStartIso);
+        assertPayload(jobEnqueuer.calls.get(5), u3, expectedWeekStartIso);
     }
 
     // ── Zero active users → logs 0 and does not throw ───────────────────
@@ -85,16 +93,23 @@ class WeeklyReportCronTest {
         UUID u3 = UUID.fromString("aaaaaaaa-0000-0000-0000-000000000003");
         when(userRepo.findActiveUserIds()).thenReturn(List.of(u1, u2, u3));
 
-        // Throw on the second user only.
+        // Throw on the second user only (for any job type for that user).
         jobEnqueuer.throwOn = u2;
 
         cron.run(); // must not throw
 
-        // All three were attempted; the middle one failed.
-        assertEquals(3, jobEnqueuer.calls.size(), "all three users must be attempted");
+        // 3 users × 2 jobs = 6 attempts total, but u2 throws twice (one per job type).
+        // The per-job try/catch means both jobs for u1 and u3 succeed (4 jobs),
+        // and u2's jobs fail but don't cascade.
+        assertEquals(6, jobEnqueuer.calls.size(), "all users and jobs must be attempted");
+
+        // u1: 2 jobs, u2: 2 jobs (both fail), u3: 2 jobs
         assertEquals(u1, jobEnqueuer.calls.get(0).userIdArg);
-        assertEquals(u2, jobEnqueuer.calls.get(1).userIdArg);
-        assertEquals(u3, jobEnqueuer.calls.get(2).userIdArg);
+        assertEquals(u1, jobEnqueuer.calls.get(1).userIdArg);
+        assertEquals(u2, jobEnqueuer.calls.get(2).userIdArg); // will throw
+        assertEquals(u2, jobEnqueuer.calls.get(3).userIdArg); // will throw
+        assertEquals(u3, jobEnqueuer.calls.get(4).userIdArg);
+        assertEquals(u3, jobEnqueuer.calls.get(5).userIdArg);
     }
 
     // ── Cron queries the active cohort exactly once ─────────────────────
