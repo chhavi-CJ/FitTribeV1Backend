@@ -44,7 +44,9 @@ import org.slf4j.LoggerFactory;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.Authentication;
+import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionTemplate;
 import org.springframework.web.bind.annotation.*;
 
 import java.math.BigDecimal;
@@ -85,6 +87,7 @@ public class SessionController {
     private final SavedRoutineRepository    routineRepo;
     private final GroupMemberRepository     groupMemberRepo;
     private final FeedItemRepository        feedItemRepo;
+    private final TransactionTemplate       transactionTemplate;
 
     public SessionController(WorkoutSessionRepository sessionRepo,
                              SetLogRepository setLogRepo,
@@ -99,7 +102,8 @@ public class SessionController {
                              CoinService coinService,
                              SavedRoutineRepository routineRepo,
                              GroupMemberRepository groupMemberRepo,
-                             FeedItemRepository feedItemRepo) {
+                             FeedItemRepository feedItemRepo,
+                             PlatformTransactionManager transactionManager) {
         this.sessionRepo         = sessionRepo;
         this.setLogRepo          = setLogRepo;
         this.userRepo            = userRepo;
@@ -114,6 +118,7 @@ public class SessionController {
         this.routineRepo         = routineRepo;
         this.groupMemberRepo     = groupMemberRepo;
         this.feedItemRepo        = feedItemRepo;
+        this.transactionTemplate = new TransactionTemplate(transactionManager);
     }
 
     // ── POST /sessions/start ──────────────────────────────────────────
@@ -350,8 +355,15 @@ public class SessionController {
     }
 
     // ── POST /sessions/{id}/finish ────────────────────────────────────
+    // NOT @Transactional at the method level. The core save (session status
+    // → COMPLETED + weeklyGoalHit) runs in its own explicit TransactionTemplate
+    // block. All derived-data side effects (PR upsert, streak, weekly report,
+    // rank, coin awards, feed items) run OUTSIDE any enclosing transaction,
+    // each wrapped in its own try/catch. This guarantees:
+    //   (a) derived-data failures cannot mark an outer tx rollback-only and
+    //       turn a successful save into UnexpectedRollbackException at commit,
+    //   (b) a failure in one derived block does not skip the others.
     @PostMapping("/{id}/finish")
-    @Transactional
     public ResponseEntity<ApiResponse<FinishSessionResponse>> finishSession(
             @PathVariable UUID id,
             @RequestBody FinishSessionRequest request,
@@ -453,112 +465,175 @@ public class SessionController {
             }
         }
 
-        // ── Week / goal calculations ──────────────────────────────────
-        User user = userRepo.findByIdForUpdate(userId).orElseThrow(() -> ApiException.notFound("User"));
-        LocalDate monday   = LocalDate.now(ZoneOffset.UTC).with(DayOfWeek.MONDAY);
-        int weekNumber     = weeklyReportService.weekNumberFor(user, monday);
-        int weeklyGoal     = user.getWeeklyGoal() != null ? user.getWeeklyGoal() : 4;
-        Instant weekFrom   = monday.atStartOfDay(ZoneOffset.UTC).toInstant();
-        Instant weekTo     = monday.plusDays(7).atStartOfDay(ZoneOffset.UTC).toInstant();
+        // ────────────────────────────────────────────────────────────────
+        // CORE SAVE — runs in its own explicit transaction. MUST succeed.
+        // Loads user FOR UPDATE, computes week/goal, writes session as
+        // COMPLETED, counts weekly sessions, writes weeklyGoalHit. If this
+        // block throws, the client gets a 5xx and no derived data runs.
+        // ────────────────────────────────────────────────────────────────
+        final String exercisesJsonFinal     = exercisesJson;
+        final int totalSetsFinal            = totalSets;
+        final BigDecimal totalVolumeKgFinal = totalVolumeKg;
+        CoreFinishData core = transactionTemplate.execute(txStatus -> {
+            User u = userRepo.findByIdForUpdate(userId)
+                    .orElseThrow(() -> ApiException.notFound("User"));
+            LocalDate monday = LocalDate.now(ZoneOffset.UTC).with(DayOfWeek.MONDAY);
+            int weekNum  = weeklyReportService.weekNumberFor(u, monday);
+            int wkGoal   = u.getWeeklyGoal() != null ? u.getWeeklyGoal() : 4;
+            Instant from = monday.atStartOfDay(ZoneOffset.UTC).toInstant();
+            Instant to   = monday.plusDays(7).atStartOfDay(ZoneOffset.UTC).toInstant();
 
-        // Save session as COMPLETED first so the DB row exists before we count
-        session.setStatus("COMPLETED");
-        session.setFinishedAt(Instant.now());
-        session.setTotalSets(totalSets);
-        session.setTotalVolumeKg(totalVolumeKg);
-        session.setDurationMins(request.durationMins());
-        session.setExercises(exercisesJson);
-        session.setWeekNumber(weekNumber);
-        sessionRepo.save(session);
+            // Mutate the outer `session` reference. With open-in-view=false
+            // it's detached here, so sessionRepo.save triggers em.merge():
+            // load row, copy our field mutations, return managed. Hibernate
+            // flushes the managed copy on commit. The count query below runs
+            // inside the same tx and auto-flushes before executing, so it
+            // sees the COMPLETED status from the first save.
+            session.setStatus("COMPLETED");
+            session.setFinishedAt(Instant.now());
+            session.setTotalSets(totalSetsFinal);
+            session.setTotalVolumeKg(totalVolumeKgFinal);
+            session.setDurationMins(request.durationMins());
+            session.setExercises(exercisesJsonFinal);
+            session.setWeekNumber(weekNum);
+            sessionRepo.save(session);
 
-        // Count COMPLETED sessions this week AFTER save — no +1 needed
-        int count = sessionRepo.countByUserIdAndStatusAndFinishedAtBetween(
-                userId, "COMPLETED", weekFrom, weekTo);
-        boolean weeklyGoalHit = count >= weeklyGoal;
-        session.setWeeklyGoalHit(weeklyGoalHit);
-        sessionRepo.save(session);
+            int cnt = sessionRepo.countByUserIdAndStatusAndFinishedAtBetween(
+                    userId, "COMPLETED", from, to);
+            boolean hit = cnt >= wkGoal;
+            session.setWeeklyGoalHit(hit);
+            sessionRepo.save(session);
 
-        // ── PR upsert — personal_records table ───────────────────────
+            return new CoreFinishData(u, weekNum, wkGoal, hit, cnt, from, to);
+        });
+        // Core tx has committed. `session` and `core.user()` are detached.
+        // Reading their scalar fields still works; writes must go via
+        // atomic SQL (updateStreak) or accept merge semantics.
+
+        final User user              = core.user();
+        final int weekNumber         = core.weekNumber();
+        final int weeklyGoal         = core.weeklyGoal();
+        final boolean weeklyGoalHit  = core.weeklyGoalHit();
+        final int count              = core.count();
+        final Instant weekFrom       = core.weekFrom();
+        final Instant weekTo         = core.weekTo();
+
+        // ────────────────────────────────────────────────────────────────
+        // DERIVED DATA — runs OUTSIDE any enclosing transaction. Each
+        // inner @Transactional service/repo call opens its own short tx,
+        // so a failure in one block cannot mark the others rollback-only.
+        // Every failure is logged at error level; nothing is swallowed.
+        // ────────────────────────────────────────────────────────────────
+
+        // PR upsert — personal_records table.
         // Runs after session is COMPLETED so the history query in PR detection
         // excludes today correctly. One upsert per exercise; skips bodyweight sets.
-        if (exercises != null) {
-            for (ExerciseLogRequest ex : exercises) {
-                if (ex.sets() == null || ex.sets().isEmpty()) continue;
-                // Skip bodyweight exercises (all sets have null or zero weightKg)
-                boolean isBodyweight = ex.sets().stream()
-                        .allMatch(s -> s.weightKg() == null
-                                || s.weightKg().compareTo(BigDecimal.ZERO) == 0);
-                if (isBodyweight) continue;
-                // Best set this session for this exercise
-                ex.sets().stream()
-                        .filter(s -> s.weightKg() != null
-                                && s.weightKg().compareTo(BigDecimal.ZERO) > 0)
-                        .max(Comparator.comparing(SetLogRequest::weightKg))
-                        .ifPresent(best -> prRepo.upsertPr(
-                                userId, ex.exerciseId(), best.weightKg(), best.reps()));
+        try {
+            if (exercises != null) {
+                for (ExerciseLogRequest ex : exercises) {
+                    if (ex.sets() == null || ex.sets().isEmpty()) continue;
+                    // Skip bodyweight exercises (all sets have null or zero weightKg)
+                    boolean isBodyweight = ex.sets().stream()
+                            .allMatch(s -> s.weightKg() == null
+                                    || s.weightKg().compareTo(BigDecimal.ZERO) == 0);
+                    if (isBodyweight) continue;
+                    // Best set this session for this exercise
+                    ex.sets().stream()
+                            .filter(s -> s.weightKg() != null
+                                    && s.weightKg().compareTo(BigDecimal.ZERO) > 0)
+                            .max(Comparator.comparing(SetLogRequest::weightKg))
+                            .ifPresent(best -> prRepo.upsertPr(
+                                    userId, ex.exerciseId(), best.weightKg(), best.reps()));
+                }
+            }
+        } catch (Exception e) {
+            log.error("Failed to upsert personal records for session={}", id, e);
+        }
+
+        // Streak update — atomic SQL to avoid detached-entity merge races
+        // with RankService.checkAndPromote (which also writes to users).
+        // Coin balance is managed entirely by CoinService via atomic SQL updates.
+        try {
+            int newStreak = Math.max(0, user.getStreak() + 1);
+            userRepo.updateStreak(userId, newStreak);
+            userRepo.updateMaxStreakIfHigher(userId, newStreak);
+            user.setStreak(newStreak); // keep in-memory value in sync for the response
+        } catch (Exception e) {
+            log.error("Failed to update streak for user={}", userId, e);
+        }
+
+        // Generate AI insight synchronously so it's included in the finish response.
+        // generateInsightSync already returns null on failure per CLAUDE.md, but we
+        // wrap defensively in case it ever throws an unchecked exception.
+        String aiCoachInsight = null;
+        try {
+            aiCoachInsight = aiService.generateInsightSync(userId, session.getId());
+        } catch (Exception e) {
+            log.error("Failed to generate AI insight for session={}", id, e);
+        }
+
+        // Trigger async weekly report when goal is hit.
+        if (weeklyGoalHit) {
+            try {
+                weeklyReportService.generateWeeklyReport(userId, weekNumber);
+            } catch (Exception e) {
+                log.error("Failed to trigger weekly report for user={} week={}", userId, weekNumber, e);
             }
         }
 
-        // Update user streak (floor at 0 — streak must never go negative)
-        // Coin balance is now managed entirely by CoinService via atomic SQL updates
-        user.setStreak(Math.max(0, user.getStreak() + 1));
-        userRepo.save(user);
-        // Atomically update max_streak_ever if new streak beats stored value
-        userRepo.updateMaxStreakIfHigher(userId, user.getStreak());
-
-        // Generate AI insight synchronously so it's included in the finish response
-        String aiCoachInsight = aiService.generateInsightSync(userId, session.getId());
-
-        // Trigger async weekly report when goal is hit
-        if (weeklyGoalHit) {
-            weeklyReportService.generateWeeklyReport(userId, weekNumber);
+        // Rank promotion check.
+        try {
+            rankService.checkAndPromote(userId);
+        } catch (Exception e) {
+            log.error("Failed to check rank promotion for user={}", userId, e);
         }
-
-        // Rank promotion check
-        rankService.checkAndPromote(userId);
 
         // ── Coin awards (idempotent via CoinService) ──────────────────
-        // weekEpoch = start of current ISO week as epoch string (idempotency key for week events)
-        String weekEpoch = String.valueOf(weekFrom.getEpochSecond());
+        try {
+            // weekEpoch = start of current ISO week as epoch string (idempotency key for week events)
+            String weekEpoch = String.valueOf(weekFrom.getEpochSecond());
 
-        // 1. Log workout +10
-        coinService.awardCoins(userId, COINS_PER_SESSION, "LOG_WORKOUT",
-                "Logged " + session.getName(), id.toString());
+            // 1. Log workout +10
+            coinService.awardCoins(userId, COINS_PER_SESSION, "LOG_WORKOUT",
+                    "Logged " + session.getName(), id.toString());
 
-        // 2. Personal record awards +25 per new PR
-        for (ExerciseLogRequest prEx : newPrExercises) {
-            String exerciseName = prEx.exerciseName() != null ? prEx.exerciseName() : prEx.exerciseId();
-            coinService.awardCoins(userId, 25, "PERSONAL_RECORD",
-                    exerciseName + " PR",
-                    "PR_" + id + "_" + prEx.exerciseId());
-        }
+            // 2. Personal record awards +25 per new PR
+            for (ExerciseLogRequest prEx : newPrExercises) {
+                String exerciseName = prEx.exerciseName() != null ? prEx.exerciseName() : prEx.exerciseId();
+                coinService.awardCoins(userId, 25, "PERSONAL_RECORD",
+                        exerciseName + " PR",
+                        "PR_" + id + "_" + prEx.exerciseId());
+            }
 
-        // 3. Weekly goal +50 — only on the exact session that hits the goal
-        if (count == weeklyGoal) {
-            coinService.awardCoins(userId, 50, "WEEKLY_GOAL",
-                    "Weekly goal hit", weekEpoch);
-        }
+            // 3. Weekly goal +50 — only on the exact session that hits the goal
+            if (count == weeklyGoal) {
+                coinService.awardCoins(userId, 50, "WEEKLY_GOAL",
+                        "Weekly goal hit", weekEpoch);
+            }
 
-        // 4. Volume improvement vs last week +30
-        Instant lastWeekFrom = weekFrom.minus(7, ChronoUnit.DAYS);
-        BigDecimal thisWeekVol = sessionRepo.sumVolumeByUserIdAndFinishedAtBetween(userId, weekFrom, weekTo);
-        BigDecimal lastWeekVol = sessionRepo.sumVolumeByUserIdAndFinishedAtBetween(userId, lastWeekFrom, weekFrom);
-        if (lastWeekVol != null && lastWeekVol.compareTo(BigDecimal.ZERO) > 0
-                && thisWeekVol != null && thisWeekVol.compareTo(lastWeekVol) > 0) {
-            coinService.awardCoins(userId, 30, "IMPROVE_VOLUME",
-                    "Improved vs last week", weekEpoch);
-        }
+            // 4. Volume improvement vs last week +30
+            Instant lastWeekFrom = weekFrom.minus(7, ChronoUnit.DAYS);
+            BigDecimal thisWeekVol = sessionRepo.sumVolumeByUserIdAndFinishedAtBetween(userId, weekFrom, weekTo);
+            BigDecimal lastWeekVol = sessionRepo.sumVolumeByUserIdAndFinishedAtBetween(userId, lastWeekFrom, weekFrom);
+            if (lastWeekVol != null && lastWeekVol.compareTo(BigDecimal.ZERO) > 0
+                    && thisWeekVol != null && thisWeekVol.compareTo(lastWeekVol) > 0) {
+                coinService.awardCoins(userId, 30, "IMPROVE_VOLUME",
+                        "Improved vs last week", weekEpoch);
+            }
 
-        // 5. Streak milestones
-        int currentStreak = user.getStreak();
-        if (currentStreak > 0 && currentStreak % 7 == 0) {
-            coinService.awardCoins(userId, 35, "STREAK_MILESTONE",
-                    currentStreak + "-day streak milestone",
-                    String.valueOf(currentStreak));
-        }
-        if (currentStreak == 30) {
-            coinService.awardCoins(userId, 100, "STREAK_30",
-                    "30-day streak milestone", "30");
+            // 5. Streak milestones
+            int currentStreak = user.getStreak();
+            if (currentStreak > 0 && currentStreak % 7 == 0) {
+                coinService.awardCoins(userId, 35, "STREAK_MILESTONE",
+                        currentStreak + "-day streak milestone",
+                        String.valueOf(currentStreak));
+            }
+            if (currentStreak == 30) {
+                coinService.awardCoins(userId, 100, "STREAK_30",
+                        "30-day streak milestone", "30");
+            }
+        } catch (Exception e) {
+            log.error("Failed to award coins for session={}", id, e);
         }
 
         // ── Feed items — post to all user's groups ───────────────────────
@@ -627,6 +702,21 @@ public class SessionController {
                 count,
                 aiCoachInsight)));
     }
+
+    /**
+     * Tuple of values produced inside the core-save TransactionTemplate block
+     * and consumed by the derived-data blocks + response builder that run
+     * AFTER the core tx has committed. Keeps the derived-data section free
+     * of references into the tx lambda scope.
+     */
+    private record CoreFinishData(
+            User user,
+            int weekNumber,
+            int weeklyGoal,
+            boolean weeklyGoalHit,
+            int count,
+            Instant weekFrom,
+            Instant weekTo) {}
 
     // ── POST /sessions/{id}/feedback (upsert) ──────────────────────────
     @PostMapping("/{id}/feedback")
