@@ -34,10 +34,13 @@ import com.fittribe.api.repository.SessionFeedbackRepository;
 import com.fittribe.api.repository.SetLogRepository;
 import com.fittribe.api.repository.UserRepository;
 import com.fittribe.api.repository.WorkoutSessionRepository;
+import com.fittribe.api.jobs.JobEnqueuer;
+import com.fittribe.api.jobs.JobType;
+import com.fittribe.api.jobs.JobWorker;
 import com.fittribe.api.service.AiService;
 import com.fittribe.api.service.CoinService;
+import com.fittribe.api.service.PlanService;
 import com.fittribe.api.service.RankService;
-import com.fittribe.api.service.WeeklyReportService;
 import jakarta.validation.Valid;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -56,6 +59,7 @@ import java.time.Instant;
 import java.time.LocalDate;
 import java.time.ZoneOffset;
 import java.time.temporal.ChronoUnit;
+import java.time.temporal.TemporalAdjusters;
 import java.util.ArrayList;
 import java.util.Optional;
 import java.util.LinkedHashMap;
@@ -79,7 +83,8 @@ public class SessionController {
     private final CoinTransactionRepository coinRepo;
     private final SessionFeedbackRepository feedbackRepo;
     private final AiService                 aiService;
-    private final WeeklyReportService       weeklyReportService;
+    private final JobEnqueuer               jobEnqueuer;
+    private final PlanService               planService;
     private final ObjectMapper              objectMapper;
     private final PersonalRecordRepository  prRepo;
     private final RankService               rankService;
@@ -95,7 +100,8 @@ public class SessionController {
                              CoinTransactionRepository coinRepo,
                              SessionFeedbackRepository feedbackRepo,
                              AiService aiService,
-                             WeeklyReportService weeklyReportService,
+                             JobEnqueuer jobEnqueuer,
+                             PlanService planService,
                              ObjectMapper objectMapper,
                              PersonalRecordRepository prRepo,
                              RankService rankService,
@@ -110,7 +116,8 @@ public class SessionController {
         this.coinRepo            = coinRepo;
         this.feedbackRepo        = feedbackRepo;
         this.aiService           = aiService;
-        this.weeklyReportService = weeklyReportService;
+        this.jobEnqueuer         = jobEnqueuer;
+        this.planService         = planService;
         this.objectMapper        = objectMapper;
         this.prRepo              = prRepo;
         this.rankService         = rankService;
@@ -478,7 +485,7 @@ public class SessionController {
             User u = userRepo.findByIdForUpdate(userId)
                     .orElseThrow(() -> ApiException.notFound("User"));
             LocalDate monday = LocalDate.now(ZoneOffset.UTC).with(DayOfWeek.MONDAY);
-            int weekNum  = weeklyReportService.weekNumberFor(u, monday);
+            int weekNum  = weekNumberFor(u, monday);
             int wkGoal   = u.getWeeklyGoal() != null ? u.getWeeklyGoal() : 4;
             Instant from = monday.atStartOfDay(ZoneOffset.UTC).toInstant();
             Instant to   = monday.plusDays(7).atStartOfDay(ZoneOffset.UTC).toInstant();
@@ -572,12 +579,25 @@ public class SessionController {
             log.error("Failed to generate AI insight for session={}", id, e);
         }
 
-        // Trigger async weekly report when goal is hit.
+        // Enqueue async weekly report computation when goal is hit (Wynners pipeline).
+        // weekStart = previous IST Monday, matching the Sunday cron convention so a
+        // user who hits the goal on Friday targets the same Monday–Sunday window as
+        // the cron would trigger at Sunday night.
         if (weeklyGoalHit) {
             try {
-                weeklyReportService.generateWeeklyReport(userId, weekNumber);
+                Map<String, Object> reportPayload = new LinkedHashMap<>();
+                reportPayload.put("userId", userId.toString());
+                reportPayload.put("weekStart", JobWorker.previousMondayIst().toString());
+                jobEnqueuer.enqueue(JobType.COMPUTE_WEEKLY_REPORT, reportPayload);
             } catch (Exception e) {
-                log.error("Failed to trigger weekly report for user={} week={}", userId, weekNumber, e);
+                log.error("Failed to enqueue COMPUTE_WEEKLY_REPORT for user={} week={}", userId, weekNumber, e);
+            }
+
+            // Generate next-week AI plan so the user has a plan ready on Monday.
+            try {
+                planService.generatePlan(userId);
+            } catch (Exception e) {
+                log.error("Failed to trigger plan generation for user={}", userId, e);
             }
         }
 
@@ -908,6 +928,24 @@ public class SessionController {
 
     private UUID userId(Authentication auth) {
         return (UUID) auth.getPrincipal();
+    }
+
+    /**
+     * Compute the 1-based week number for a user, counting from their
+     * account creation week. Matches the formula previously in
+     * {@code WeeklyReportService#weekNumberFor} — uses UTC for both the
+     * creation date and the target Monday, consistent with the legacy
+     * service and with how {@code finishSession} derives {@code monday}.
+     *
+     * @param user         the authenticated user (must have {@code createdAt})
+     * @param targetMonday the Monday of the week to number (UTC)
+     * @return 1-based week number (week of account creation = week 1)
+     */
+    private static int weekNumberFor(User user, LocalDate targetMonday) {
+        LocalDate createdMonday = user.getCreatedAt()
+                .atZone(ZoneOffset.UTC).toLocalDate()
+                .with(TemporalAdjusters.previousOrSame(DayOfWeek.MONDAY));
+        return (int) ChronoUnit.WEEKS.between(createdMonday, targetMonday) + 1;
     }
 
     /** Derives a comma-separated muscle group label from set_log exercise IDs. */
