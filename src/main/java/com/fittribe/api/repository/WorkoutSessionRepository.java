@@ -136,4 +136,27 @@ public interface WorkoutSessionRepository extends JpaRepository<WorkoutSession, 
         WHERE id = :id
         """, nativeQuery = true)
     int updateStreak(@Param("id") UUID id, @Param("streak") int streak);
+
+    /**
+     * Count COMPLETED sessions for a user in a time window, filtered by source.
+     * Used by the bonus session flow to count how many BONUS-source sessions
+     * exist in the current week (soft-cap logic) or to count non-BONUS planned
+     * sessions (template progression).
+     *
+     * source matches exactly — pass "BONUS" to count bonuses,
+     * pass "AI_PLAN" to count planned sessions, etc.
+     */
+    int countByUserIdAndStatusAndSourceAndFinishedAtBetween(
+            UUID userId, String status, String source, Instant from, Instant to);
+
+    /**
+     * Count COMPLETED sessions for a user in a time window, EXCLUDING a specific source.
+     * Used by the bonus session flow to compute "planned sessions this week"
+     * (completed sessions that are not BONUS), which drives template day indexing.
+     *
+     * Excluding BONUS keeps bonus sessions out of the planned-day counter
+     * so template progression is unaffected by how many bonuses the user does.
+     */
+    int countByUserIdAndStatusAndSourceNotAndFinishedAtBetween(
+            UUID userId, String status, String source, Instant from, Instant to);
 }
