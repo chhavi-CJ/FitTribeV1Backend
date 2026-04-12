@@ -593,21 +593,10 @@ public class SessionController {
             log.error("Failed to generate AI insight for session={}", id, e);
         }
 
-        // Enqueue async weekly report computation when goal is hit (Wynners pipeline).
-        // weekStart = previous IST Monday, matching the Sunday cron convention so a
-        // user who hits the goal on Friday targets the same Monday–Sunday window as
-        // the cron would trigger at Sunday night.
+        // Generate next-week AI plan when weekly goal is hit so user has it ready on Monday.
+        // This is independent of weekly report generation, which is deferred to the Sunday cron
+        // to ensure it captures the complete Mon–Sun week.
         if (weeklyGoalHit) {
-            try {
-                Map<String, Object> reportPayload = new LinkedHashMap<>();
-                reportPayload.put("userId", userId.toString());
-                reportPayload.put("weekStart", JobWorker.previousMondayIst().toString());
-                jobEnqueuer.enqueue(JobType.COMPUTE_WEEKLY_REPORT, reportPayload);
-            } catch (Exception e) {
-                log.error("Failed to enqueue COMPUTE_WEEKLY_REPORT for user={} week={}", userId, weekNumber, e);
-            }
-
-            // Generate next-week AI plan so the user has a plan ready on Monday.
             try {
                 planService.generatePlan(userId);
             } catch (Exception e) {
