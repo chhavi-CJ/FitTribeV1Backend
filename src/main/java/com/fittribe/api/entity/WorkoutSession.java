@@ -88,6 +88,9 @@ public class WorkoutSession {
     @JdbcTypeCode(SqlTypes.JSON)
     private String plannedExercises;
 
+    @Column(name = "streak")
+    private Integer streak;
+
     @PrePersist
     void prePersist() {
         if (startedAt == null) startedAt = Instant.now();
@@ -160,4 +163,7 @@ public class WorkoutSession {
 
     public String getPlannedExercises()              { return plannedExercises; }
     public void setPlannedExercises(String v)        { this.plannedExercises = v; }
+
+    public Integer getStreak()                       { return streak; }
+    public void setStreak(Integer v)                 { this.streak = v; }
 }
