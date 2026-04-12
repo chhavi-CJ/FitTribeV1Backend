@@ -443,4 +443,111 @@ public final class AiPrompts {
             "  }\n" +
             "}\n\n" +
             "Return ONLY valid JSON. No markdown. No explanation outside JSON.";
+
+    // ── Bonus Session Generation ────────────────────────────────────────
+
+    public static final String BONUS_EXERCISE_SYSTEM =
+            "You are an expert coach inside FitTribe. The user has already " +
+            "hit their weekly goal — this bonus session is a celebration, " +
+            "not a grind. Keep it focused, smart, and slightly gentler than " +
+            "a regular session. Acknowledge their consistency in the tone. " +
+            "Return ONLY valid JSON. No markdown. No explanation outside JSON.";
+
+    public static final String BONUS_EXERCISE_USER =
+            "Generate a BONUS session for this user — they've already hit " +
+            "their weekly goal of {weeklyGoal} sessions, and are asking for " +
+            "an extra one. Treat this as earned, not demanded.\n\n" +
+
+            "USER PROFILE:\n" +
+            "Name: {name} | Gender: {gender} | Weight: {weightKg}kg | " +
+            "Height: {heightCm}cm | Level: {fitnessLevel}\n" +
+            "Goal: {goal} | Current streak: {currentStreak} days\n" +
+            "Health conditions: {healthConditions}\n" +
+            "{aiContext}\n\n" +
+
+            "BONUS CONTEXT:\n" +
+            "Archetype: {archetype}\n" +
+            "Bonuses already this week: {bonusesThisWeek}\n" +
+            "Why this archetype: {archetypeRationale}\n\n" +
+
+            "RECOVERY STATE (last 14 days):\n" +
+            "{recoveryBlock}\n\n" +
+
+            "ARCHETYPE RULES — FOLLOW EXACTLY:\n" +
+            "PUSH: 4 exercises — 1 chest compound, 1 shoulder, 1 triceps, 1 chest-or-shoulder isolation. Moderate volume (3 sets each).\n" +
+            "PULL: 4 exercises — 1 back compound (pulldown/row), 1 biceps compound, 1 rear-delt isolation, 1 biceps isolation. 3 sets each.\n" +
+            "LEGS: 4 exercises — 1 quad compound (NOT deadlift), 1 hamstring, 1 glute, 1 calf. Gentler than main leg day. 3 sets each.\n" +
+            "WEAK_POINT_FOCUS: 4 exercises — isolation only. Target the group with least work this week. 3-4 sets, higher reps (12-15).\n" +
+            "ACCESSORY_CORE: 4 exercises — 1 isolation for biceps/triceps/shoulders, 1 back-friendly row or pulldown, 2 core exercises. Never heavy compounds. 3 sets each. Reps 10-15.\n\n" +
+
+            "SAFETY HARD RULES — NON NEGOTIABLE:\n" +
+            "PREGNANCY:\n" +
+            "- BANNED: deadlift, squat, bench-press, overhead-press, push-press, plank, crunches, leg-raises, hanging-leg-raises\n" +
+            "- USE ONLY: seated-cable-row, lat-pulldown, lateral-raises, glute-bridge, seated-calf-raises, dumbbell-row, face-pulls, bicep-curl, dead-bug (light)\n" +
+            "- coachTip every exercise: mention breathing and pelvic floor awareness\n" +
+            "HEART_CONDITION:\n" +
+            "- BANNED: power-clean, push-press, burpees, box-jumps, heavy-deadlift, sumo-deadlift\n" +
+            "- coachTip every exercise: exhale on exertion, never hold breath\n" +
+            "POSTNATAL:\n" +
+            "- BANNED: heavy-compounds, crunches, hanging-leg-raises, box-jumps\n" +
+            "- USE: glute-bridge, dead-bug, bird-dog-style movements, lat-pulldown, seated-row\n" +
+            "BACK_PAIN:\n" +
+            "- BANNED: deadlift, romanian-deadlift, barbell-row, squat, good-mornings\n" +
+            "- REPLACE WITH: leg-press, glute-bridge, seated-cable-row, lat-pulldown, cable-flyes\n" +
+            "JOINT_ISSUES:\n" +
+            "- BANNED: lunges, squat, box-jumps, leg-extension, bulgarian-split-squat, step-ups\n" +
+            "- REPLACE WITH: leg-press, lying-leg-curl, glute-bridge, seated-calf-raises\n" +
+            "SHOULDER_INJURY:\n" +
+            "- BANNED: overhead-press, push-press, upright-rows, skull-crushers, arnold-press\n" +
+            "- REPLACE WITH: cable-flyes, lateral-raises, tricep-pushdowns, face-pulls\n\n" +
+
+            "WEIGHT SUGGESTION RULES — BONUS SESSIONS ARE SLIGHTLY LIGHTER:\n" +
+            "Take the user's normal level-appropriate range from regular session rules, " +
+            "then reduce suggestedKg by 10-15% for bonus. Users are recovering.\n\n" +
+            "BEGINNER female: dumbbell 2-4kg, cable 2-5kg, machine 5-10kg, barbell 5-10kg, bodyweight null\n" +
+            "BEGINNER male:   dumbbell 4-6kg, cable 5-8kg, machine 10-20kg, barbell 10-20kg, bodyweight null\n" +
+            "INTERMEDIATE female: dumbbell 5-8kg, cable 5-8kg, machine 12-25kg, barbell 15-35kg\n" +
+            "INTERMEDIATE male:   dumbbell 8-14kg, cable 8-18kg, machine 20-35kg, barbell 35-60kg\n" +
+            "ADVANCED female: dumbbell 8-14kg, cable 8-18kg, machine 20-40kg, barbell 25-50kg\n" +
+            "ADVANCED male:   dumbbell 14-20kg, cable 18-30kg, machine 35-60kg, barbell 50-85kg\n" +
+            "Lateral raises: max 5kg for ALL levels and genders.\n" +
+            "Bodyweight exercises: suggestedKg must be null.\n" +
+            "Round to gym increments: barbell 2.5kg, dumbbell 2kg, machine 5kg, cable 2.5kg.\n\n" +
+
+            "EXERCISE CATALOG (use ONLY these IDs):\n" +
+            "CHEST: bench-press, incline-db-press, db-flat-press, smith-machine-bench, cable-flyes, push-ups, knee-push-ups, incline-push-ups, dips, cable-crossover, pec-deck\n" +
+            "SHOULDERS: shoulder-press, arnold-press, db-shoulder-press, lateral-raises, front-raises, cable-lateral-raise, reverse-flyes, face-pulls\n" +
+            "BACK: pull-ups, chin-ups, lat-pulldown, dumbbell-row, seated-cable-row, t-bar-row, face-pulls, reverse-flyes\n" +
+            "TRICEPS: tricep-pushdowns, close-grip-bench, tricep-overhead-extension, tricep-kickback\n" +
+            "BICEPS: bicep-curl, hammer-curl, concentration-curl\n" +
+            "LEGS: goblet-squat, leg-press, bulgarian-split-squat, step-ups, leg-curl, lying-leg-curl, leg-extension, hip-thrust, glute-bridge, cable-kickback, standing-calf-raises, seated-calf-raises\n" +
+            "CORE: dead-bug, mountain-climbers, russian-twist, bicycle-crunches, ab-wheel-rollout\n\n" +
+
+            "CELEBRATORY TONE RULES:\n" +
+            "- sessionNote MUST acknowledge they've hit their weekly goal — lead with that\n" +
+            "- sessionNote MUST reference their current streak of {currentStreak} days if >= 3\n" +
+            "- sessionNote max 3 sentences. Warm, not sycophantic.\n" +
+            "- dayCoachTip: 1 sentence, bonus-specific (e.g. 'This one's for momentum, not volume')\n" +
+            "- whyThisExercise: 2 sentences max, reference recovery or archetype rationale\n" +
+            "- coachTip per exercise: 1 specific biomechanical cue, never generic\n\n" +
+
+            "RETURN this exact JSON structure:\n" +
+            "{\n" +
+            "  \"exercises\": [\n" +
+            "    {\n" +
+            "      \"exerciseId\": \"bicep-curl\",\n" +
+            "      \"exerciseName\": \"Bicep Curl\",\n" +
+            "      \"sets\": 3,\n" +
+            "      \"reps\": 12,\n" +
+            "      \"restSeconds\": 60,\n" +
+            "      \"suggestedKg\": 8.0,\n" +
+            "      \"whyThisExercise\": \"Max 2 sentences\",\n" +
+            "      \"coachTip\": \"1 specific cue\"\n" +
+            "    }\n" +
+            "  ],\n" +
+            "  \"sessionNote\": \"Celebratory 2-3 sentence note acknowledging weekly goal hit and streak\",\n" +
+            "  \"dayCoachTip\": \"1 sentence bonus-specific tip\",\n" +
+            "  \"archetypeUsed\": \"PUSH\"\n" +
+            "}\n\n" +
+            "Return ONLY valid JSON. No markdown. No explanation outside JSON.";
 }
