@@ -425,10 +425,10 @@ public class PlanService {
 
         Map<String, Exercise> exMap = exerciseMap();
         HistoryAnalysis analysis = analyseHistory(
-                recentSessions, recentLogs, List.of(), bw, level);
+                recentSessions, recentLogs, List.of(), bw, level, exMap);
 
         // Build daily context blocks
-        String recoveryBlock = buildRecoveryBlock(recentSessions, recentLogs);
+        String recoveryBlock = buildRecoveryBlock(recentSessions, recentLogs, exMap);
         String historyBlock  = buildDailyHistoryBlock(analysis, exMap);
         String feedbackBlock = buildDailyFeedbackBlock(recentFeedback);
         String recentExBlock = buildRecentExercisesBlock(recentSessions, recentLogs, since4Days);
@@ -580,7 +580,8 @@ public class PlanService {
     private HistoryAnalysis analyseHistory(List<WorkoutSession> sessions,
                                             List<SetLog> logs,
                                             List<UserPlan> pastPlans,
-                                            double bw, String level) {
+                                            double bw, String level,
+                                            Map<String, Exercise> exMap) {
         // Weight progression per exercise: exerciseId -> best recent weight
         Map<String, BigDecimal> recentBestWeight = new LinkedHashMap<>();
         Map<String, Integer>    sessionCountPerExercise = new LinkedHashMap<>();
@@ -619,7 +620,7 @@ public class PlanService {
         Set<String> trainedMuscles = new LinkedHashSet<>();
         for (SetLog sl : logs) {
             if (sl.getExerciseId() != null) {
-                String mg = EXERCISE_MUSCLE.getOrDefault(sl.getExerciseId(), "");
+                String mg = resolveMuscleGroup(sl.getExerciseId(), exMap);
                 if (!mg.isEmpty()) trainedMuscles.add(mg);
             }
         }
@@ -631,7 +632,7 @@ public class PlanService {
                 .filter(sl -> recentSessionIds.contains(sl.getSessionId()))
                 .collect(Collectors.toList());
         Set<String> trainedLastWeek = recentWeekLogs.stream()
-                .map(sl -> EXERCISE_MUSCLE.getOrDefault(sl.getExerciseId(), ""))
+                .map(sl -> resolveMuscleGroup(sl.getExerciseId(), exMap))
                 .filter(s -> !s.isEmpty()).collect(Collectors.toSet());
         List<String> muscleGaps = STANDARD_MUSCLES.stream()
                 .filter(m -> !trainedLastWeek.contains(m)).collect(Collectors.toList());
@@ -952,8 +953,8 @@ When you change a weight from last week, explain why in that exercise's whyThisE
                             } else {
                                 // 4. Unknown id — derive muscleGroup from EXERCISE_MUSCLE fallback map
                                 if (ex.get("muscleGroup") == null && resolvedId != null) {
-                                    String fallbackMuscle = EXERCISE_MUSCLE.get(resolvedId);
-                                    if (fallbackMuscle != null) {
+                                    String fallbackMuscle = resolveMuscleGroup(resolvedId, exMap);
+                                    if (!fallbackMuscle.isEmpty()) {
                                         ex.put("muscleGroup", fallbackMuscle);
                                     }
                                 }
@@ -1142,12 +1143,12 @@ When you change a weight from last week, explain why in that exercise's whyThisE
         return sb.toString().trim();
     }
 
-    private String buildRecoveryBlock(List<WorkoutSession> sessions, List<SetLog> logs) {
+    private String buildRecoveryBlock(List<WorkoutSession> sessions, List<SetLog> logs, Map<String, Exercise> exMap) {
         if (sessions.isEmpty()) return "RECOVERY STATUS: No recent sessions — all muscle groups fully recovered.";
 
         Map<String, Instant> lastTrainedPerMuscle = new LinkedHashMap<>();
         for (SetLog sl : logs) {
-            String muscle = EXERCISE_MUSCLE.getOrDefault(sl.getExerciseId(), "");
+            String muscle = resolveMuscleGroup(sl.getExerciseId(), exMap);
             if (muscle.isEmpty()) continue;
             WorkoutSession session = sessions.stream()
                     .filter(s -> s.getId().equals(sl.getSessionId()))
@@ -1346,7 +1347,7 @@ When you change a weight from last week, explain why in that exercise's whyThisE
             HistoryAnalysis analysis = analyseHistory(
                     recentSessions, recentLogs, List.of(), user.getWeightKg() != null
                             ? user.getWeightKg().doubleValue() : 70.0,
-                    user.getFitnessLevel() != null ? user.getFitnessLevel() : "INTERMEDIATE");
+                    user.getFitnessLevel() != null ? user.getFitnessLevel() : "INTERMEDIATE", exMap);
 
             // Get muscle groups for today
             @SuppressWarnings("unchecked")
@@ -1523,6 +1524,47 @@ When you change a weight from last week, explain why in that exercise's whyThisE
             Map.entry("plank",             "Core"),
             Map.entry("crunches",          "Core")
     );
+
+    /**
+     * Resolve muscle group for an exercise by querying the loaded exercise map first,
+     * then falling back to the static EXERCISE_MUSCLE map. Returns empty string if not found.
+     */
+    private String resolveMuscleGroup(String exerciseId, Map<String, Exercise> exMap) {
+        if (exerciseId == null) return "";
+        if (exMap != null && exMap.containsKey(exerciseId)) {
+            String dbMuscle = exMap.get(exerciseId).getMuscleGroup();
+            if (dbMuscle != null && !dbMuscle.trim().isEmpty()) {
+                String canonical = canonicalizeMuscle(dbMuscle);
+                if (!canonical.isEmpty()) return canonical;
+            }
+        }
+        return EXERCISE_MUSCLE.getOrDefault(exerciseId, "");
+    }
+
+    /**
+     * Canonicalize database muscle_group values to STANDARD_MUSCLES taxonomy.
+     * DB contains variations like "Upper Chest", "Front Delts", etc.
+     * Maps to: Chest, Back, Shoulders, Legs, Arms, Core
+     */
+    private String canonicalizeMuscle(String dbValue) {
+        String normalized = dbValue.trim().toLowerCase();
+        if (normalized.contains("chest")) return "Chest";
+        if (normalized.contains("back")) return "Back";
+        if (normalized.contains("shoulder") || normalized.contains("delt")) return "Shoulders";
+        if (normalized.contains("leg")
+                || normalized.contains("quad")
+                || normalized.contains("glute")
+                || normalized.contains("calf")
+                || normalized.contains("calves")
+                || normalized.contains("hamstring")) return "Legs";
+        if (normalized.contains("arm")
+                || normalized.contains("bicep")
+                || normalized.contains("tricep")) return "Arms";
+        if (normalized.contains("core") || normalized.contains("ab")) return "Core";
+        if (normalized.contains("full_body") || normalized.contains("full body")) return "";
+        log.debug("Unmapped DB muscleGroup value: '{}'", dbValue);
+        return "";
+    }
 
     // ── Split templates ───────────────────────────────────────────────
 
