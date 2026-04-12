@@ -3,8 +3,10 @@ package com.fittribe.api.bonus;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fittribe.api.entity.Exercise;
 import com.fittribe.api.entity.User;
+import com.fittribe.api.exception.ApiException;
 import com.fittribe.api.repository.ExerciseRepository;
 import com.fittribe.api.repository.UserRepository;
+import com.fittribe.api.repository.WorkoutSessionRepository;
 import com.fittribe.api.service.RecoveryGateService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -24,6 +26,7 @@ class BonusSessionServiceTest {
     private UserRepository            userRepo;
     private BonusSessionRepository    bonusRepo;
     private ExerciseRepository        exerciseRepo;
+    private WorkoutSessionRepository  sessionRepo;
     private RecoveryGateService       recoveryGate;
     private SessionArchetypeResolver  resolver;
     private BonusSessionPromptBuilder promptBuilder;
@@ -38,19 +41,22 @@ class BonusSessionServiceTest {
         userRepo      = mock(UserRepository.class);
         bonusRepo     = mock(BonusSessionRepository.class);
         exerciseRepo  = mock(ExerciseRepository.class);
+        sessionRepo   = mock(WorkoutSessionRepository.class);
         recoveryGate  = mock(RecoveryGateService.class);
         resolver      = mock(SessionArchetypeResolver.class);
         promptBuilder = mock(BonusSessionPromptBuilder.class);
         mapper        = new ObjectMapper();
         restTemplate  = mock(RestTemplate.class);
 
-        service = new BonusSessionService(userRepo, bonusRepo, exerciseRepo,
+        service = new BonusSessionService(userRepo, bonusRepo, exerciseRepo, sessionRepo,
                 recoveryGate, resolver, promptBuilder, mapper, restTemplate, "test-key");
 
         userId = UUID.randomUUID();
         user = buildUser();
 
         when(userRepo.findById(userId)).thenReturn(Optional.of(user));
+        when(sessionRepo.countByUserIdAndStatusAndSourceNotAndFinishedAtBetween(
+                eq(userId), eq("COMPLETED"), eq("BONUS"), any(), any())).thenReturn(4);
         when(recoveryGate.computeRecoveryState(eq(userId), any())).thenReturn(Map.of());
         when(bonusRepo.countByIdUserIdAndIdDateBetween(eq(userId), any(), any())).thenReturn(0);
         when(bonusRepo.findByIdUserIdAndIdDate(eq(userId), any())).thenReturn(List.of());
@@ -65,7 +71,7 @@ class BonusSessionServiceTest {
 
     @Test
     void noOpenAiKey_returnsFallback() {
-        service = new BonusSessionService(userRepo, bonusRepo, exerciseRepo,
+        service = new BonusSessionService(userRepo, bonusRepo, exerciseRepo, sessionRepo,
                 recoveryGate, resolver, promptBuilder, mapper, restTemplate, "");
 
         Map<String, Object> response = service.generate(userId);
@@ -157,17 +163,6 @@ class BonusSessionServiceTest {
     }
 
     @Test
-    void bonusNumberIncrements_basedOnTodaysCount() {
-        when(bonusRepo.findByIdUserIdAndIdDate(eq(userId), any()))
-                .thenReturn(List.of(mock(BonusSessionGenerated.class),
-                                    mock(BonusSessionGenerated.class)));
-
-        Map<String, Object> response = service.generate(userId);
-
-        assertEquals(3, response.get("bonusNumber"));
-    }
-
-    @Test
     void markdownCodeFencesAreStrippedFromAiResponse() {
         String wrappedJson = "```json\n{\"exercises\":[{\"exerciseId\":\"bench-press\",\"sets\":3,\"reps\":10}],\"sessionNote\":\"ok\",\"dayCoachTip\":\"ok\"}\n```";
         Map<String, Object> apiResponse = Map.of(
@@ -178,6 +173,38 @@ class BonusSessionServiceTest {
         Map<String, Object> response = service.generate(userId);
 
         assertEquals("GENERATED", response.get("status"));
+    }
+
+    @Test
+    void weeklyGoalNotHit_throwsForbidden() {
+        when(sessionRepo.countByUserIdAndStatusAndSourceNotAndFinishedAtBetween(
+                eq(userId), eq("COMPLETED"), eq("BONUS"), any(), any())).thenReturn(2);
+
+        ApiException ex = assertThrows(ApiException.class, () -> service.generate(userId));
+        assertTrue(ex.getMessage().contains("Complete your weekly goal"));
+    }
+
+    @Test
+    void bonusAlreadyExistsForToday_returnsCachedWithoutAiCall() {
+        BonusSessionGenerated existing = new BonusSessionGenerated();
+        existing.setId(new BonusSessionGeneratedId(userId, LocalDate.now(java.time.ZoneOffset.UTC), 1));
+        existing.setArchetype("PUSH");
+        existing.setArchetypeRationale("Matched to PUSH based on recovery state.");
+        existing.setExercises("[{\"exerciseId\":\"bench-press\",\"sets\":3}]");
+        existing.setSessionNote("cached note");
+        existing.setDayCoachTip("cached tip");
+
+        when(bonusRepo.findByIdUserIdAndIdDate(eq(userId), any()))
+                .thenReturn(List.of(existing));
+
+        Map<String, Object> response = service.generate(userId);
+
+        assertEquals(Boolean.TRUE, response.get("cached"));
+        assertEquals("GENERATED", response.get("status"));
+        assertEquals("PUSH", response.get("archetype"));
+        assertEquals("cached note", response.get("sessionNote"));
+        verify(restTemplate, never()).postForObject(anyString(), any(), any());
+        verify(bonusRepo, never()).save(any());
     }
 
     // ── Helpers ─────────────────────────────────────────────────────
