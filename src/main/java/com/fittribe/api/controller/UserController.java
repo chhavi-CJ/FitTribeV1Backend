@@ -10,6 +10,7 @@ import com.fittribe.api.dto.response.UserProfileResponse;
 import com.fittribe.api.entity.User;
 import com.fittribe.api.entity.UserPlan;
 import com.fittribe.api.exception.ApiException;
+import com.fittribe.api.healthcondition.HealthConditionNormalizer;
 import com.fittribe.api.repository.PersonalRecordRepository;
 import com.fittribe.api.repository.UserPlanRepository;
 import com.fittribe.api.repository.UserRepository;
@@ -116,7 +117,8 @@ public class UserController {
             user.setWeeklyGoal(request.weeklyGoal());
         }
         if (request.healthConditions() != null) {
-            user.setHealthConditions(request.healthConditions().toArray(new String[0]));
+            user.setHealthConditions(HealthConditionNormalizer.normalize(
+                    request.healthConditions().toArray(new String[0])));
         }
         if (request.aiContext() != null) {
             String sanitized = request.aiContext()
@@ -124,21 +126,6 @@ public class UserController {
                     .trim();
             user.setAiContext(sanitized);
         }
-
-        return ResponseEntity.ok(ApiResponse.success(userRepository.save(user)));
-    }
-
-    // ── PUT /api/v1/users/me/health-conditions ────────────────────────
-    @PutMapping("/me/health-conditions")
-    public ResponseEntity<ApiResponse<User>> updateHealthConditions(
-            @RequestBody HealthConditionsRequest request,
-            Authentication auth) {
-        User user = resolveUser(auth);
-
-        String[] conditions = (request.conditions() != null)
-                ? request.conditions().toArray(new String[0])
-                : new String[0];
-        user.setHealthConditions(conditions);
 
         return ResponseEntity.ok(ApiResponse.success(userRepository.save(user)));
     }
@@ -172,9 +159,8 @@ public class UserController {
         User user = resolveUser(auth);
 
         Map<String, Object> result = new LinkedHashMap<>();
-        result.put("conditions", user.getHealthConditions() != null
-                ? Arrays.asList(user.getHealthConditions())
-                : List.of());
+        result.put("conditions",
+                HealthConditionNormalizer.toShortIds(user.getHealthConditions()));
         result.put("gender", user.getGender());
         return ResponseEntity.ok(ApiResponse.success(result));
     }
@@ -186,14 +172,15 @@ public class UserController {
             Authentication auth) {
         User user = resolveUser(auth);
 
-        String[] conditions = (request.conditions() != null)
-                ? request.conditions().toArray(new String[0])
-                : new String[0];
-        user.setHealthConditions(conditions);
+        String[] canonical = HealthConditionNormalizer.normalize(
+                request.conditions() != null
+                        ? request.conditions().toArray(new String[0])
+                        : new String[0]);
+        user.setHealthConditions(canonical);
         userRepository.save(user);
 
         Map<String, Object> result = new LinkedHashMap<>();
-        result.put("conditions", Arrays.asList(conditions));
+        result.put("conditions", HealthConditionNormalizer.toShortIds(canonical));
         return ResponseEntity.ok(ApiResponse.success(result));
     }
 
