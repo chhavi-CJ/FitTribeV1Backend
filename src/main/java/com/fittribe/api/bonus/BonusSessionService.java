@@ -10,6 +10,7 @@ import com.fittribe.api.exception.ApiException;
 import com.fittribe.api.healthcondition.HealthCondition;
 import com.fittribe.api.repository.ExerciseRepository;
 import com.fittribe.api.repository.UserRepository;
+import com.fittribe.api.repository.WorkoutSessionRepository;
 import com.fittribe.api.service.RecoveryGateService;
 import com.fittribe.api.service.RecoveryGateService.RecoveryState;
 import org.slf4j.Logger;
@@ -55,6 +56,7 @@ public class BonusSessionService {
     private final UserRepository            userRepo;
     private final BonusSessionRepository    bonusRepo;
     private final ExerciseRepository        exerciseRepo;
+    private final WorkoutSessionRepository  sessionRepo;
     private final RecoveryGateService       recoveryGate;
     private final SessionArchetypeResolver  resolver;
     private final BonusSessionPromptBuilder promptBuilder;
@@ -64,6 +66,7 @@ public class BonusSessionService {
     public BonusSessionService(UserRepository userRepo,
                                 BonusSessionRepository bonusRepo,
                                 ExerciseRepository exerciseRepo,
+                                WorkoutSessionRepository sessionRepo,
                                 RecoveryGateService recoveryGate,
                                 SessionArchetypeResolver resolver,
                                 BonusSessionPromptBuilder promptBuilder,
@@ -71,6 +74,7 @@ public class BonusSessionService {
         this.userRepo      = userRepo;
         this.bonusRepo     = bonusRepo;
         this.exerciseRepo  = exerciseRepo;
+        this.sessionRepo   = sessionRepo;
         this.recoveryGate  = recoveryGate;
         this.resolver      = resolver;
         this.promptBuilder = promptBuilder;
@@ -82,6 +86,7 @@ public class BonusSessionService {
     BonusSessionService(UserRepository userRepo,
                         BonusSessionRepository bonusRepo,
                         ExerciseRepository exerciseRepo,
+                        WorkoutSessionRepository sessionRepo,
                         RecoveryGateService recoveryGate,
                         SessionArchetypeResolver resolver,
                         BonusSessionPromptBuilder promptBuilder,
@@ -91,6 +96,7 @@ public class BonusSessionService {
         this.userRepo      = userRepo;
         this.bonusRepo     = bonusRepo;
         this.exerciseRepo  = exerciseRepo;
+        this.sessionRepo   = sessionRepo;
         this.recoveryGate  = recoveryGate;
         this.resolver      = resolver;
         this.promptBuilder = promptBuilder;
@@ -103,14 +109,36 @@ public class BonusSessionService {
         User user = userRepo.findById(userId)
                 .orElseThrow(() -> ApiException.notFound("User"));
 
-        Instant   now       = Instant.now();
-        LocalDate today     = LocalDate.now(ZoneOffset.UTC);
+        // Weekly goal hit gate — users cannot bonus before completing their weekly commitment
+        int weeklyGoal = user.getWeeklyGoal() != null ? user.getWeeklyGoal() : 3;
+        LocalDate today = LocalDate.now(ZoneOffset.UTC);
         LocalDate weekStart = today.with(TemporalAdjusters.previousOrSame(DayOfWeek.MONDAY));
+        Instant weekStartInstant = weekStart.atStartOfDay(ZoneOffset.UTC).toInstant();
+        Instant nowInstant = Instant.now();
+        int completedThisWeek = sessionRepo.countByUserIdAndStatusAndSourceNotAndFinishedAtBetween(
+                userId, "COMPLETED", "BONUS", weekStartInstant, nowInstant);
+        if (completedThisWeek < weeklyGoal) {
+            throw new ApiException(org.springframework.http.HttpStatus.FORBIDDEN,
+                    "WEEKLY_GOAL_NOT_HIT",
+                    "Complete your weekly goal of " + weeklyGoal +
+                    " sessions before requesting a bonus. You've done " + completedThisWeek + " this week.");
+        }
+
+        Instant   now       = Instant.now();
         LocalDate weekEnd   = weekStart.plusDays(6);
 
         Map<String, RecoveryState> recoveryMap = recoveryGate.computeRecoveryState(userId, now);
         int bonusesThisWeek = bonusRepo.countByIdUserIdAndIdDateBetween(userId, weekStart, weekEnd);
-        int bonusesToday    = bonusRepo.findByIdUserIdAndIdDate(userId, today).size();
+        List<BonusSessionGenerated> existingBonusesToday = bonusRepo.findByIdUserIdAndIdDate(userId, today);
+        int bonusesToday    = existingBonusesToday.size();
+
+        // Idempotency — if a bonus already exists for today, return it instead of regenerating
+        if (!existingBonusesToday.isEmpty()) {
+            BonusSessionGenerated existing = existingBonusesToday.get(existingBonusesToday.size() - 1);
+            log.info("Returning cached bonus session for user={} date={} bonusNumber={}",
+                    userId, today, existing.getId().getBonusNumber());
+            return buildResponseFromEntity(existing);
+        }
 
         Set<HealthCondition> canonical = parseHealthConditions(user.getHealthConditions());
 
@@ -315,6 +343,28 @@ public class BonusSessionService {
             out.add(ex);
         }
         return out;
+    }
+
+    @SuppressWarnings("unchecked")
+    private Map<String, Object> buildResponseFromEntity(BonusSessionGenerated entity) {
+        Map<String, Object> response = new LinkedHashMap<>();
+        String rationale = entity.getArchetypeRationale();
+        boolean fallback = rationale != null && rationale.startsWith("[FALLBACK]");
+        response.put("status",       fallback ? "GENERATED_FALLBACK" : "GENERATED");
+        response.put("archetype",    entity.getArchetype());
+        response.put("rationale",    rationale);
+        response.put("bonusNumber",  entity.getId().getBonusNumber());
+        try {
+            List<Map<String, Object>> exercises = mapper.readValue(
+                    entity.getExercises(), new com.fasterxml.jackson.core.type.TypeReference<>() {});
+            response.put("exercises", exercises);
+        } catch (Exception e) {
+            response.put("exercises", List.of());
+        }
+        response.put("sessionNote",  entity.getSessionNote());
+        response.put("dayCoachTip",  entity.getDayCoachTip());
+        response.put("cached",       true);
+        return response;
     }
 
     // ── Inner DTO ───────────────────────────────────────────────────

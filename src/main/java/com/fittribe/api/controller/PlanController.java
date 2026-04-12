@@ -1,5 +1,6 @@
 package com.fittribe.api.controller;
 
+import com.fittribe.api.bonus.BonusSessionService;
 import com.fittribe.api.dto.ApiResponse;
 import com.fittribe.api.entity.UserPlan;
 import com.fittribe.api.service.PlanService;
@@ -16,9 +17,11 @@ import java.util.UUID;
 public class PlanController {
 
     private final PlanService planService;
+    private final BonusSessionService bonusService;
 
-    public PlanController(PlanService planService) {
+    public PlanController(PlanService planService, BonusSessionService bonusService) {
         this.planService = planService;
+        this.bonusService = bonusService;
     }
 
     /** POST /api/v1/plan/generate — generate (or return existing) weekly plan */
@@ -74,6 +77,14 @@ public class PlanController {
             return ResponseEntity.badRequest().body(err);
         }
         Map<String, Object> result = planService.setTodayStatus(userId, status);
+        return ResponseEntity.ok(ApiResponse.success(result));
+    }
+
+    /** POST /api/v1/plan/today/bonus — generate a bonus session (only after weekly goal is hit) */
+    @PostMapping("/today/bonus")
+    public ResponseEntity<ApiResponse<Map<String, Object>>> generateBonus(Authentication auth) {
+        UUID userId = (UUID) auth.getPrincipal();
+        Map<String, Object> result = bonusService.generate(userId);
         return ResponseEntity.ok(ApiResponse.success(result));
     }
 }
