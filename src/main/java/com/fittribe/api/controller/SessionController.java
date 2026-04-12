@@ -177,16 +177,17 @@ public class SessionController {
         session.setSource(source);
 
         // Validate source value
-        if (!source.equals("AI_PLAN") && !source.equals("CUSTOM") && !source.equals("SAVED_ROUTINE")) {
+        if (!source.equals("AI_PLAN") && !source.equals("CUSTOM") && !source.equals("SAVED_ROUTINE")
+                && !source.equals("BONUS")) {
             throw new ApiException(HttpStatus.BAD_REQUEST, "INVALID_SOURCE",
-                    "Source must be AI_PLAN, CUSTOM, or SAVED_ROUTINE");
+                    "Source must be AI_PLAN, CUSTOM, SAVED_ROUTINE, or BONUS");
         }
 
-        // For CUSTOM and SAVED_ROUTINE, plannedExercises is required
-        if ((source.equals("CUSTOM") || source.equals("SAVED_ROUTINE"))
+        // For CUSTOM, SAVED_ROUTINE, and BONUS, plannedExercises is required
+        if ((source.equals("CUSTOM") || source.equals("SAVED_ROUTINE") || source.equals("BONUS"))
                 && (request.plannedExercises() == null || request.plannedExercises().isEmpty())) {
             throw new ApiException(HttpStatus.BAD_REQUEST, "PLANNED_EXERCISES_REQUIRED",
-                    "plannedExercises is required for CUSTOM and SAVED_ROUTINE sources");
+                    "plannedExercises is required for CUSTOM, SAVED_ROUTINE, and BONUS sources");
         }
 
         // For SAVED_ROUTINE, sourceRoutineId is required and must be owned
