@@ -11,6 +11,7 @@ public record SessionHistoryItem(
         BigDecimal totalVolumeKg,
         int totalSets,
         Integer durationMins,
+        Integer streak,
         List<ExerciseGroup> exercises,
         FeedbackInfo feedback
 ) {

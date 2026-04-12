@@ -564,13 +564,22 @@ public class SessionController {
         // Streak update — atomic SQL to avoid detached-entity merge races
         // with RankService.checkAndPromote (which also writes to users).
         // Coin balance is managed entirely by CoinService via atomic SQL updates.
+        int newStreak = 0;
         try {
-            int newStreak = Math.max(0, user.getStreak() + 1);
+            newStreak = Math.max(0, user.getStreak() + 1);
             userRepo.updateStreak(userId, newStreak);
             userRepo.updateMaxStreakIfHigher(userId, newStreak);
             user.setStreak(newStreak); // keep in-memory value in sync for the response
         } catch (Exception e) {
             log.error("Failed to update streak for user={}", userId, e);
+        }
+
+        // Snapshot streak to session for history view ("what was the streak when you finished")
+        // Separate try/catch — failure here doesn't affect /finish 200 response or other blocks
+        try {
+            sessionRepo.updateStreak(session.getId(), newStreak);
+        } catch (Exception e) {
+            log.error("Failed to write streak snapshot to session {}", session.getId(), e);
         }
 
         // Generate AI insight synchronously so it's included in the finish response.
@@ -932,6 +941,7 @@ public class SessionController {
                             session.getTotalVolumeKg(),
                             session.getTotalSets() != null ? session.getTotalSets() : 0,
                             session.getDurationMins(),
+                            session.getStreak(),
                             exercises,
                             feedback);
                 })

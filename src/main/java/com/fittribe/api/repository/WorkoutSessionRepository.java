@@ -122,4 +122,18 @@ public interface WorkoutSessionRepository extends JpaRepository<WorkoutSession, 
             @Param("userId")     UUID   userId,
             @Param("exerciseId") String exerciseId,
             @Param("sessionId")  UUID   sessionId);
+
+    /**
+     * Snapshot the user's current streak value into a session record.
+     * Called during finishSession to capture "what was the streak
+     * when this workout finished" — used by /history endpoint.
+     */
+    @Modifying
+    @Transactional
+    @Query(value = """
+        UPDATE workout_sessions
+        SET streak = :streak
+        WHERE id = :id
+        """, nativeQuery = true)
+    int updateStreak(@Param("id") UUID id, @Param("streak") int streak);
 }
