@@ -28,6 +28,7 @@ import java.util.Map;
 import java.util.UUID;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
@@ -273,6 +274,191 @@ class WeeklyReportComputerTest {
         assertEquals(Boolean.FALSE, isWeekOne.getValue());
         assertEquals("[]", baselines.getValue(),
                 "baselines must be empty array outside week one");
+    }
+
+    // ── Top-2 highlights capping ────────────────────────────────────────
+
+    @Test
+    void personalRecordsCapToTop2Entries() throws Exception {
+        // Multiple PRs + baselines; only top 2 should be retained
+        WeekData week = fakeWeek(false, "Harsh", 5, 4, new BigDecimal("5000"), 5,
+                List.of(
+                        // PRs (previousMaxKg != null)
+                        new WeekData.PrEntry("bench-press", new BigDecimal("110"), new BigDecimal("100"), 5),    // delta 10
+                        new WeekData.PrEntry("squat", new BigDecimal("160"), new BigDecimal("150"), 6),           // delta 10
+                        new WeekData.PrEntry("deadlift", new BigDecimal("190"), new BigDecimal("180"), 3),        // delta 10
+                        new WeekData.PrEntry("row", new BigDecimal("120"), new BigDecimal("110"), 4),             // delta 10
+                        new WeekData.PrEntry("tricep-pushdowns", new BigDecimal("60"), new BigDecimal("55"), 8)   // delta 5
+                ),
+                Map.of(),
+                Map.of());
+        weekDataBuilder.result = week;
+        findingsGenerator.result = List.of();
+        recalibrationDetector.result = List.of();
+        verdictGenerator.result = "Excellent week.";
+
+        computer.compute(USER, WEEK_START);
+
+        ArgumentCaptor<String> personalRecordsJson = ArgumentCaptor.forClass(String.class);
+        verify(weeklyReportRepo).upsert(
+                eq(USER), any(), any(), anyInt(), anyString(),
+                anyInt(), anyInt(), any(), anyInt(),
+                anyString(),
+                personalRecordsJson.capture(),
+                anyString(), anyString(), anyString(), anyString(),
+                anyBoolean(), anyInt());
+
+        List<Map<String, Object>> prs = parseJsonArray(personalRecordsJson.getValue());
+        assertEquals(2, prs.size(), "personal records must be capped to 2 entries");
+        assertTrue(prs.stream().allMatch(p -> p.containsKey("type")), "all entries must have type field");
+    }
+
+    @Test
+    void prTypeAssignedCorrectly() throws Exception {
+        // Mix of PRs and BASELINEs
+        WeekData week = fakeWeek(true, "Harsh", 3, 4, new BigDecimal("1500"), 2,
+                List.of(
+                        new WeekData.PrEntry("bench-press", new BigDecimal("100"), new BigDecimal("95"), 5),  // PR
+                        new WeekData.PrEntry("lat-pulldown", new BigDecimal("80"), null, 8)                   // BASELINE
+                ),
+                Map.of(),
+                Map.of());
+        weekDataBuilder.result = week;
+        findingsGenerator.result = List.of();
+        recalibrationDetector.result = List.of();
+        verdictGenerator.result = null;
+
+        computer.compute(USER, WEEK_START);
+
+        ArgumentCaptor<String> personalRecordsJson = ArgumentCaptor.forClass(String.class);
+        verify(weeklyReportRepo).upsert(
+                eq(USER), any(), any(), anyInt(), anyString(),
+                anyInt(), anyInt(), any(), anyInt(),
+                any(),  // verdict can be null
+                personalRecordsJson.capture(),
+                anyString(), anyString(), anyString(), anyString(),
+                anyBoolean(), anyInt());
+
+        List<Map<String, Object>> prs = parseJsonArray(personalRecordsJson.getValue());
+        assertEquals(2, prs.size());
+        Map<String, Object> benchEntry = prs.stream()
+                .filter(p -> "bench-press".equals(p.get("exerciseId")))
+                .findFirst().orElse(null);
+        assertNotNull(benchEntry);
+        assertEquals("PR", benchEntry.get("type"));
+        Map<String, Object> pullEntry = prs.stream()
+                .filter(p -> "lat-pulldown".equals(p.get("exerciseId")))
+                .findFirst().orElse(null);
+        assertNotNull(pullEntry);
+        assertEquals("BASELINE", pullEntry.get("type"));
+    }
+
+    @Test
+    void prRankingByWeightDelta() throws Exception {
+        // PRs ranked by weight delta DESC
+        WeekData week = fakeWeek(false, "Harsh", 4, 4, new BigDecimal("3000"), 3,
+                List.of(
+                        new WeekData.PrEntry("bench-press", new BigDecimal("110"), new BigDecimal("100"), 5),      // delta 10
+                        new WeekData.PrEntry("squat", new BigDecimal("170"), new BigDecimal("150"), 4),             // delta 20
+                        new WeekData.PrEntry("tricep-pushdowns", new BigDecimal("60"), new BigDecimal("55"), 10)    // delta 5
+                ),
+                Map.of(),
+                Map.of());
+        weekDataBuilder.result = week;
+        findingsGenerator.result = List.of();
+        recalibrationDetector.result = List.of();
+        verdictGenerator.result = "Strong week.";
+
+        computer.compute(USER, WEEK_START);
+
+        ArgumentCaptor<String> personalRecordsJson = ArgumentCaptor.forClass(String.class);
+        verify(weeklyReportRepo).upsert(
+                eq(USER), any(), any(), anyInt(), anyString(),
+                anyInt(), anyInt(), any(), anyInt(),
+                anyString(),
+                personalRecordsJson.capture(),
+                anyString(), anyString(), anyString(), anyString(),
+                anyBoolean(), anyInt());
+
+        List<Map<String, Object>> prs = parseJsonArray(personalRecordsJson.getValue());
+        assertEquals(2, prs.size());
+        // Top 2: squat (delta 20) and bench (delta 10)
+        assertEquals("squat", prs.get(0).get("exerciseId"), "first should be squat (highest delta)");
+        assertEquals("bench-press", prs.get(1).get("exerciseId"), "second should be bench (second highest delta)");
+    }
+
+    @Test
+    void baselineRankingByWeight() throws Exception {
+        // BASELINEs ranked by newMaxKg DESC
+        WeekData week = fakeWeek(true, "Harsh", 4, 4, new BigDecimal("2500"), 0,
+                List.of(
+                        new WeekData.PrEntry("bench-press", new BigDecimal("80"), null, 5),     // BASELINE
+                        new WeekData.PrEntry("squat", new BigDecimal("120"), null, 4),          // BASELINE
+                        new WeekData.PrEntry("lat-pulldown", new BigDecimal("100"), null, 8)    // BASELINE
+                ),
+                Map.of(),
+                Map.of());
+        weekDataBuilder.result = week;
+        findingsGenerator.result = List.of();
+        recalibrationDetector.result = List.of();
+        verdictGenerator.result = null;
+
+        computer.compute(USER, WEEK_START);
+
+        ArgumentCaptor<String> personalRecordsJson = ArgumentCaptor.forClass(String.class);
+        verify(weeklyReportRepo).upsert(
+                eq(USER), any(), any(), anyInt(), anyString(),
+                anyInt(), anyInt(), any(), anyInt(),
+                any(),  // verdict can be null
+                personalRecordsJson.capture(),
+                anyString(), anyString(), anyString(), anyString(),
+                anyBoolean(), anyInt());
+
+        List<Map<String, Object>> prs = parseJsonArray(personalRecordsJson.getValue());
+        assertEquals(2, prs.size());
+        // Top 2 baselines: squat (120) and lat-pulldown (100)
+        assertEquals("squat", prs.get(0).get("exerciseId"), "first baseline should be squat (120 kg)");
+        assertEquals("lat-pulldown", prs.get(1).get("exerciseId"), "second should be lat-pulldown (100 kg)");
+    }
+
+    @Test
+    void compoundTiebreakerInRanking() throws Exception {
+        // When scores are equal, compound lifts rank before isolation
+        WeekData week = fakeWeek(false, "Harsh", 4, 4, new BigDecimal("3000"), 4,
+                List.of(
+                        new WeekData.PrEntry("bench-press", new BigDecimal("110"), new BigDecimal("100"), 5),      // compound, delta 10
+                        new WeekData.PrEntry("bicep-curl", new BigDecimal("40"), new BigDecimal("30"), 10),         // isolation, delta 10
+                        new WeekData.PrEntry("squat", new BigDecimal("160"), new BigDecimal("150"), 4),             // compound, delta 10
+                        new WeekData.PrEntry("lateral-raises", new BigDecimal("25"), new BigDecimal("15"), 12)      // isolation, delta 10
+                ),
+                Map.of(),
+                Map.of());
+        weekDataBuilder.result = week;
+        findingsGenerator.result = List.of();
+        recalibrationDetector.result = List.of();
+        verdictGenerator.result = "Balanced week.";
+
+        computer.compute(USER, WEEK_START);
+
+        ArgumentCaptor<String> personalRecordsJson = ArgumentCaptor.forClass(String.class);
+        verify(weeklyReportRepo).upsert(
+                eq(USER), any(), any(), anyInt(), anyString(),
+                anyInt(), anyInt(), any(), anyInt(),
+                anyString(),
+                personalRecordsJson.capture(),
+                anyString(), anyString(), anyString(), anyString(),
+                anyBoolean(), anyInt());
+
+        List<Map<String, Object>> prs = parseJsonArray(personalRecordsJson.getValue());
+        assertEquals(2, prs.size());
+        // All have delta 10, so tiebreaker applies: compounds rank first
+        String first = (String) prs.get(0).get("exerciseId");
+        String second = (String) prs.get(1).get("exerciseId");
+        assertTrue(
+                (first.equals("bench-press") || first.equals("squat")) &&
+                        (second.equals("bench-press") || second.equals("squat")),
+                "both top 2 should be compounds (bench and squat) due to tiebreaker"
+        );
     }
 
     // ── Null verdict is persisted as SQL NULL ──────────────────────────
