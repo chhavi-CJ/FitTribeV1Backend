@@ -19,9 +19,11 @@ import org.springframework.transaction.support.TransactionTemplate;
 import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
 
 /**
@@ -85,6 +87,15 @@ public class WeeklyReportComputer {
     /** Coverage thresholds (v1.1 §A1.2). See class-level javadoc. */
     static final int COVERAGE_GREEN_MIN = 2;
     static final int COVERAGE_AMBER_MIN = 1;
+
+    /** Compound exercises for tiebreaker ranking (rated higher than isolation). */
+    static final Set<String> COMPOUND_EXERCISES = Set.of(
+            "bench-press",
+            "barbell-squat",
+            "deadlift",
+            "barbell-row",
+            "overhead-press"
+    );
 
     private final WeekDataBuilder weekDataBuilder;
     private final FindingsGenerator findingsGenerator;
@@ -191,23 +202,93 @@ public class WeeklyReportComputer {
     // ── JSONB payload builders ───────────────────────────────────────────
 
     /**
-     * Shape: {@code [{exerciseId, newMaxKg, previousMaxKg, reps}]}.
-     * Mirrors the {@link WeekData.PrEntry} record fields; kept as an
-     * explicit {@code LinkedHashMap} build rather than serializing the
-     * record directly so BigDecimal normalization happens inline.
+     * Build personal records payload: top 2 mixed PR + BASELINE entries,
+     * ranked by type-specific criteria with compound lift tiebreaker.
+     *
+     * <p>Shape: {@code [{exerciseId, newMaxKg, previousMaxKg, reps, type}]}.
+     * {@code type} is "PR" (previousMaxKg != null) or "BASELINE" (previousMaxKg == null).
+     *
+     * <p>Ranking:
+     * <ol>
+     *   <li>Rank PRs by weight delta ({@code newMaxKg - previousMaxKg}) DESC,
+     *       then reps delta DESC as tiebreaker.</li>
+     *   <li>Rank BASELINEs by {@code newMaxKg} DESC.</li>
+     *   <li>Merge both sorted lists and select top 2 overall.</li>
+     *   <li>Tiebreaker across PR/BASELINE boundary: compound lifts rank
+     *       higher than isolation exercises when scores are equal.</li>
+     * </ol>
      */
     private List<Map<String, Object>> buildPersonalRecordsPayload(WeekData week) {
-        List<Map<String, Object>> out = new ArrayList<>();
+        // Separate PRs and BASELINEs
+        List<EntryWithScore> prEntries = new ArrayList<>();
+        List<EntryWithScore> baselineEntries = new ArrayList<>();
+
         for (WeekData.PrEntry pr : week.personalRecords()) {
+            if (pr.previousMaxKg() != null) {
+                // PR: score by weight delta, then reps delta
+                BigDecimal weightDelta = pr.newMaxKg().subtract(pr.previousMaxKg());
+                prEntries.add(new EntryWithScore(pr, "PR", weightDelta, pr.newMaxKg()));
+            } else {
+                // BASELINE: score by weight only
+                baselineEntries.add(new EntryWithScore(pr, "BASELINE", pr.newMaxKg(), pr.newMaxKg()));
+            }
+        }
+
+        // Sort each list by its criteria
+        prEntries.sort(Comparator
+                .comparing(EntryWithScore::primaryScore, Comparator.reverseOrder())
+                .thenComparing(EntryWithScore::secondaryScore, Comparator.reverseOrder())
+                .thenComparing(e -> isCompound(e.entry.exerciseId()), Comparator.reverseOrder())
+        );
+
+        baselineEntries.sort(Comparator
+                .comparing(EntryWithScore::primaryScore, Comparator.reverseOrder())
+                .thenComparing(e -> isCompound(e.entry.exerciseId()), Comparator.reverseOrder())
+        );
+
+        // Merge: prefer PRs first (represent progression), then add BASELINEs to fill
+        // This maintains ranking order within each type
+        List<EntryWithScore> merged = new ArrayList<>();
+        int prIdx = 0, baselineIdx = 0;
+        while (merged.size() < 2) {
+            if (prIdx < prEntries.size()) {
+                merged.add(prEntries.get(prIdx++));
+            } else if (baselineIdx < baselineEntries.size()) {
+                merged.add(baselineEntries.get(baselineIdx++));
+            } else {
+                break;
+            }
+        }
+
+        // Build output list with all required fields
+        List<Map<String, Object>> out = new ArrayList<>();
+        for (EntryWithScore ews : merged) {
+            WeekData.PrEntry pr = ews.entry;
             Map<String, Object> entry = new LinkedHashMap<>();
             entry.put("exerciseId", pr.exerciseId());
             entry.put("newMaxKg", normalizeKg(pr.newMaxKg()));
             entry.put("previousMaxKg", normalizeKg(pr.previousMaxKg()));
             entry.put("reps", pr.reps());
+            entry.put("type", ews.type);
             out.add(entry);
         }
         return out;
     }
+
+    /** Check if an exerciseId is in the compound lift set. */
+    private boolean isCompound(String exerciseId) {
+        return COMPOUND_EXERCISES.contains(exerciseId);
+    }
+
+    /**
+     * Helper record for ranking entries during payload construction.
+     */
+    private record EntryWithScore(
+            WeekData.PrEntry entry,
+            String type,
+            BigDecimal primaryScore,
+            BigDecimal secondaryScore
+    ) {}
 
     /**
      * Week-one baselines snapshot — one entry per exercise the user
