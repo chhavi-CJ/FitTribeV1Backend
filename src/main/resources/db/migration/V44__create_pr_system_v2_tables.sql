@@ -81,7 +81,7 @@ CREATE INDEX IF NOT EXISTS idx_ueb_user_id
 -- ──────────────────────────────────────────────────────────────────────────
 
 CREATE TABLE IF NOT EXISTS pr_events (
-  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  id UUID NOT NULL DEFAULT gen_random_uuid(),
   user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
   exercise_id VARCHAR(50) NOT NULL REFERENCES exercises(id),
   session_id UUID NOT NULL REFERENCES workout_sessions(id) ON DELETE CASCADE,
@@ -106,10 +106,11 @@ CREATE TABLE IF NOT EXISTS pr_events (
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   superseded_at TIMESTAMPTZ,
     -- Set when edit invalidates this event
+  -- FK to pr_events(id) not enforced at DB level due to composite PK on
+  -- partitioned table. Application layer validates reference integrity.
   superseded_by UUID,
     -- References replacement event if any
-
-  CONSTRAINT fk_superseded_by FOREIGN KEY (superseded_by) REFERENCES pr_events(id) ON DELETE SET NULL
+  PRIMARY KEY (id, week_start)
 )
 PARTITION BY RANGE (week_start);
 
