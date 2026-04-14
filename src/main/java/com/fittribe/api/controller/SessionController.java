@@ -3,6 +3,7 @@ package com.fittribe.api.controller;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fittribe.api.dto.ApiResponse;
+import com.fittribe.api.dto.request.EditSetRequest;
 import com.fittribe.api.dto.request.ExerciseLogRequest;
 import com.fittribe.api.dto.request.FinishSessionRequest;
 import com.fittribe.api.dto.request.LogSetRequest;
@@ -26,11 +27,13 @@ import com.fittribe.api.entity.User;
 import com.fittribe.api.entity.WorkoutSession;
 import com.fittribe.api.exception.ApiException;
 import com.fittribe.api.prv2.detector.LoggedSet;
+import com.fittribe.api.prv2.service.PrEditCascadeService;
 import com.fittribe.api.prv2.service.PrWritePathService;
 import com.fittribe.api.repository.CoinTransactionRepository;
 import com.fittribe.api.repository.FeedItemRepository;
 import com.fittribe.api.repository.GroupMemberRepository;
 import com.fittribe.api.repository.PersonalRecordRepository;
+import com.fittribe.api.repository.PrEventRepository;
 import com.fittribe.api.repository.SavedRoutineRepository;
 import com.fittribe.api.repository.SessionFeedbackRepository;
 import com.fittribe.api.repository.SetLogRepository;
@@ -98,6 +101,8 @@ public class SessionController {
     private final TransactionTemplate       transactionTemplate;
     private final ProgressSnapshotService   progressSnapshotService;
     private final PrWritePathService        prWritePathService;
+    private final PrEditCascadeService      prEditCascadeService;
+    private final PrEventRepository         prEventRepo;
 
     public SessionController(WorkoutSessionRepository sessionRepo,
                              SetLogRepository setLogRepo,
@@ -116,7 +121,9 @@ public class SessionController {
                              FeedItemRepository feedItemRepo,
                              PlatformTransactionManager transactionManager,
                              ProgressSnapshotService progressSnapshotService,
-                             PrWritePathService prWritePathService) {
+                             PrWritePathService prWritePathService,
+                             PrEditCascadeService prEditCascadeService,
+                             PrEventRepository prEventRepo) {
         this.sessionRepo         = sessionRepo;
         this.setLogRepo          = setLogRepo;
         this.userRepo            = userRepo;
@@ -135,6 +142,8 @@ public class SessionController {
         this.transactionTemplate = new TransactionTemplate(transactionManager);
         this.progressSnapshotService = progressSnapshotService;
         this.prWritePathService  = prWritePathService;
+        this.prEditCascadeService = prEditCascadeService;
+        this.prEventRepo = prEventRepo;
     }
 
     // ── POST /sessions/start ──────────────────────────────────────────
@@ -291,6 +300,128 @@ public class SessionController {
                 new LogSetResponse(saved.getId(), saved.getIsPr())));
     }
 
+    // ── PATCH /sessions/{id}/log-set/{exerciseId}/{setNumber} ───────
+    @PatchMapping("/{id}/log-set/{exerciseId}/{setNumber}")
+    @Transactional
+    public ResponseEntity<ApiResponse<LogSetResponse>> editSet(
+            @PathVariable UUID id,
+            @PathVariable String exerciseId,
+            @PathVariable int setNumber,
+            @RequestBody @Valid EditSetRequest request,
+            Authentication auth) {
+
+        UUID userId = userId(auth);
+        WorkoutSession session = requireOwnedInProgress(id, userId);
+
+        // Parse exercises JSONB
+        List<Map<String, Object>> exercises;
+        try {
+            String raw = session.getExercises();
+            exercises = (raw != null && !raw.isBlank())
+                    ? objectMapper.readValue(raw, new TypeReference<List<Map<String, Object>>>() {})
+                    : new ArrayList<>();
+        } catch (Exception e) {
+            log.warn("Failed to parse exercises JSONB for session={}", id, e);
+            throw new ApiException(HttpStatus.BAD_REQUEST, "INVALID_EXERCISES_JSONB",
+                    "Could not parse exercises from session");
+        }
+
+        // Find exercise and set
+        Map<String, Object> targetEx = null;
+        Map<String, Object> targetSet = null;
+        for (Map<String, Object> ex : exercises) {
+            if (exerciseId.equals(ex.get("exerciseId"))) {
+                targetEx = ex;
+                @SuppressWarnings("unchecked")
+                List<Map<String, Object>> sets = (List<Map<String, Object>>) ex.get("sets");
+                if (sets != null) {
+                    for (Map<String, Object> s : sets) {
+                        if (setNumber == ((Number) s.get("setNumber")).intValue()) {
+                            targetSet = s;
+                            break;
+                        }
+                    }
+                }
+                break;
+            }
+        }
+
+        if (targetEx == null || targetSet == null) {
+            throw new ApiException(HttpStatus.NOT_FOUND, "SET_NOT_FOUND",
+                    "Set not found in exercises");
+        }
+
+        // Capture oldValue for cascade
+        BigDecimal oldWeightKg = targetSet.get("weightKg") != null
+                ? new BigDecimal(targetSet.get("weightKg").toString())
+                : null;
+        int oldReps = ((Number) targetSet.get("reps")).intValue();
+        LoggedSet oldValue = new LoggedSet(exerciseId, oldWeightKg, oldReps, null);
+
+        // Update JSONB
+        targetSet.put("weightKg", request.weightKg());
+        targetSet.put("reps", request.reps());
+        if (request.holdSeconds() != null) {
+            targetSet.put("holdSeconds", request.holdSeconds());
+        }
+
+        // Re-serialize exercises JSONB
+        try {
+            session.setExercises(objectMapper.writeValueAsString(exercises));
+        } catch (Exception e) {
+            log.error("Failed to serialize exercises JSONB for session={}", id, e);
+            throw new RuntimeException("Could not update exercises", e);
+        }
+
+        sessionRepo.save(session);
+
+        // Upsert set_logs to keep in sync
+        setLogRepo.upsertSetLog(
+                session.getId(),
+                exerciseId,
+                (String) targetEx.get("exerciseName"),
+                setNumber,
+                request.weightKg(),
+                request.reps());
+
+        // Fetch saved SetLog to get its id and isPr
+        SetLog saved = setLogRepo.findBySessionId(session.getId()).stream()
+                .filter(sl -> sl.getExerciseId().equals(exerciseId)
+                           && sl.getSetNumber().equals(setNumber))
+                .findFirst()
+                .orElseThrow(() -> new ApiException(HttpStatus.INTERNAL_SERVER_ERROR,
+                        "SET_LOG_ERROR", "Failed to retrieve saved set."));
+
+        // Build newValue for cascade
+        LoggedSet newValue = new LoggedSet(exerciseId, request.weightKg(), request.reps(), request.holdSeconds());
+
+        // Call cascade (if PR system enabled, this will handle supersession and re-detection)
+        try {
+            prEditCascadeService.processSetEdit(userId, session.getId(), saved.getId(), oldValue, newValue);
+        } catch (Exception e) {
+            log.warn("Failed to process PR cascade for session={} exercise={} set={}",
+                    session.getId(), exerciseId, setNumber, e);
+            // Cascade failures are non-fatal — the edit itself succeeded
+        }
+
+        // Query pr_events to get is_pr flag
+        List<com.fittribe.api.entity.PrEvent> events = prEventRepo
+                .findByUserIdAndSessionIdAndSetIdAndSupersededAtNull(userId, session.getId(), saved.getId());
+        boolean isPr = !events.isEmpty() && !events.stream()
+                .allMatch(e -> e.getSupersededAt() != null);
+
+        if (isPr && !Boolean.TRUE.equals(saved.getIsPr())) {
+            saved.setIsPr(true);
+            setLogRepo.save(saved);
+        } else if (!isPr && Boolean.TRUE.equals(saved.getIsPr())) {
+            saved.setIsPr(false);
+            setLogRepo.save(saved);
+        }
+
+        return ResponseEntity.ok(ApiResponse.success(
+                new LogSetResponse(saved.getId(), saved.getIsPr())));
+    }
+
     // ── DELETE /sessions/{id}/log-set/{exerciseId}/{setNumber} ───────
     @DeleteMapping("/{id}/log-set/{exerciseId}/{setNumber}")
     @Transactional
@@ -300,8 +431,94 @@ public class SessionController {
             @PathVariable int setNumber,
             Authentication auth) {
 
-        requireOwnedInProgress(id, userId(auth));
+        UUID userId = userId(auth);
+        WorkoutSession session = requireOwnedInProgress(id, userId);
+
+        // Parse exercises JSONB
+        List<Map<String, Object>> exercises;
+        try {
+            String raw = session.getExercises();
+            exercises = (raw != null && !raw.isBlank())
+                    ? objectMapper.readValue(raw, new TypeReference<List<Map<String, Object>>>() {})
+                    : new ArrayList<>();
+        } catch (Exception e) {
+            log.warn("Failed to parse exercises JSONB for session={}", id, e);
+            throw new ApiException(HttpStatus.BAD_REQUEST, "INVALID_EXERCISES_JSONB",
+                    "Could not parse exercises from session");
+        }
+
+        // Find exercise and set, capture oldValue for cascade
+        Map<String, Object> targetEx = null;
+        Map<String, Object> targetSet = null;
+        LoggedSet oldValue = null;
+        for (Map<String, Object> ex : exercises) {
+            if (exerciseId.equals(ex.get("exerciseId"))) {
+                targetEx = ex;
+                @SuppressWarnings("unchecked")
+                List<Map<String, Object>> sets = (List<Map<String, Object>>) ex.get("sets");
+                if (sets != null) {
+                    for (int i = 0; i < sets.size(); i++) {
+                        Map<String, Object> s = sets.get(i);
+                        if (setNumber == ((Number) s.get("setNumber")).intValue()) {
+                            targetSet = s;
+                            // Capture for cascade
+                            BigDecimal wt = s.get("weightKg") != null
+                                    ? new BigDecimal(s.get("weightKg").toString())
+                                    : null;
+                            int reps = ((Number) s.get("reps")).intValue();
+                            oldValue = new LoggedSet(exerciseId, wt, reps, null);
+                            sets.remove(i);
+                            break;
+                        }
+                    }
+                }
+                break;
+            }
+        }
+
+        if (targetEx == null || targetSet == null) {
+            throw new ApiException(HttpStatus.NOT_FOUND, "SET_NOT_FOUND",
+                    "Set not found in exercises");
+        }
+
+        // Enforce: at least one set must remain per exercise
+        @SuppressWarnings("unchecked")
+        List<Map<String, Object>> remainingSets = (List<Map<String, Object>>) targetEx.get("sets");
+        if (remainingSets == null || remainingSets.isEmpty()) {
+            throw new ApiException(HttpStatus.BAD_REQUEST, "CANNOT_DELETE_LAST_SET",
+                    "Cannot delete the last set of an exercise");
+        }
+
+        // Re-serialize exercises JSONB
+        try {
+            session.setExercises(objectMapper.writeValueAsString(exercises));
+        } catch (Exception e) {
+            log.error("Failed to serialize exercises JSONB for session={}", id, e);
+            throw new RuntimeException("Could not update exercises", e);
+        }
+
+        sessionRepo.save(session);
+
+        // Delete from set_logs
         setLogRepo.deleteBySessionIdAndExerciseIdAndSetNumber(id, exerciseId, setNumber);
+
+        // Fetch SetLog id before deletion (if it exists) for cascade
+        SetLog saved = setLogRepo.findBySessionId(session.getId()).stream()
+                .filter(sl -> sl.getExerciseId().equals(exerciseId)
+                           && sl.getSetNumber().equals(setNumber))
+                .findFirst()
+                .orElse(null);
+
+        // Call cascade
+        try {
+            if (saved != null) {
+                prEditCascadeService.processSetDelete(userId, session.getId(), saved.getId(), oldValue);
+            }
+        } catch (Exception e) {
+            log.warn("Failed to process PR cascade for set delete: session={} exercise={} set={}",
+                    session.getId(), exerciseId, setNumber, e);
+        }
+
         return ResponseEntity.ok(ApiResponse.success(Map.of("deleted", true)));
     }
 
@@ -313,8 +530,71 @@ public class SessionController {
             @PathVariable String exerciseId,
             Authentication auth) {
 
-        requireOwnedInProgress(id, userId(auth));
+        UUID userId = userId(auth);
+        WorkoutSession session = requireOwnedInProgress(id, userId);
+
+        // Parse exercises JSONB
+        List<Map<String, Object>> exercises;
+        try {
+            String raw = session.getExercises();
+            exercises = (raw != null && !raw.isBlank())
+                    ? objectMapper.readValue(raw, new TypeReference<List<Map<String, Object>>>() {})
+                    : new ArrayList<>();
+        } catch (Exception e) {
+            log.warn("Failed to parse exercises JSONB for session={}", id, e);
+            throw new ApiException(HttpStatus.BAD_REQUEST, "INVALID_EXERCISES_JSONB",
+                    "Could not parse exercises from session");
+        }
+
+        // Find exercise and capture all sets as LoggedSet list for cascade
+        List<LoggedSet> oldValues = new ArrayList<>();
+        Map<String, Object> targetEx = null;
+        for (int i = 0; i < exercises.size(); i++) {
+            Map<String, Object> ex = exercises.get(i);
+            if (exerciseId.equals(ex.get("exerciseId"))) {
+                targetEx = ex;
+                @SuppressWarnings("unchecked")
+                List<Map<String, Object>> sets = (List<Map<String, Object>>) ex.get("sets");
+                if (sets != null) {
+                    for (Map<String, Object> s : sets) {
+                        BigDecimal wt = s.get("weightKg") != null
+                                ? new BigDecimal(s.get("weightKg").toString())
+                                : null;
+                        int reps = ((Number) s.get("reps")).intValue();
+                        oldValues.add(new LoggedSet(exerciseId, wt, reps, null));
+                    }
+                }
+                exercises.remove(i);
+                break;
+            }
+        }
+
+        if (targetEx == null) {
+            throw new ApiException(HttpStatus.NOT_FOUND, "EXERCISE_NOT_FOUND",
+                    "Exercise not found in session");
+        }
+
+        // Re-serialize exercises JSONB
+        try {
+            session.setExercises(objectMapper.writeValueAsString(exercises));
+        } catch (Exception e) {
+            log.error("Failed to serialize exercises JSONB for session={}", id, e);
+            throw new RuntimeException("Could not update exercises", e);
+        }
+
+        sessionRepo.save(session);
+
+        // Delete from set_logs
         setLogRepo.deleteBySessionIdAndExerciseId(id, exerciseId);
+
+        // Call cascade
+        try {
+            prEditCascadeService.processExerciseDelete(userId, session.getId(), exerciseId, oldValues);
+        } catch (Exception e) {
+            log.warn("Failed to process PR cascade for exercise delete: session={} exercise={}",
+                    session.getId(), exerciseId, e);
+        }
+
         return ResponseEntity.ok(ApiResponse.success(Map.of("deleted", true)));
     }
 
