@@ -36,4 +36,16 @@ public interface PrEventRepository extends JpaRepository<PrEvent, UUID> {
      * Used by history tab to decide if a session badge should appear.
      */
     boolean existsBySessionIdAndSupersededAtIsNull(UUID sessionId);
+
+    /**
+     * Fetch all non-superseded PR events for a specific set in a session.
+     * Used by edit cascade (Phase 3b) to find PRs that are invalidated by the edit.
+     */
+    List<PrEvent> findByUserIdAndSessionIdAndSetIdAndSupersededAtNull(UUID userId, UUID sessionId, UUID setId);
+
+    /**
+     * Fetch all non-superseded PR events for a specific exercise in a session.
+     * Used by exercise delete cascade (Phase 3b) to revoke all PRs for that exercise.
+     */
+    List<PrEvent> findByUserIdAndSessionIdAndExerciseIdAndSupersededAtNull(UUID userId, UUID sessionId, String exerciseId);
 }

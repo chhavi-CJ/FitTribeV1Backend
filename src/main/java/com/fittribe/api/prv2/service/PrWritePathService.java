@@ -175,7 +175,7 @@ public class PrWritePathService {
                 updateOrCreateBests(userId, set.exerciseId(), exerciseType, set, prResult, currentBests);
 
                 // Step 6: Increment weekly_pr_counts
-                incrementWeeklyPrCounts(userId, weekStart, prResult.category());
+                incrementWeeklyPrCounts(userId, weekStart, prResult.category(), prResult.suggestedCoins());
 
                 // Step 7: Award coins (only if suggestedCoins > 0)
                 if (prResult.suggestedCoins() > 0) {
@@ -283,8 +283,9 @@ public class PrWritePathService {
 
     /**
      * Increment the appropriate counter in weekly_pr_counts.
+     * Also increments totalCoinsAwarded to track total coins earned this week.
      */
-    private void incrementWeeklyPrCounts(UUID userId, LocalDate weekStart, PrCategory category) {
+    private void incrementWeeklyPrCounts(UUID userId, LocalDate weekStart, PrCategory category, int coinsAwarded) {
         WeeklyPrCount counts = weeklyPrCountRepo.findByUserIdAndWeekStart(userId, weekStart)
                 .orElse(new WeeklyPrCount());
 
@@ -300,9 +301,13 @@ public class PrWritePathService {
             counts.setPrCount((counts.getPrCount() != null ? counts.getPrCount() : 0) + 1);
         }
 
+        // Increment total coins awarded this week (Phase 3b bug fix)
+        int currentTotal = counts.getTotalCoinsAwarded() != null ? counts.getTotalCoinsAwarded() : 0;
+        counts.setTotalCoinsAwarded(currentTotal + coinsAwarded);
+
         weeklyPrCountRepo.save(counts);
-        log.debug("Incremented weekly_pr_counts for user={} week={} category={}",
-                userId, weekStart, category);
+        log.debug("Incremented weekly_pr_counts for user={} week={} category={} coinsAwarded={}",
+                userId, weekStart, category, coinsAwarded);
     }
 
     /**

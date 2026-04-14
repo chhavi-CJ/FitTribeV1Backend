@@ -24,9 +24,13 @@ public class CoinService {
     }
 
     /**
-     * Awards coins to a user with idempotency guarantee.
+     * Awards coins to a user with idempotency guarantee and deferred debt settlement.
      * If a transaction with the same (userId, type, referenceId) already exists,
      * this call is a no-op — safe to call multiple times.
+     *
+     * Implements deferred debt settlement per HLD §4: if user has pending debt
+     * from revoked PRs, incoming coins first pay off debt, then add to balance.
+     * balance_after is always ≥ 0. debt_after tracks how much is still owed.
      *
      * @param userId      recipient
      * @param amount      positive = CREDIT, negative = DEBIT
@@ -42,34 +46,73 @@ public class CoinService {
             return;
         }
 
-        // Compute balance_after for ledger invariant (V44).
-        // Read the user's most recent transaction to establish starting balance.
-        int startingBalance = 0;
+        // Read current ledger state from most recent transaction
+        int currentBalance = 0;
+        int currentDebt = 0;
         var lastTx = coinRepo.findTop1ByUserIdOrderByCreatedAtDesc(userId);
-        if (lastTx.isPresent() && lastTx.get().getBalanceAfter() != null) {
-            startingBalance = lastTx.get().getBalanceAfter();
+        if (lastTx.isPresent()) {
+            if (lastTx.get().getBalanceAfter() != null) {
+                currentBalance = lastTx.get().getBalanceAfter();
+            }
+            if (lastTx.get().getDebtAfter() != null) {
+                currentDebt = lastTx.get().getDebtAfter();
+            }
         }
 
-        // Compute new balance: direction determines sign
-        String direction = amount > 0 ? "CREDIT" : "DEBIT";
-        int delta = amount > 0 ? amount : -amount;
-        int newBalance = startingBalance + (direction.equals("CREDIT") ? delta : -delta);
-
-        // Persist the transaction record
+        // Build transaction with debt settlement logic
         CoinTransaction tx = new CoinTransaction();
         tx.setUserId(userId);
-        tx.setAmount(Math.abs(amount));
-        tx.setDirection(direction);
-        tx.setLabel(label);
         tx.setType(type);
+        tx.setLabel(label);
         tx.setReferenceId(referenceId);
-        tx.setBalanceAfter(newBalance);
-        // debt_before, debt_after, clamped_amount left at defaults (0) — Phase 5 will populate
+        tx.setDebtBefore(currentDebt);
+
+        int balanceDelta;  // how much users.coins actually changes (signed)
+
+        if (amount > 0) {
+            // CREDIT: pay off debt first, remainder goes to balance
+            int payOff = Math.min(amount, currentDebt);
+            int toBalance = amount - payOff;
+            int newBalance = currentBalance + toBalance;
+            int newDebt = currentDebt - payOff;
+
+            tx.setAmount(amount);
+            tx.setDirection("CREDIT");
+            tx.setDelta(amount);
+            tx.setBalanceAfter(newBalance);
+            tx.setDebtAfter(newDebt);
+            tx.setClampedAmount(payOff);
+
+            balanceDelta = toBalance;  // only what actually hit balance
+        } else {
+            // DEBIT: revoke from balance, rest accrues as debt
+            int revokeAmount = Math.abs(amount);
+            int actualDeducted = Math.min(revokeAmount, currentBalance);
+            int clamped = revokeAmount - actualDeducted;
+            int newBalance = currentBalance - actualDeducted;
+            int newDebt = currentDebt + clamped;
+
+            tx.setAmount(actualDeducted);
+            tx.setDirection("DEBIT");
+            tx.setDelta(-actualDeducted);
+            tx.setBalanceAfter(newBalance);
+            tx.setDebtAfter(newDebt);
+            tx.setClampedAmount(clamped);
+
+            balanceDelta = -actualDeducted;  // users.coins only decrements by what was actually taken
+        }
+
         coinRepo.save(tx);
 
-        // Atomic balance update — avoids read-modify-write race conditions
-        jdbcTemplate.update("UPDATE users SET coins = coins + ? WHERE id = ?", amount, userId);
+        // Update users.coins denormalized balance by balanceDelta, not amount
+        // This ensures users.coins always matches the most recent balance_after
+        jdbcTemplate.update(
+            "UPDATE users SET coins = coins + ? WHERE id = ?",
+            balanceDelta, userId);
 
-        log.debug("Coins awarded: userId={} amount={} type={} ref={}", userId, amount, type, referenceId);
+        log.debug("Coins awarded: userId={} amount={} direction={} debt_before={} debt_after={} type={} ref={}",
+                userId, amount, (amount > 0 ? "CREDIT" : "DEBIT"), currentDebt,
+                (amount > 0 ? currentDebt - Math.min(amount, currentDebt) : currentDebt + Math.abs(amount) - Math.min(Math.abs(amount), currentBalance)),
+                type, referenceId);
     }
 }
