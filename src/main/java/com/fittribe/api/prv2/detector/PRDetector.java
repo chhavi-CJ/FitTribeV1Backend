@@ -3,6 +3,7 @@ package com.fittribe.api.prv2.detector;
 import com.fittribe.api.entity.UserExerciseBests;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.stereotype.Component;
 
 import java.math.BigDecimal;
 import java.util.HashMap;
@@ -16,6 +17,7 @@ import java.util.Map;
  *
  * No database access. No Spring dependencies. Stateless.
  */
+@Component
 public class PRDetector {
 
     private static final Logger log = LoggerFactory.getLogger(PRDetector.class);
