@@ -25,6 +25,8 @@ import com.fittribe.api.entity.SetLog;
 import com.fittribe.api.entity.User;
 import com.fittribe.api.entity.WorkoutSession;
 import com.fittribe.api.exception.ApiException;
+import com.fittribe.api.prv2.detector.LoggedSet;
+import com.fittribe.api.prv2.service.PrWritePathService;
 import com.fittribe.api.repository.CoinTransactionRepository;
 import com.fittribe.api.repository.FeedItemRepository;
 import com.fittribe.api.repository.GroupMemberRepository;
@@ -95,6 +97,7 @@ public class SessionController {
     private final FeedItemRepository        feedItemRepo;
     private final TransactionTemplate       transactionTemplate;
     private final ProgressSnapshotService   progressSnapshotService;
+    private final PrWritePathService        prWritePathService;
 
     public SessionController(WorkoutSessionRepository sessionRepo,
                              SetLogRepository setLogRepo,
@@ -112,7 +115,8 @@ public class SessionController {
                              GroupMemberRepository groupMemberRepo,
                              FeedItemRepository feedItemRepo,
                              PlatformTransactionManager transactionManager,
-                             ProgressSnapshotService progressSnapshotService) {
+                             ProgressSnapshotService progressSnapshotService,
+                             PrWritePathService prWritePathService) {
         this.sessionRepo         = sessionRepo;
         this.setLogRepo          = setLogRepo;
         this.userRepo            = userRepo;
@@ -130,6 +134,7 @@ public class SessionController {
         this.feedItemRepo        = feedItemRepo;
         this.transactionTemplate = new TransactionTemplate(transactionManager);
         this.progressSnapshotService = progressSnapshotService;
+        this.prWritePathService  = prWritePathService;
     }
 
     // ── POST /sessions/start ──────────────────────────────────────────
@@ -669,6 +674,25 @@ public class SessionController {
             }
         } catch (Exception e) {
             log.error("Failed to award coins for session={}", id, e);
+        }
+
+        // ── PR System V2 write path ──────────────────────────────────────
+        // Process PR detection and persist events for Phase 3a.
+        // Failure here must not affect session finish or other derived data.
+        try {
+            List<LoggedSet> loggedSets = new ArrayList<>();
+            if (exercises != null && !exercises.isEmpty()) {
+                for (ExerciseLogRequest ex : exercises) {
+                    if (ex.sets() == null || ex.sets().isEmpty()) continue;
+                    for (SetLogRequest setReq : ex.sets()) {
+                        loggedSets.add(new LoggedSet(ex.exerciseId(), setReq.weightKg(),
+                                setReq.reps(), null)); // holdSeconds not yet populated in log-set
+                    }
+                }
+            }
+            prWritePathService.processSessionFinish(userId, id, loggedSets);
+        } catch (Exception e) {
+            log.error("Failed to process PR detection for session={}", id, e);
         }
 
         // ── Feed items — post to all user's groups ───────────────────────
