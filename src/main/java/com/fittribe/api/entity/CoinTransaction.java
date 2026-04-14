@@ -32,6 +32,32 @@ public class CoinTransaction {
     @Column(name = "reference_id")
     private String referenceId;
 
+    // PR System V2 ledger columns (added V44)
+    @Column(name = "delta")
+    private Integer delta;
+
+    @Column(name = "reason")
+    private String reason;
+    // WORKOUT_LOGGED, PR_AWARDED, FIRST_EVER, WEEKLY_GOAL, STREAK_MILESTONE,
+    // IMPROVE_VS_LAST_WEEK, SHARE_WITH_STATS, STREAK_FREEZE_PURCHASED,
+    // PR_REVOKED, DEBT_SETTLED
+
+    @Column(name = "reference_type")
+    private String referenceType;
+    // PR_EVENT, SESSION, WEEK, PURCHASE
+
+    @Column(name = "balance_after", nullable = false)
+    private Integer balanceAfter;
+
+    @Column(name = "debt_before", nullable = false)
+    private Integer debtBefore = 0;
+
+    @Column(name = "debt_after", nullable = false)
+    private Integer debtAfter = 0;
+
+    @Column(name = "clamped_amount", nullable = false)
+    private Integer clampedAmount = 0;
+
     @Column(name = "created_at", insertable = false, updatable = false)
     private Instant createdAt;
 
@@ -56,6 +82,27 @@ public class CoinTransaction {
 
     public String getReferenceId()           { return referenceId; }
     public void setReferenceId(String v)     { this.referenceId = v; }
+
+    public Integer getDelta()        { return delta; }
+    public void setDelta(Integer v)  { this.delta = v; }
+
+    public String getReason()        { return reason; }
+    public void setReason(String v)  { this.reason = v; }
+
+    public String getReferenceType()           { return referenceType; }
+    public void setReferenceType(String v)     { this.referenceType = v; }
+
+    public Integer getBalanceAfter()           { return balanceAfter; }
+    public void setBalanceAfter(Integer v)     { this.balanceAfter = v; }
+
+    public Integer getDebtBefore()             { return debtBefore; }
+    public void setDebtBefore(Integer v)       { this.debtBefore = v; }
+
+    public Integer getDebtAfter()              { return debtAfter; }
+    public void setDebtAfter(Integer v)        { this.debtAfter = v; }
+
+    public Integer getClampedAmount()          { return clampedAmount; }
+    public void setClampedAmount(Integer v)    { this.clampedAmount = v; }
 
     public Instant getCreatedAt()    { return createdAt; }
 }

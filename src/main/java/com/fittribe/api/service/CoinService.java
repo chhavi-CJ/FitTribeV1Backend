@@ -42,14 +42,29 @@ public class CoinService {
             return;
         }
 
+        // Compute balance_after for ledger invariant (V44).
+        // Read the user's most recent transaction to establish starting balance.
+        int startingBalance = 0;
+        var lastTx = coinRepo.findTop1ByUserIdOrderByCreatedAtDesc(userId);
+        if (lastTx.isPresent() && lastTx.get().getBalanceAfter() != null) {
+            startingBalance = lastTx.get().getBalanceAfter();
+        }
+
+        // Compute new balance: direction determines sign
+        String direction = amount > 0 ? "CREDIT" : "DEBIT";
+        int delta = amount > 0 ? amount : -amount;
+        int newBalance = startingBalance + (direction.equals("CREDIT") ? delta : -delta);
+
         // Persist the transaction record
         CoinTransaction tx = new CoinTransaction();
         tx.setUserId(userId);
         tx.setAmount(Math.abs(amount));
-        tx.setDirection(amount > 0 ? "CREDIT" : "DEBIT");
+        tx.setDirection(direction);
         tx.setLabel(label);
         tx.setType(type);
         tx.setReferenceId(referenceId);
+        tx.setBalanceAfter(newBalance);
+        // debt_before, debt_after, clamped_amount left at defaults (0) — Phase 5 will populate
         coinRepo.save(tx);
 
         // Atomic balance update — avoids read-modify-write race conditions
