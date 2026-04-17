@@ -18,18 +18,34 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.support.TransactionTemplate;
 
+import java.math.BigDecimal;
+import java.time.DayOfWeek;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.time.ZoneOffset;
-import java.time.DayOfWeek;
 import java.time.temporal.TemporalAdjusters;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 
 /**
  * Handles PR supersession, un-supersession, and coin reconciliation when a user
  * edits or deletes a set during the edit window. Operates on pr_events and
  * user_exercise_bests only — JSONB mutation is handled by the controller.
+ *
+ * <h3>Cascade steps (edit path)</h3>
+ * <ol>
+ *   <li>Query active pr_events for setId</li>
+ *   <li>Filter out FIRST_EVER from supersedable list (permanent once earned)</li>
+ *   <li>Supersede each non-FIRST_EVER event (superseded_by left null, backfilled in Step 6)</li>
+ *   <li>Un-supersede prior PRs (category-aware, filtered by superseded_by + pr_category)</li>
+ *   <li>If DELETE, short-circuit to Step 7</li>
+ *   <li value="5">5.5. Rebuild user_exercise_bests from current non-superseded pr_events
+ *       (so Step 6 sees accurate baseline)</li>
+ *   <li value="6">Re-read UserExerciseBests freshly, run PRDetector on new value; if PR fires,
+ *       write new event and backfill superseded_by on matching-category superseded events</li>
+ *   <li>Final rebuild of user_exercise_bests (incorporates any new event written in Step 6)</li>
+ * </ol>
  *
  * <p>Per-set processing runs in its own TransactionTemplate for error isolation
  * (P4 pattern per HLD §7.3). Failures on one set do not prevent others from processing.
@@ -62,17 +78,10 @@ public class PrEditCascadeService {
     }
 
     /**
-     * Process a set edit: supersede old PR events, revoke coins, detect new PRs.
+     * Process a set edit: supersede old PR events (except FIRST_EVER), un-supersede
+     * prior PRs restored by the revert, re-detect, rebuild bests.
      *
-     * <p>Called AFTER workout_sessions.exercises JSONB has been updated with new
-     * values. This method determines which PRs are invalidated and handles the
-     * cascade: revocation, redetection, coin award/revocation.
-     *
-     * @param userId    the user who edited
-     * @param sessionId the session containing the edited set
-     * @param setId     the edited set's ID (for set-level pr_events lookup)
-     * @param oldValue  the set's pre-edit values (LoggedSet)
-     * @param newValue  the set's post-edit values (LoggedSet)
+     * <p>Called AFTER workout_sessions.exercises JSONB has been updated with new values.
      */
     public void processSetEdit(UUID userId, UUID sessionId, UUID setId,
                                LoggedSet oldValue, LoggedSet newValue) {
@@ -83,15 +92,10 @@ public class PrEditCascadeService {
     }
 
     /**
-     * Process a set deletion: supersede old PR events, revoke coins, no new PR detection.
+     * Process a set deletion: supersede old PR events (except FIRST_EVER),
+     * un-supersede prior PRs, rebuild bests. No re-detection.
      *
      * <p>Called AFTER the set has been removed from workout_sessions.exercises JSONB.
-     * Marks any associated pr_events as superseded.
-     *
-     * @param userId    the user who deleted
-     * @param sessionId the session containing the deleted set
-     * @param setId     the deleted set's ID
-     * @param oldValue  the set's pre-delete values (LoggedSet)
      */
     public void processSetDelete(UUID userId, UUID sessionId, UUID setId, LoggedSet oldValue) {
         log.debug("Starting delete cascade for user={} session={} exercise={} setId={}",
@@ -101,42 +105,40 @@ public class PrEditCascadeService {
     }
 
     /**
-     * Process deletion of all sets of an exercise: supersede all related PR events.
+     * UNREACHABLE VIA CURRENT UI — the frontend enforces ≥1 set per exercise,
+     * so exercise-level deletion is not offered to users. Kept for completeness
+     * and possible future admin paths. If you're here because this ran, check
+     * the frontend guard before assuming a bug in this method.
      *
-     * @param userId      the user who deleted
-     * @param sessionId   the session containing the exercise
-     * @param exerciseId  the exercise being deleted
-     * @param oldValues   list of deleted sets (for coin revocation reference)
+     * <p>Supersedes ALL active pr_events for (session, exercise) — including
+     * FIRST_EVER, because removing the exercise removes the history.
      */
     public void processExerciseDelete(UUID userId, UUID sessionId, String exerciseId,
                                       List<LoggedSet> oldValues) {
         log.debug("Starting exercise delete cascade for user={} session={} exercise={}",
                 userId, sessionId, exerciseId);
 
-        // Find all non-superseded pr_events for this session+exercise
         try {
             transactionTemplate.executeWithoutResult(txStatus -> {
                 List<PrEvent> activeEvents = prEventRepo
                         .findByUserIdAndSessionIdAndExerciseIdAndSupersededAtNull(userId, sessionId, exerciseId);
 
+                Instant supersededAt = Instant.now();
+
                 for (PrEvent event : activeEvents) {
-                    // Mark superseded
-                    event.setSupersededAt(Instant.now());
+                    event.setSupersededAt(supersededAt);
                     prEventRepo.save(event);
                     log.debug("Superseded PR event: id={} category={}", event.getId(), event.getPrCategory());
 
-                    // Revoke coins via deferred debt settlement
                     if (event.getCoinsAwarded() > 0) {
                         coinService.awardCoins(userId, -event.getCoinsAwarded(), "PR_REVOKED",
                                 buildRevocationLabel(exerciseId, event.getPrCategory()),
-                                event.getId().toString());
+                                event.getId() + ":revoke:" + supersededAt.toEpochMilli());
                     }
 
-                    // Decrement weekly_pr_counts
                     decrementWeeklyPrCounts(userId, event.getWeekStart(), event.getPrCategory(), event.getCoinsAwarded());
                 }
 
-                // Rebuild user_exercise_bests for this (user, exercise)
                 rebuildExerciseBests(userId, exerciseId);
             });
         } catch (Exception e) {
@@ -145,93 +147,136 @@ public class PrEditCascadeService {
         }
     }
 
+    // ── Core cascade ──────────────────────────────────────────────────────
+
     /**
-     * Internal: handle both edit and delete cascades.
+     * Internal: handle both edit and delete cascades with the full 7-step
+     * pipeline from the HLD.
      */
     private void processEditOrDelete(UUID userId, UUID sessionId, UUID setId,
                                       LoggedSet oldValue, LoggedSet newValue, boolean isDelete) {
         try {
             transactionTemplate.executeWithoutResult(txStatus -> {
+                String exerciseId = oldValue.exerciseId();
+
                 // Step 1: Find non-superseded PR events for this session+set
                 List<PrEvent> activeEvents = prEventRepo
                         .findByUserIdAndSessionIdAndSetIdAndSupersededAtNull(userId, sessionId, setId);
 
                 log.debug("Found {} active PR events for session={} set={}", activeEvents.size(), sessionId, setId);
 
-                // Step 2: Supersede them and revoke coins
-                for (PrEvent event : activeEvents) {
-                    event.setSupersededAt(Instant.now());
+                // Step 2: Filter out FIRST_EVER — permanent once earned
+                List<PrEvent> supersedable = activeEvents.stream()
+                        .filter(e -> !"FIRST_EVER".equals(e.getPrCategory()))
+                        .toList();
+
+                log.debug("{} events supersedable (excluded {} FIRST_EVER)",
+                        supersedable.size(), activeEvents.size() - supersedable.size());
+
+                // Step 3: Supersede each non-FIRST_EVER event
+                Instant supersededAt = Instant.now();
+                for (PrEvent event : supersedable) {
+                    event.setSupersededAt(supersededAt);
+                    // superseded_by left null — backfilled in Step 6 if a new event is created
                     prEventRepo.save(event);
                     log.debug("Superseded PR event: id={} category={} coins={}",
                             event.getId(), event.getPrCategory(), event.getCoinsAwarded());
 
-                    // Revoke coins via deferred debt settlement (HLD §4)
                     if (event.getCoinsAwarded() > 0) {
                         coinService.awardCoins(userId, -event.getCoinsAwarded(), "PR_REVOKED",
-                                buildRevocationLabel(oldValue.exerciseId(), event.getPrCategory()),
-                                event.getId().toString());
+                                buildRevocationLabel(exerciseId, event.getPrCategory()),
+                                event.getId() + ":revoke:" + supersededAt.toEpochMilli());
                     }
 
-                    // Decrement weekly_pr_counts for the week the event was earned
                     decrementWeeklyPrCounts(userId, event.getWeekStart(), event.getPrCategory(), event.getCoinsAwarded());
                 }
 
-                // Step 3: If delete, stop here. If edit, re-run detection on new value
-                if (!isDelete && newValue != null) {
-                    // Load current bests for this (user, exercise) — these are unchanged by the edit
-                    UserExerciseBests currentBests = userExerciseBestsRepo
-                            .findByUserIdAndExerciseId(userId, oldValue.exerciseId())
-                            .orElse(null);
+                // Step 4: Un-supersede prior PRs (category-aware)
+                Instant restoredAt = Instant.now();
+                for (PrEvent superseded : supersedable) {
+                    String category = superseded.getPrCategory();
+                    List<PrEvent> toRestore = prEventRepo
+                            .findBySupersededByAndPrCategory(superseded.getId(), category);
 
-                    // Determine exercise type
-                    ExerciseType exerciseType = determineExerciseType(currentBests);
+                    for (PrEvent old : toRestore) {
+                        old.setSupersededAt(null);
+                        old.setSupersededBy(null);
+                        prEventRepo.save(old);
+                        log.debug("Un-superseded PR event: id={} category={}", old.getId(), old.getPrCategory());
 
-                    // Run PR detection on new value
-                    var prResult = prDetector.detect(newValue, currentBests, exerciseType);
-
-                    log.debug("Edit cascade PR detection: isPR={} category={} for exercise={}",
-                            prResult.isPR(), prResult.category(), oldValue.exerciseId());
-
-                    if (prResult.isPR()) {
-                        // Write new pr_event row
-                        LocalDate weekStart = weekStartFor(Instant.now());
-                        PrEvent newEvent = new PrEvent();
-                        newEvent.setUserId(userId);
-                        newEvent.setExerciseId(oldValue.exerciseId());
-                        newEvent.setSessionId(sessionId);
-                        newEvent.setSetId(setId);
-                        newEvent.setPrCategory(prResult.category().toString());
-                        newEvent.setWeekStart(weekStart);
-                        newEvent.setSignalsMet(prResult.signalsMet().toString());
-                        newEvent.setValuePayload(prResult.valuePayload().toString());
-                        newEvent.setCoinsAwarded(prResult.suggestedCoins());
-                        newEvent.setDetectorVersion(prResult.detectorVersion());
-
-                        PrEvent saved = prEventRepo.save(newEvent);
-                        log.debug("Created new PR event after edit: id={} category={} coins={}",
-                                saved.getId(), saved.getPrCategory(), saved.getCoinsAwarded());
-
-                        // Update user_exercise_bests if PR fired
-                        updateOrCreateBestsForEdit(userId, oldValue.exerciseId(), exerciseType, newValue, prResult, currentBests);
-
-                        // Increment weekly_pr_counts
-                        incrementWeeklyPrCountsForEdit(userId, weekStart, prResult.category(), prResult.suggestedCoins());
-
-                        // Award coins if applicable
-                        if (prResult.suggestedCoins() > 0) {
-                            String coinType = coinTypeFor(prResult.category());
-                            String coinLabel = buildNewPrLabel(oldValue.exerciseId(), prResult.category());
-                            coinService.awardCoins(userId, prResult.suggestedCoins(), coinType, coinLabel,
-                                    saved.getId().toString());
+                        if (old.getCoinsAwarded() > 0) {
+                            coinService.awardCoins(userId, old.getCoinsAwarded(), "PR_RESTORED",
+                                    buildRestorationLabel(exerciseId, old.getPrCategory()),
+                                    old.getId() + ":restore:" + restoredAt.toEpochMilli());
                         }
-                    } else {
-                        // No PR after edit — still update bests with new values if they improved
-                        updateNonPrBestsForEdit(userId, oldValue.exerciseId(), exerciseType, newValue, currentBests);
+
+                        incrementWeeklyPrCountsForEdit(userId, old.getWeekStart(),
+                                PrCategory.valueOf(old.getPrCategory()), old.getCoinsAwarded());
                     }
-                } else if (isDelete) {
-                    // Set was deleted — rebuild bests for the exercise
-                    rebuildExerciseBests(userId, oldValue.exerciseId());
                 }
+
+                // Step 5: If delete, skip re-detection — rebuild and return
+                if (isDelete) {
+                    rebuildExerciseBests(userId, exerciseId);
+                    return;
+                }
+
+                // Step 5.5: Rebuild bests BEFORE re-detection so PRDetector sees the
+                // current non-superseded state (reflects Steps 3-4: supersedes + un-supersedes).
+                rebuildExerciseBests(userId, exerciseId);
+
+                // Step 6: Re-detect on the new value (edit path only)
+                // Re-read bests freshly — rebuild just reconciled them.
+                UserExerciseBests currentBests = userExerciseBestsRepo
+                        .findByUserIdAndExerciseId(userId, exerciseId)
+                        .orElse(null);
+
+                ExerciseType exerciseType = determineExerciseType(currentBests);
+                var prResult = prDetector.detect(newValue, currentBests, exerciseType);
+
+                log.debug("Edit cascade PR detection: isPR={} category={} for exercise={}",
+                        prResult.isPR(), prResult.category(), exerciseId);
+
+                if (prResult.isPR()) {
+                    LocalDate weekStart = weekStartFor(Instant.now());
+                    PrEvent newEvent = new PrEvent();
+                    newEvent.setUserId(userId);
+                    newEvent.setExerciseId(exerciseId);
+                    newEvent.setSessionId(sessionId);
+                    newEvent.setSetId(setId);
+                    newEvent.setPrCategory(prResult.category().toString());
+                    newEvent.setWeekStart(weekStart);
+                    // Pass Maps directly — Hibernate 6 handles Jackson serialization on Map fields
+                    newEvent.setSignalsMet(new java.util.HashMap<>(prResult.signalsMet()));
+                    newEvent.setValuePayload(new java.util.HashMap<>(prResult.valuePayload()));
+                    newEvent.setCoinsAwarded(prResult.suggestedCoins());
+                    newEvent.setDetectorVersion(prResult.detectorVersion());
+
+                    PrEvent saved = prEventRepo.save(newEvent);
+                    log.debug("Created new PR event after edit: id={} category={} coins={}",
+                            saved.getId(), saved.getPrCategory(), saved.getCoinsAwarded());
+
+                    // Backfill superseded_by on matching-category events from Step 3
+                    String newCategory = prResult.category().toString();
+                    for (PrEvent event : supersedable) {
+                        if (event.getPrCategory().equals(newCategory)) {
+                            event.setSupersededBy(saved.getId());
+                            prEventRepo.save(event);
+                        }
+                    }
+
+                    incrementWeeklyPrCountsForEdit(userId, weekStart, prResult.category(), prResult.suggestedCoins());
+
+                    if (prResult.suggestedCoins() > 0) {
+                        String coinType = coinTypeFor(prResult.category());
+                        String coinLabel = buildNewPrLabel(exerciseId, prResult.category());
+                        coinService.awardCoins(userId, prResult.suggestedCoins(), coinType, coinLabel,
+                                saved.getId().toString());
+                    }
+                }
+
+                // Step 7: Final rebuild — incorporates the newly-written event if one was created
+                rebuildExerciseBests(userId, exerciseId);
             });
         } catch (Exception e) {
             log.warn("Failed to process edit/delete cascade for user={} session={} setId={}",
@@ -239,9 +284,161 @@ public class PrEditCascadeService {
         }
     }
 
+    // ── Bests rebuild ─────────────────────────────────────────────────────
+
     /**
-     * Determine exercise type from current bests or default to WEIGHTED.
+     * Rebuild user_exercise_bests from non-superseded pr_events for (user, exercise).
+     * This is the authoritative reconstruction — pr_events is the audit log,
+     * user_exercise_bests is a cache derived from it.
+     *
+     * <p>Reads value_payload JSONB from each active event to extract weight/reps/volume/hold
+     * values, then computes the max across all active events per field.
      */
+    private void rebuildExerciseBests(UUID userId, String exerciseId) {
+        List<PrEvent> activeEvents = prEventRepo
+                .findByUserIdAndExerciseIdAndSupersededAtIsNull(userId, exerciseId);
+
+        if (activeEvents.isEmpty()) {
+            // No active PRs remain — delete the bests row
+            userExerciseBestsRepo.findByUserIdAndExerciseId(userId, exerciseId)
+                    .ifPresent(bests -> {
+                        userExerciseBestsRepo.delete(bests);
+                        log.debug("Deleted user_exercise_bests (no active pr_events): user={} exercise={}",
+                                userId, exerciseId);
+                    });
+            return;
+        }
+
+        UserExerciseBests bests = userExerciseBestsRepo
+                .findByUserIdAndExerciseId(userId, exerciseId)
+                .orElseGet(() -> {
+                    UserExerciseBests b = new UserExerciseBests();
+                    b.setUserId(userId);
+                    b.setExerciseId(exerciseId);
+                    b.setExerciseType(ExerciseType.WEIGHTED.toString());
+                    return b;
+                });
+
+        // Reset fields we'll recompute — leave totalSessionsWithExercise and bestSessionVolumeKg untouched
+        BigDecimal bestWtKg = null;
+        Integer repsAtBestWt = null;
+        Instant bestWtCreatedAt = Instant.MIN;
+        Integer bestReps = null;
+        BigDecimal wtAtBestReps = null;
+        BigDecimal best1rm = null;
+        BigDecimal bestSetVolume = null;
+        Integer bestHoldSeconds = null;
+
+        for (PrEvent event : activeEvents) {
+            PayloadValues pv = extractPayload(event);
+
+            // bestWtKg: max weight, tie-break by most recent created_at
+            if (pv.weightKg != null) {
+                if (bestWtKg == null || pv.weightKg.compareTo(bestWtKg) > 0
+                        || (pv.weightKg.compareTo(bestWtKg) == 0
+                            && event.getCreatedAt() != null
+                            && event.getCreatedAt().isAfter(bestWtCreatedAt))) {
+                    bestWtKg = pv.weightKg;
+                    repsAtBestWt = pv.reps;
+                    bestWtCreatedAt = event.getCreatedAt() != null ? event.getCreatedAt() : Instant.MIN;
+                }
+            }
+
+            // bestReps
+            if (pv.reps != null && (bestReps == null || pv.reps > bestReps)) {
+                bestReps = pv.reps;
+                wtAtBestReps = pv.weightKg;
+            }
+
+            // best1rm (Epley: weight * (1 + reps/30))
+            if (pv.weightKg != null && pv.reps != null && pv.reps > 0) {
+                BigDecimal epley = pv.weightKg.multiply(
+                        BigDecimal.ONE.add(BigDecimal.valueOf(pv.reps).divide(BigDecimal.valueOf(30), 2, java.math.RoundingMode.HALF_UP)));
+                if (best1rm == null || epley.compareTo(best1rm) > 0) {
+                    best1rm = epley;
+                }
+            }
+
+            // bestSetVolume
+            if (pv.weightKg != null && pv.reps != null) {
+                BigDecimal volume = pv.weightKg.multiply(BigDecimal.valueOf(pv.reps));
+                if (bestSetVolume == null || volume.compareTo(bestSetVolume) > 0) {
+                    bestSetVolume = volume;
+                }
+            }
+
+            // bestHoldSeconds
+            if (pv.holdSeconds != null && (bestHoldSeconds == null || pv.holdSeconds > bestHoldSeconds)) {
+                bestHoldSeconds = pv.holdSeconds;
+            }
+        }
+
+        bests.setBestWtKg(bestWtKg);
+        bests.setRepsAtBestWt(repsAtBestWt);
+        bests.setBestReps(bestReps);
+        bests.setWtAtBestRepsKg(wtAtBestReps);
+        bests.setBest1rmEpleyKg(best1rm);
+        bests.setBestSetVolumeKg(bestSetVolume);
+        bests.setBestHoldSeconds(bestHoldSeconds);
+        // bestSessionVolumeKg: session-level, not reconstructable from per-set pr_events — leave unchanged
+        // totalSessionsWithExercise: counted at finish, not PR-event-derived — leave unchanged
+        bests.setLastLoggedAt(Instant.now());
+
+        userExerciseBestsRepo.save(bests);
+        log.debug("Rebuilt user_exercise_bests from {} active pr_events: user={} exercise={} bestWtKg={}",
+                activeEvents.size(), userId, exerciseId, bestWtKg);
+    }
+
+    /**
+     * Extract weight/reps/hold values from a pr_event's value_payload Map.
+     * Handles both "new_best" nested format (from FIRST_EVER/WEIGHT_PR) and
+     * flat format (from MAX_ATTEMPT/REP_PR/VOLUME_PR).
+     */
+    private PayloadValues extractPayload(PrEvent event) {
+        BigDecimal weightKg = null;
+        Integer reps = null;
+        Integer holdSeconds = null;
+
+        try {
+            Map<String, Object> payload = event.getValuePayload();
+            if (payload == null || payload.isEmpty()) {
+                return new PayloadValues(null, null, null);
+            }
+
+            // Try nested "new_best" first (FIRST_EVER, WEIGHT_PR payloads)
+            @SuppressWarnings("unchecked")
+            Map<String, Object> newBest = payload.containsKey("new_best")
+                    ? (Map<String, Object>) payload.get("new_best")
+                    : null;
+
+            Map<String, Object> source = newBest != null ? newBest : payload;
+
+            if (source.containsKey("weight_kg")) {
+                weightKg = new BigDecimal(source.get("weight_kg").toString());
+            }
+            if (source.containsKey("reps")) {
+                reps = ((Number) source.get("reps")).intValue();
+            }
+            if (source.containsKey("new_reps")) {
+                reps = ((Number) source.get("new_reps")).intValue();
+            }
+            if (source.containsKey("hold_seconds")) {
+                holdSeconds = ((Number) source.get("hold_seconds")).intValue();
+            }
+            if (source.containsKey("new_seconds")) {
+                holdSeconds = ((Number) source.get("new_seconds")).intValue();
+            }
+        } catch (Exception e) {
+            log.warn("Failed to extract value_payload for pr_event id={}: {}", event.getId(), e.getMessage());
+        }
+
+        return new PayloadValues(weightKg, reps, holdSeconds);
+    }
+
+    private record PayloadValues(BigDecimal weightKg, Integer reps, Integer holdSeconds) {}
+
+    // ── Helpers ────────────────────────────────────────────────────────────
+
     private ExerciseType determineExerciseType(UserExerciseBests currentBests) {
         if (currentBests != null && currentBests.getExerciseType() != null) {
             try {
@@ -255,72 +452,6 @@ public class PrEditCascadeService {
         return ExerciseType.WEIGHTED;
     }
 
-    /**
-     * Update or create bests when edit results in a PR.
-     */
-    private void updateOrCreateBestsForEdit(UUID userId, String exerciseId, ExerciseType exerciseType,
-                                             LoggedSet newValue, PRResult prResult, UserExerciseBests currentBests) {
-        UserExerciseBests bests = currentBests != null ? currentBests : new UserExerciseBests();
-
-        bests.setUserId(userId);
-        bests.setExerciseId(exerciseId);
-        bests.setExerciseType(exerciseType.toString());
-        // Note: do NOT change total_sessions_with_exercise — session count doesn't change on edits
-        bests.setLastLoggedAt(Instant.now());
-
-        // Update category-specific fields based on PR category
-        PrCategory category = prResult.category();
-        if (category == PrCategory.FIRST_EVER || category == PrCategory.WEIGHT_PR) {
-            bests.setBestWtKg(newValue.weightKg());
-            bests.setRepsAtBestWt(newValue.reps());
-        } else if (category == PrCategory.REP_PR) {
-            bests.setRepsAtBestWt(newValue.reps());
-        }
-
-        userExerciseBestsRepo.save(bests);
-        log.debug("Updated user_exercise_bests for edit: user={} exercise={} category={}",
-                userId, exerciseId, category);
-    }
-
-    /**
-     * Update bests when edit does NOT result in a PR but may have changed values.
-     */
-    private void updateNonPrBestsForEdit(UUID userId, String exerciseId, ExerciseType exerciseType,
-                                         LoggedSet newValue, UserExerciseBests currentBests) {
-        UserExerciseBests bests = currentBests;
-        if (bests == null) {
-            // First-time exercise (shouldn't happen on edit, but handle it)
-            bests = new UserExerciseBests();
-            bests.setUserId(userId);
-            bests.setExerciseId(exerciseId);
-            bests.setExerciseType(exerciseType.toString());
-        }
-
-        bests.setLastLoggedAt(Instant.now());
-        userExerciseBestsRepo.save(bests);
-        log.debug("Updated user_exercise_bests (non-PR) for edit: user={} exercise={}", userId, exerciseId);
-    }
-
-    /**
-     * Rebuild bests for an exercise after deletion.
-     * Future work: actually rebuild from session history. For Phase 3b, just mark updated.
-     */
-    private void rebuildExerciseBests(UUID userId, String exerciseId) {
-        // TODO: Phase 3c — actually rebuild from session history
-        // For now, just touch the timestamp
-        userExerciseBestsRepo.findByUserIdAndExerciseId(userId, exerciseId)
-                .ifPresent(bests -> {
-                    bests.setLastLoggedAt(Instant.now());
-                    userExerciseBestsRepo.save(bests);
-                    log.debug("Marked user_exercise_bests updated after delete: user={} exercise={}",
-                            userId, exerciseId);
-                });
-    }
-
-    /**
-     * Decrement weekly_pr_counts when a PR event is superseded.
-     * Also decrements totalCoinsAwarded, guarding against negative values.
-     */
     private void decrementWeeklyPrCounts(UUID userId, LocalDate weekStart, String prCategory, int coinsAwarded) {
         WeeklyPrCount counts = weeklyPrCountRepo.findByUserIdAndWeekStart(userId, weekStart)
                 .orElse(null);
@@ -330,35 +461,23 @@ public class PrEditCascadeService {
             return;
         }
 
-        // Decrement the appropriate counter based on category
         if ("FIRST_EVER".equals(prCategory)) {
             counts.setFirstEverCount(Math.max(0, (counts.getFirstEverCount() != null ? counts.getFirstEverCount() : 0) - 1));
         } else if ("MAX_ATTEMPT".equals(prCategory)) {
             counts.setMaxAttemptCount(Math.max(0, (counts.getMaxAttemptCount() != null ? counts.getMaxAttemptCount() : 0) - 1));
         } else {
-            // WEIGHT_PR, REP_PR, VOLUME_PR
             counts.setPrCount(Math.max(0, (counts.getPrCount() != null ? counts.getPrCount() : 0) - 1));
         }
 
-        // Decrement total coins awarded, guard against going negative
         int currentTotal = counts.getTotalCoinsAwarded() != null ? counts.getTotalCoinsAwarded() : 0;
         int newTotal = currentTotal - coinsAwarded;
-        if (newTotal < 0) {
-            log.warn("Weekly PR counts totalCoinsAwarded went negative: user={} week={} currentTotal={} coinsAwarded={}",
-                    userId, weekStart, currentTotal, coinsAwarded);
-            counts.setTotalCoinsAwarded(0);
-        } else {
-            counts.setTotalCoinsAwarded(newTotal);
-        }
+        counts.setTotalCoinsAwarded(Math.max(0, newTotal));
 
         weeklyPrCountRepo.save(counts);
         log.debug("Decremented weekly_pr_counts for user={} week={} category={}",
                 userId, weekStart, prCategory);
     }
 
-    /**
-     * Increment weekly_pr_counts when a new PR is detected during edit.
-     */
     private void incrementWeeklyPrCountsForEdit(UUID userId, LocalDate weekStart, PrCategory category, int coinsAwarded) {
         WeeklyPrCount counts = weeklyPrCountRepo.findByUserIdAndWeekStart(userId, weekStart)
                 .orElse(new WeeklyPrCount());
@@ -371,11 +490,9 @@ public class PrEditCascadeService {
         } else if (category == PrCategory.MAX_ATTEMPT) {
             counts.setMaxAttemptCount((counts.getMaxAttemptCount() != null ? counts.getMaxAttemptCount() : 0) + 1);
         } else {
-            // WEIGHT_PR, REP_PR, VOLUME_PR
             counts.setPrCount((counts.getPrCount() != null ? counts.getPrCount() : 0) + 1);
         }
 
-        // Increment total coins awarded
         counts.setTotalCoinsAwarded((counts.getTotalCoinsAwarded() != null ? counts.getTotalCoinsAwarded() : 0) + coinsAwarded);
 
         weeklyPrCountRepo.save(counts);
@@ -383,9 +500,6 @@ public class PrEditCascadeService {
                 userId, weekStart, category, coinsAwarded);
     }
 
-    /**
-     * Map PR category to coin transaction type.
-     */
     private String coinTypeFor(PrCategory category) {
         return switch (category) {
             case FIRST_EVER -> "FIRST_EVER";
@@ -396,16 +510,14 @@ public class PrEditCascadeService {
         };
     }
 
-    /**
-     * Build label for a revoked PR coin transaction.
-     */
     private String buildRevocationLabel(String exerciseId, String prCategory) {
         return "PR revoked · " + prCategory + " on " + exerciseId;
     }
 
-    /**
-     * Build label for a new PR coin transaction during edit.
-     */
+    private String buildRestorationLabel(String exerciseId, String prCategory) {
+        return "PR restored · " + prCategory + " on " + exerciseId;
+    }
+
     private String buildNewPrLabel(String exerciseId, PrCategory category) {
         String categoryName = switch (category) {
             case FIRST_EVER -> "First ever";
@@ -417,9 +529,6 @@ public class PrEditCascadeService {
         return categoryName + " · " + exerciseId;
     }
 
-    /**
-     * Calculate Monday of the week for a given instant.
-     */
     private LocalDate weekStartFor(Instant instant) {
         return LocalDate.ofInstant(instant, ZoneOffset.UTC)
                 .with(TemporalAdjusters.previousOrSame(DayOfWeek.MONDAY));

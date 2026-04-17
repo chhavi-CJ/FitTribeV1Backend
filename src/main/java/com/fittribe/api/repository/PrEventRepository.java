@@ -48,4 +48,19 @@ public interface PrEventRepository extends JpaRepository<PrEvent, UUID> {
      * Used by exercise delete cascade (Phase 3b) to revoke all PRs for that exercise.
      */
     List<PrEvent> findByUserIdAndSessionIdAndExerciseIdAndSupersededAtNull(UUID userId, UUID sessionId, String exerciseId);
+
+    /**
+     * Fetch all non-superseded PR events for a (user, exercise) across all sessions.
+     * Used by rebuildExerciseBests to reconstruct the bests cache from the audit log.
+     */
+    List<PrEvent> findByUserIdAndExerciseIdAndSupersededAtIsNull(UUID userId, String exerciseId);
+
+    // TODO(pr-system-v2-followup): consider adding partial index on superseded_by
+    // WHERE superseded_at IS NOT NULL if edit volume grows
+    /**
+     * Find PR events that were superseded by a specific event, filtered by category.
+     * Used by the un-supersede step in the edit cascade to restore prior PRs
+     * when a superseding edit is itself reverted.
+     */
+    List<PrEvent> findBySupersededByAndPrCategory(UUID supersededBy, String prCategory);
 }

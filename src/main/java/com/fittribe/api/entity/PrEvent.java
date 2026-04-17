@@ -11,6 +11,7 @@ import org.hibernate.type.SqlTypes;
 
 import java.time.Instant;
 import java.time.LocalDate;
+import java.util.HashMap;
 import java.util.Map;
 import java.util.UUID;
 
@@ -28,9 +29,12 @@ import java.util.UUID;
  * filter on {@code WHERE superseded_at IS NULL} (partial index optimized).
  *
  * <h3>JSONB columns</h3>
- * {@code signals_met} and {@code value_payload} are stored as raw JSONB and
- * mapped to {@link Map} for flexibility. Deserialization happens on read in
- * the service layer.
+ * {@code signals_met} and {@code value_payload} are typed as {@link Map} with
+ * {@code @JdbcTypeCode(SqlTypes.JSON)}. Hibernate 6 handles Jackson
+ * serialization/deserialization natively on Map fields. Using String fields
+ * with this annotation causes Hibernate to corrupt JSON on entity load
+ * (deserializes to Map internally, then calls Map.toString() to coerce back
+ * to String, producing {@code {key=value}} which is not valid JSON).
  *
  * <h3>Partitioning</h3>
  * Partitioned by {@code week_start} (not created_at) so a weekly report query
@@ -64,12 +68,12 @@ public class PrEvent {
 
     @Column(name = "signals_met", nullable = false, columnDefinition = "jsonb")
     @JdbcTypeCode(SqlTypes.JSON)
-    private String signalsMet = "{}";
+    private Map<String, Object> signalsMet = new HashMap<>();
     // { "weight": true, "rep": false, "volume": true, "one_rm": true }
 
     @Column(name = "value_payload", nullable = false, columnDefinition = "jsonb")
     @JdbcTypeCode(SqlTypes.JSON)
-    private String valuePayload = "{}";
+    private Map<String, Object> valuePayload = new HashMap<>();
     // Structured: { "delta_kg": 5, "previous_best": {...}, "new_best": {...} }
 
     @Column(name = "coins_awarded", nullable = false)
@@ -111,11 +115,11 @@ public class PrEvent {
     public String getPrCategory() { return prCategory; }
     public void setPrCategory(String prCategory) { this.prCategory = prCategory; }
 
-    public String getSignalsMet() { return signalsMet; }
-    public void setSignalsMet(String signalsMet) { this.signalsMet = signalsMet; }
+    public Map<String, Object> getSignalsMet() { return signalsMet; }
+    public void setSignalsMet(Map<String, Object> signalsMet) { this.signalsMet = signalsMet; }
 
-    public String getValuePayload() { return valuePayload; }
-    public void setValuePayload(String valuePayload) { this.valuePayload = valuePayload; }
+    public Map<String, Object> getValuePayload() { return valuePayload; }
+    public void setValuePayload(Map<String, Object> valuePayload) { this.valuePayload = valuePayload; }
 
     public Integer getCoinsAwarded() { return coinsAwarded; }
     public void setCoinsAwarded(Integer coinsAwarded) { this.coinsAwarded = coinsAwarded; }

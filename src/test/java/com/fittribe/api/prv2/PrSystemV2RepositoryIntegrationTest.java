@@ -162,8 +162,8 @@ class PrSystemV2RepositoryIntegrationTest {
         event.setExerciseId(testExerciseId);
         event.setSessionId(testSessionId);
         event.setPrCategory("WEIGHT_PR");
-        event.setSignalsMet("{\"weight\": true, \"rep\": false, \"volume\": true, \"one_rm\": true}");
-        event.setValuePayload("{\"delta_kg\": 5, \"previous_best\": 100.0, \"new_best\": 105.0}");
+        event.setSignalsMet(java.util.Map.of("weight", true, "rep", false, "volume", true, "one_rm", true));
+        event.setValuePayload(java.util.Map.of("delta_kg", 5, "previous_best", 100.0, "new_best", 105.0));
         event.setCoinsAwarded(50);
         event.setDetectorVersion("v1.0");
         event.setWeekStart(testWeekStart);
@@ -177,12 +177,12 @@ class PrSystemV2RepositoryIntegrationTest {
 
         PrEvent retrieved = prEventRepo.findById(eventId).orElse(null);
 
-        // Verify JSON payloads preserved exactly
+        // Verify Map payloads preserved on round-trip through Hibernate + JSONB
         assertNotNull(retrieved);
-        assertEquals("{\"weight\": true, \"rep\": false, \"volume\": true, \"one_rm\": true}",
-                     retrieved.getSignalsMet());
-        assertEquals("{\"delta_kg\": 5, \"previous_best\": 100.0, \"new_best\": 105.0}",
-                     retrieved.getValuePayload());
+        assertEquals(true, retrieved.getSignalsMet().get("weight"));
+        assertEquals(false, retrieved.getSignalsMet().get("rep"));
+        assertEquals(5, ((Number) retrieved.getValuePayload().get("delta_kg")).intValue());
+        assertEquals(105.0, ((Number) retrieved.getValuePayload().get("new_best")).doubleValue(), 0.01);
         assertEquals(50, retrieved.getCoinsAwarded());
     }
 
@@ -195,8 +195,8 @@ class PrSystemV2RepositoryIntegrationTest {
         event1.setExerciseId(testExerciseId);
         event1.setSessionId(testSessionId);
         event1.setPrCategory("WEIGHT_PR");
-        event1.setSignalsMet("{}");
-        event1.setValuePayload("{}");
+        event1.setSignalsMet(java.util.Map.of());
+        event1.setValuePayload(java.util.Map.of());
         event1.setWeekStart(testWeekStart);
         prEventRepo.saveAndFlush(event1);
 
@@ -205,8 +205,8 @@ class PrSystemV2RepositoryIntegrationTest {
         event2.setExerciseId(testExerciseId);
         event2.setSessionId(testSessionId);
         event2.setPrCategory("WEIGHT_PR");
-        event2.setSignalsMet("{}");
-        event2.setValuePayload("{}");
+        event2.setSignalsMet(java.util.Map.of());
+        event2.setValuePayload(java.util.Map.of());
         event2.setWeekStart(testWeekStart);
         prEventRepo.saveAndFlush(event2);
 
@@ -233,8 +233,8 @@ class PrSystemV2RepositoryIntegrationTest {
             event.setExerciseId(testExerciseId);
             event.setSessionId(testSessionId);
             event.setPrCategory("WEIGHT_PR");
-            event.setSignalsMet("{}");
-            event.setValuePayload("{}");
+            event.setSignalsMet(java.util.Map.of());
+            event.setValuePayload(java.util.Map.of());
             event.setWeekStart(testWeekStart);
             prEventRepo.saveAndFlush(event);
         }
@@ -254,8 +254,8 @@ class PrSystemV2RepositoryIntegrationTest {
         event.setExerciseId(testExerciseId);
         event.setSessionId(testSessionId);
         event.setPrCategory("FIRST_EVER");
-        event.setSignalsMet("{}");
-        event.setValuePayload("{}");
+        event.setSignalsMet(java.util.Map.of());
+        event.setValuePayload(java.util.Map.of());
         event.setWeekStart(testWeekStart);
         prEventRepo.saveAndFlush(event);
 
@@ -280,8 +280,8 @@ class PrSystemV2RepositoryIntegrationTest {
             event.setExerciseId(testExerciseId + "_" + category);
             event.setSessionId(testSessionId);
             event.setPrCategory(category);
-            event.setSignalsMet("{}");
-            event.setValuePayload("{}");
+            event.setSignalsMet(java.util.Map.of());
+            event.setValuePayload(java.util.Map.of());
             event.setWeekStart(testWeekStart);
             prEventRepo.saveAndFlush(event);
         }
