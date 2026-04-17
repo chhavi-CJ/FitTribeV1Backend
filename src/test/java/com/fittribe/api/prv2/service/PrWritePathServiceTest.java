@@ -12,7 +12,7 @@ import com.fittribe.api.repository.PrEventRepository;
 import com.fittribe.api.repository.UserExerciseBestsRepository;
 import com.fittribe.api.repository.WeeklyPrCountRepository;
 import com.fittribe.api.service.CoinService;
-import com.fasterxml.jackson.databind.ObjectMapper;
+
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Disabled;
 import org.junit.jupiter.api.DisplayName;
@@ -54,7 +54,6 @@ class PrWritePathServiceTest {
     @Mock private CoinService coinService;
     @Mock private PlatformTransactionManager transactionManager;
 
-    private ObjectMapper objectMapper;
     private TransactionTemplate transactionTemplate;
     private PrWritePathService service;
 
@@ -65,7 +64,6 @@ class PrWritePathServiceTest {
 
     @BeforeEach
     void setUp() {
-        objectMapper = new ObjectMapper();
         transactionTemplate = new TransactionTemplate(transactionManager);
 
         service = new PrWritePathService(
@@ -74,8 +72,7 @@ class PrWritePathServiceTest {
                 prEventRepo,
                 weeklyPrCountRepo,
                 coinService,
-                transactionManager,
-                objectMapper);
+                transactionManager);
 
         userId = UUID.randomUUID();
         sessionId = UUID.randomUUID();

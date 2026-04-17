@@ -1,6 +1,5 @@
 package com.fittribe.api.prv2.service;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fittribe.api.entity.PrEvent;
 import com.fittribe.api.entity.UserExerciseBests;
 import com.fittribe.api.entity.WeeklyPrCount;
@@ -61,7 +60,6 @@ class PrEditCascadeServiceTest {
     @Mock private CoinService coinService;
     @Mock private PlatformTransactionManager transactionManager;
 
-    private final ObjectMapper objectMapper = new ObjectMapper();
     private PrEditCascadeService service;
 
     private UUID userId;
@@ -77,8 +75,7 @@ class PrEditCascadeServiceTest {
                 prEventRepo,
                 weeklyPrCountRepo,
                 coinService,
-                transactionManager,
-                objectMapper);
+                transactionManager);
 
         userId = UUID.randomUUID();
         sessionId = UUID.randomUUID();
@@ -88,7 +85,11 @@ class PrEditCascadeServiceTest {
 
     // ── Helpers ────────────────────────────────────────────────────────────
 
-    private PrEvent makeEvent(UUID eventSetId, String category, int coins, String valuePayload) {
+    private static final com.fasterxml.jackson.databind.ObjectMapper TEST_MAPPER =
+            new com.fasterxml.jackson.databind.ObjectMapper();
+
+    @SuppressWarnings("unchecked")
+    private PrEvent makeEvent(UUID eventSetId, String category, int coins, String valuePayloadJson) {
         PrEvent event = new PrEvent();
         event.setUserId(userId);
         event.setSessionId(sessionId);
@@ -97,8 +98,12 @@ class PrEditCascadeServiceTest {
         event.setPrCategory(category);
         event.setCoinsAwarded(coins);
         event.setWeekStart(weekStart);
-        event.setSignalsMet("{}");
-        event.setValuePayload(valuePayload);
+        event.setSignalsMet(Map.of());
+        try {
+            event.setValuePayload(TEST_MAPPER.readValue(valuePayloadJson, Map.class));
+        } catch (Exception e) {
+            throw new RuntimeException("Bad test JSON: " + valuePayloadJson, e);
+        }
         event.setDetectorVersion("v1.0");
         return event;
     }

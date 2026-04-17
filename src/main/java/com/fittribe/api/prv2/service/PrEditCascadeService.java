@@ -1,8 +1,5 @@
 package com.fittribe.api.prv2.service;
 
-import com.fasterxml.jackson.core.JsonProcessingException;
-import com.fasterxml.jackson.core.type.TypeReference;
-import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fittribe.api.entity.PrEvent;
 import com.fittribe.api.entity.UserExerciseBests;
 import com.fittribe.api.entity.WeeklyPrCount;
@@ -64,7 +61,6 @@ public class PrEditCascadeService {
     private final WeeklyPrCountRepository weeklyPrCountRepo;
     private final CoinService coinService;
     private final TransactionTemplate transactionTemplate;
-    private final ObjectMapper objectMapper;
 
     public PrEditCascadeService(
             PRDetector prDetector,
@@ -72,15 +68,13 @@ public class PrEditCascadeService {
             PrEventRepository prEventRepo,
             WeeklyPrCountRepository weeklyPrCountRepo,
             CoinService coinService,
-            PlatformTransactionManager transactionManager,
-            ObjectMapper objectMapper) {
+            PlatformTransactionManager transactionManager) {
         this.prDetector = prDetector;
         this.userExerciseBestsRepo = userExerciseBestsRepo;
         this.prEventRepo = prEventRepo;
         this.weeklyPrCountRepo = weeklyPrCountRepo;
         this.coinService = coinService;
         this.transactionTemplate = new TransactionTemplate(transactionManager);
-        this.objectMapper = objectMapper;
     }
 
     /**
@@ -252,13 +246,9 @@ public class PrEditCascadeService {
                     newEvent.setSetId(setId);
                     newEvent.setPrCategory(prResult.category().toString());
                     newEvent.setWeekStart(weekStart);
-                    try {
-                        newEvent.setSignalsMet(objectMapper.writeValueAsString(prResult.signalsMet()));
-                        newEvent.setValuePayload(objectMapper.writeValueAsString(prResult.valuePayload()));
-                    } catch (JsonProcessingException e) {
-                        throw new IllegalStateException(
-                                "Failed to serialize pr_event payload for user=" + userId + " set=" + setId, e);
-                    }
+                    // Pass Maps directly — Hibernate 6 handles Jackson serialization on Map fields
+                    newEvent.setSignalsMet(new java.util.HashMap<>(prResult.signalsMet()));
+                    newEvent.setValuePayload(new java.util.HashMap<>(prResult.valuePayload()));
                     newEvent.setCoinsAwarded(prResult.suggestedCoins());
                     newEvent.setDetectorVersion(prResult.detectorVersion());
 
@@ -400,7 +390,7 @@ public class PrEditCascadeService {
     }
 
     /**
-     * Extract weight/reps/hold values from a pr_event's value_payload JSONB.
+     * Extract weight/reps/hold values from a pr_event's value_payload Map.
      * Handles both "new_best" nested format (from FIRST_EVER/WEIGHT_PR) and
      * flat format (from MAX_ATTEMPT/REP_PR/VOLUME_PR).
      */
@@ -410,8 +400,10 @@ public class PrEditCascadeService {
         Integer holdSeconds = null;
 
         try {
-            Map<String, Object> payload = objectMapper.readValue(
-                    event.getValuePayload(), new TypeReference<Map<String, Object>>() {});
+            Map<String, Object> payload = event.getValuePayload();
+            if (payload == null || payload.isEmpty()) {
+                return new PayloadValues(null, null, null);
+            }
 
             // Try nested "new_best" first (FIRST_EVER, WEIGHT_PR payloads)
             @SuppressWarnings("unchecked")
@@ -437,7 +429,7 @@ public class PrEditCascadeService {
                 holdSeconds = ((Number) source.get("new_seconds")).intValue();
             }
         } catch (Exception e) {
-            log.warn("Failed to parse value_payload for pr_event id={}: {}", event.getId(), e.getMessage());
+            log.warn("Failed to extract value_payload for pr_event id={}: {}", event.getId(), e.getMessage());
         }
 
         return new PayloadValues(weightKg, reps, holdSeconds);

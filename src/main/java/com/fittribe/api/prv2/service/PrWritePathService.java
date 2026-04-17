@@ -12,7 +12,6 @@ import com.fittribe.api.repository.PrEventRepository;
 import com.fittribe.api.repository.UserExerciseBestsRepository;
 import com.fittribe.api.repository.WeeklyPrCountRepository;
 import com.fittribe.api.service.CoinService;
-import com.fasterxml.jackson.databind.ObjectMapper;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
@@ -54,7 +53,6 @@ public class PrWritePathService {
     private final WeeklyPrCountRepository weeklyPrCountRepo;
     private final CoinService coinService;
     private final TransactionTemplate transactionTemplate;
-    private final ObjectMapper objectMapper;
 
     public PrWritePathService(
             PRDetector prDetector,
@@ -62,15 +60,13 @@ public class PrWritePathService {
             PrEventRepository prEventRepo,
             WeeklyPrCountRepository weeklyPrCountRepo,
             CoinService coinService,
-            PlatformTransactionManager transactionManager,
-            ObjectMapper objectMapper) {
+            PlatformTransactionManager transactionManager) {
         this.prDetector = prDetector;
         this.userExerciseBestsRepo = userExerciseBestsRepo;
         this.prEventRepo = prEventRepo;
         this.weeklyPrCountRepo = weeklyPrCountRepo;
         this.coinService = coinService;
         this.transactionTemplate = new TransactionTemplate(transactionManager);
-        this.objectMapper = objectMapper;
     }
 
     /**
@@ -141,16 +137,10 @@ public class PrWritePathService {
                 prEvent.setPrCategory(prResult.category().toString());
                 prEvent.setWeekStart(weekStart);
 
-                // Serialize signals_met and value_payload
-                try {
-                    prEvent.setSignalsMet(objectMapper.writeValueAsString(prResult.signalsMet()));
-                    prEvent.setValuePayload(objectMapper.writeValueAsString(prResult.valuePayload()));
-                } catch (Exception e) {
-                    log.warn("Failed to serialize PR event payload for user={} exercise={}",
-                            userId, set.exerciseId(), e);
-                    prEvent.setSignalsMet("{}");
-                    prEvent.setValuePayload("{}");
-                }
+                // Pass Maps directly — Hibernate 6 + @JdbcTypeCode(SqlTypes.JSON)
+                // handles Jackson serialization natively on Map fields.
+                prEvent.setSignalsMet(new java.util.HashMap<>(prResult.signalsMet()));
+                prEvent.setValuePayload(new java.util.HashMap<>(prResult.valuePayload()));
 
                 prEvent.setDetectorVersion(prResult.detectorVersion());
                 prEvent.setCoinsAwarded(prResult.suggestedCoins());
