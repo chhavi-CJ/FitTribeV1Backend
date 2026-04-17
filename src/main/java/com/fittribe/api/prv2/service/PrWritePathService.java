@@ -1,6 +1,5 @@
 package com.fittribe.api.prv2.service;
 
-import com.fittribe.api.config.PrSystemConfig;
 import com.fittribe.api.entity.PrEvent;
 import com.fittribe.api.entity.UserExerciseBests;
 import com.fittribe.api.entity.WeeklyPrCount;
@@ -38,9 +37,6 @@ import java.util.UUID;
  * set through PRDetector, persists PR events, updates user_exercise_bests,
  * increments weekly_pr_counts, and awards coins.
  *
- * <p>All behavior is gated by the feature flag app.pr-system-v2.enabled.
- * When disabled, this service is a no-op.
- *
  * <h3>Transaction boundaries:</h3>
  * - processSessionFinish runs with REQUIRES_NEW propagation, ensuring it
  *   runs AFTER the session save transaction commits
@@ -52,7 +48,6 @@ public class PrWritePathService {
 
     private static final Logger log = LoggerFactory.getLogger(PrWritePathService.class);
 
-    private final PrSystemConfig prSystemConfig;
     private final PRDetector prDetector;
     private final UserExerciseBestsRepository userExerciseBestsRepo;
     private final PrEventRepository prEventRepo;
@@ -62,7 +57,6 @@ public class PrWritePathService {
     private final ObjectMapper objectMapper;
 
     public PrWritePathService(
-            PrSystemConfig prSystemConfig,
             PRDetector prDetector,
             UserExerciseBestsRepository userExerciseBestsRepo,
             PrEventRepository prEventRepo,
@@ -70,7 +64,6 @@ public class PrWritePathService {
             CoinService coinService,
             PlatformTransactionManager transactionManager,
             ObjectMapper objectMapper) {
-        this.prSystemConfig = prSystemConfig;
         this.prDetector = prDetector;
         this.userExerciseBestsRepo = userExerciseBestsRepo;
         this.prEventRepo = prEventRepo;
@@ -92,12 +85,6 @@ public class PrWritePathService {
      * @param sets      list of LoggedSet from the session's exercises JSONB
      */
     public void processSessionFinish(UUID userId, UUID sessionId, List<LoggedSet> sets) {
-        // Feature flag gate — if disabled, this is a complete no-op
-        if (!prSystemConfig.isPrSystemV2Enabled()) {
-            log.debug("PR System V2 disabled; processSessionFinish is a no-op for session={}", sessionId);
-            return;
-        }
-
         if (sets == null || sets.isEmpty()) {
             log.debug("No sets to process for session={}", sessionId);
             return;
@@ -150,6 +137,7 @@ public class PrWritePathService {
                 prEvent.setUserId(userId);
                 prEvent.setExerciseId(set.exerciseId());
                 prEvent.setSessionId(sessionId);
+                prEvent.setSetId(set.setId());
                 prEvent.setPrCategory(prResult.category().toString());
                 prEvent.setWeekStart(weekStart);
 

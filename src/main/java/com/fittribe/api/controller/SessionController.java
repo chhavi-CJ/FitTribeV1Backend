@@ -32,11 +32,11 @@ import com.fittribe.api.prv2.service.PrWritePathService;
 import com.fittribe.api.repository.CoinTransactionRepository;
 import com.fittribe.api.repository.FeedItemRepository;
 import com.fittribe.api.repository.GroupMemberRepository;
-import com.fittribe.api.repository.PersonalRecordRepository;
 import com.fittribe.api.repository.PrEventRepository;
 import com.fittribe.api.repository.SavedRoutineRepository;
 import com.fittribe.api.repository.SessionFeedbackRepository;
 import com.fittribe.api.repository.SetLogRepository;
+import com.fittribe.api.repository.UserExerciseBestsRepository;
 import com.fittribe.api.repository.UserRepository;
 import com.fittribe.api.repository.WorkoutSessionRepository;
 import com.fittribe.api.jobs.JobEnqueuer;
@@ -92,7 +92,6 @@ public class SessionController {
     private final JobEnqueuer               jobEnqueuer;
     private final PlanService               planService;
     private final ObjectMapper              objectMapper;
-    private final PersonalRecordRepository  prRepo;
     private final RankService               rankService;
     private final CoinService               coinService;
     private final SavedRoutineRepository    routineRepo;
@@ -103,6 +102,7 @@ public class SessionController {
     private final PrWritePathService        prWritePathService;
     private final PrEditCascadeService      prEditCascadeService;
     private final PrEventRepository         prEventRepo;
+    private final UserExerciseBestsRepository userExerciseBestsRepo;
 
     public SessionController(WorkoutSessionRepository sessionRepo,
                              SetLogRepository setLogRepo,
@@ -113,7 +113,6 @@ public class SessionController {
                              JobEnqueuer jobEnqueuer,
                              PlanService planService,
                              ObjectMapper objectMapper,
-                             PersonalRecordRepository prRepo,
                              RankService rankService,
                              CoinService coinService,
                              SavedRoutineRepository routineRepo,
@@ -123,7 +122,8 @@ public class SessionController {
                              ProgressSnapshotService progressSnapshotService,
                              PrWritePathService prWritePathService,
                              PrEditCascadeService prEditCascadeService,
-                             PrEventRepository prEventRepo) {
+                             PrEventRepository prEventRepo,
+                             UserExerciseBestsRepository userExerciseBestsRepo) {
         this.sessionRepo         = sessionRepo;
         this.setLogRepo          = setLogRepo;
         this.userRepo            = userRepo;
@@ -133,7 +133,6 @@ public class SessionController {
         this.jobEnqueuer         = jobEnqueuer;
         this.planService         = planService;
         this.objectMapper        = objectMapper;
-        this.prRepo              = prRepo;
         this.rankService         = rankService;
         this.coinService         = coinService;
         this.routineRepo         = routineRepo;
@@ -144,6 +143,7 @@ public class SessionController {
         this.prWritePathService  = prWritePathService;
         this.prEditCascadeService = prEditCascadeService;
         this.prEventRepo = prEventRepo;
+        this.userExerciseBestsRepo = userExerciseBestsRepo;
     }
 
     // ── POST /sessions/start ──────────────────────────────────────────
@@ -258,20 +258,34 @@ public class SessionController {
             }
         }
 
-        // PR detection: heaviest set this user has ever logged for this exercise.
-        // Bodyweight sets (null weightKg) cannot set a weight PR — isPr stays false
-        // unless this is literally the first time they've logged the exercise.
+        // Sparkle: provisional PR signal for mid-workout celebration.
+        // Compares new set against max(historical best from user_exercise_bests,
+        // max already logged in this session). Bodyweight sets (null weightKg)
+        // can only sparkle on first-ever logging of the exercise.
+        //
+        // This is read-only — does NOT write to user_exercise_bests or pr_events.
+        // Those are updated only at session finish by PrWritePathService, which
+        // is the single source of truth for PR detection.
         boolean isPr;
         if (request.weightKg() == null) {
-            isPr = setLogRepo
-                    .findTopByUserIdAndExerciseIdOrderByWeightKgDesc(userId, request.exerciseId())
-                    .isEmpty();
+            // Bodyweight: sparkle only on first-ever logging of this exercise AND
+            // no prior bodyweight set already logged in this session.
+            boolean historicalExists = userExerciseBestsRepo
+                    .findByUserIdAndExerciseId(userId, request.exerciseId()).isPresent();
+            long priorSetsInSession = setLogRepo.findBySessionId(session.getId()).stream()
+                    .filter(sl -> sl.getExerciseId().equals(request.exerciseId()))
+                    .count();
+            isPr = !historicalExists && priorSetsInSession == 0;
         } else {
-            isPr = setLogRepo
-                    .findTopByUserIdAndExerciseIdOrderByWeightKgDesc(userId, request.exerciseId())
-                    .map(best -> best.getWeightKg() == null
-                            || request.weightKg().compareTo(best.getWeightKg()) > 0)
-                    .orElse(true);
+            BigDecimal historicalBest = userExerciseBestsRepo
+                    .findByUserIdAndExerciseId(userId, request.exerciseId())
+                    .map(b -> b.getBestWtKg() != null ? b.getBestWtKg() : BigDecimal.ZERO)
+                    .orElse(BigDecimal.ZERO);
+            BigDecimal currentSessionMax = setLogRepo
+                    .findMaxWeightInSessionForExercise(session.getId(), request.exerciseId());
+            if (currentSessionMax == null) currentSessionMax = BigDecimal.ZERO;
+            BigDecimal barToBeat = historicalBest.max(currentSessionMax);
+            isPr = request.weightKg().compareTo(barToBeat) > 0;
         }
 
         // Upsert: insert or update if same session+exercise+setNumber already exists
@@ -291,13 +305,8 @@ public class SessionController {
                 .orElseThrow(() -> new ApiException(HttpStatus.INTERNAL_SERVER_ERROR,
                         "SET_LOG_ERROR", "Failed to retrieve saved set."));
 
-        if (isPr && !Boolean.TRUE.equals(saved.getIsPr())) {
-            saved.setIsPr(true);
-            setLogRepo.save(saved);
-        }
-
         return ResponseEntity.ok(ApiResponse.success(
-                new LogSetResponse(saved.getId(), saved.getIsPr())));
+                new LogSetResponse(saved.getId(), isPr)));
     }
 
     // ── PATCH /sessions/{id}/log-set/{exerciseId}/{setNumber} ───────
@@ -311,7 +320,7 @@ public class SessionController {
             Authentication auth) {
 
         UUID userId = userId(auth);
-        WorkoutSession session = requireOwnedInProgress(id, userId);
+        WorkoutSession session = requireOwnedAndEditable(id, userId);
 
         // Parse exercises JSONB
         List<Map<String, Object>> exercises;
@@ -351,12 +360,16 @@ public class SessionController {
                     "Set not found in exercises");
         }
 
-        // Capture oldValue for cascade
+        // Parse setId from JSONB (canonical source after finish)
+        UUID setId = targetSet.get("setId") != null
+                ? UUID.fromString(targetSet.get("setId").toString())
+                : null;
+
+        // Capture old values for cascade (before JSONB update)
         BigDecimal oldWeightKg = targetSet.get("weightKg") != null
                 ? new BigDecimal(targetSet.get("weightKg").toString())
                 : null;
         int oldReps = ((Number) targetSet.get("reps")).intValue();
-        LoggedSet oldValue = new LoggedSet(exerciseId, oldWeightKg, oldReps, null);
 
         // Update JSONB
         targetSet.put("weightKg", request.weightKg());
@@ -375,51 +388,29 @@ public class SessionController {
 
         sessionRepo.save(session);
 
-        // Upsert set_logs to keep in sync
-        setLogRepo.upsertSetLog(
-                session.getId(),
-                exerciseId,
-                (String) targetEx.get("exerciseName"),
-                setNumber,
-                request.weightKg(),
-                request.reps());
-
-        // Fetch saved SetLog to get its id and isPr
-        SetLog saved = setLogRepo.findBySessionId(session.getId()).stream()
-                .filter(sl -> sl.getExerciseId().equals(exerciseId)
-                           && sl.getSetNumber().equals(setNumber))
-                .findFirst()
-                .orElseThrow(() -> new ApiException(HttpStatus.INTERNAL_SERVER_ERROR,
-                        "SET_LOG_ERROR", "Failed to retrieve saved set."));
-
-        // Build newValue for cascade
-        LoggedSet newValue = new LoggedSet(exerciseId, request.weightKg(), request.reps(), request.holdSeconds());
+        // Build cascade values using setId from JSONB
+        LoggedSet oldValue = new LoggedSet(setId, exerciseId, oldWeightKg, oldReps, null);
+        LoggedSet newValue = new LoggedSet(setId, exerciseId, request.weightKg(), request.reps(), request.holdSeconds());
 
         // Call cascade (if PR system enabled, this will handle supersession and re-detection)
         try {
-            prEditCascadeService.processSetEdit(userId, session.getId(), saved.getId(), oldValue, newValue);
+            prEditCascadeService.processSetEdit(userId, session.getId(), setId, oldValue, newValue);
         } catch (Exception e) {
             log.warn("Failed to process PR cascade for session={} exercise={} set={}",
                     session.getId(), exerciseId, setNumber, e);
             // Cascade failures are non-fatal — the edit itself succeeded
         }
 
-        // Query pr_events to get is_pr flag
-        List<com.fittribe.api.entity.PrEvent> events = prEventRepo
-                .findByUserIdAndSessionIdAndSetIdAndSupersededAtNull(userId, session.getId(), saved.getId());
-        boolean isPr = !events.isEmpty() && !events.stream()
-                .allMatch(e -> e.getSupersededAt() != null);
-
-        if (isPr && !Boolean.TRUE.equals(saved.getIsPr())) {
-            saved.setIsPr(true);
-            setLogRepo.save(saved);
-        } else if (!isPr && Boolean.TRUE.equals(saved.getIsPr())) {
-            saved.setIsPr(false);
-            setLogRepo.save(saved);
+        // Query pr_events to determine isPr after cascade
+        boolean isPr = false;
+        if (setId != null) {
+            List<com.fittribe.api.entity.PrEvent> events = prEventRepo
+                    .findByUserIdAndSessionIdAndSetIdAndSupersededAtNull(userId, session.getId(), setId);
+            isPr = !events.isEmpty();
         }
 
         return ResponseEntity.ok(ApiResponse.success(
-                new LogSetResponse(saved.getId(), saved.getIsPr())));
+                new LogSetResponse(setId, isPr)));
     }
 
     // ── DELETE /sessions/{id}/log-set/{exerciseId}/{setNumber} ───────
@@ -432,7 +423,7 @@ public class SessionController {
             Authentication auth) {
 
         UUID userId = userId(auth);
-        WorkoutSession session = requireOwnedInProgress(id, userId);
+        WorkoutSession session = requireOwnedAndEditable(id, userId);
 
         // Parse exercises JSONB
         List<Map<String, Object>> exercises;
@@ -447,9 +438,10 @@ public class SessionController {
                     "Could not parse exercises from session");
         }
 
-        // Find exercise and set, capture oldValue for cascade
+        // Find exercise and set, capture setId and oldValue from JSONB for cascade
         Map<String, Object> targetEx = null;
         Map<String, Object> targetSet = null;
+        UUID deletedSetId = null;
         LoggedSet oldValue = null;
         for (Map<String, Object> ex : exercises) {
             if (exerciseId.equals(ex.get("exerciseId"))) {
@@ -461,12 +453,16 @@ public class SessionController {
                         Map<String, Object> s = sets.get(i);
                         if (setNumber == ((Number) s.get("setNumber")).intValue()) {
                             targetSet = s;
+                            // Parse setId from JSONB
+                            deletedSetId = s.get("setId") != null
+                                    ? UUID.fromString(s.get("setId").toString())
+                                    : null;
                             // Capture for cascade
                             BigDecimal wt = s.get("weightKg") != null
                                     ? new BigDecimal(s.get("weightKg").toString())
                                     : null;
                             int reps = ((Number) s.get("reps")).intValue();
-                            oldValue = new LoggedSet(exerciseId, wt, reps, null);
+                            oldValue = new LoggedSet(deletedSetId, exerciseId, wt, reps, null);
                             sets.remove(i);
                             break;
                         }
@@ -499,20 +495,10 @@ public class SessionController {
 
         sessionRepo.save(session);
 
-        // Delete from set_logs
-        setLogRepo.deleteBySessionIdAndExerciseIdAndSetNumber(id, exerciseId, setNumber);
-
-        // Fetch SetLog id before deletion (if it exists) for cascade
-        SetLog saved = setLogRepo.findBySessionId(session.getId()).stream()
-                .filter(sl -> sl.getExerciseId().equals(exerciseId)
-                           && sl.getSetNumber().equals(setNumber))
-                .findFirst()
-                .orElse(null);
-
         // Call cascade
         try {
-            if (saved != null) {
-                prEditCascadeService.processSetDelete(userId, session.getId(), saved.getId(), oldValue);
+            if (deletedSetId != null) {
+                prEditCascadeService.processSetDelete(userId, session.getId(), deletedSetId, oldValue);
             }
         } catch (Exception e) {
             log.warn("Failed to process PR cascade for set delete: session={} exercise={} set={}",
@@ -531,7 +517,7 @@ public class SessionController {
             Authentication auth) {
 
         UUID userId = userId(auth);
-        WorkoutSession session = requireOwnedInProgress(id, userId);
+        WorkoutSession session = requireOwnedAndEditable(id, userId);
 
         // Parse exercises JSONB
         List<Map<String, Object>> exercises;
@@ -546,7 +532,7 @@ public class SessionController {
                     "Could not parse exercises from session");
         }
 
-        // Find exercise and capture all sets as LoggedSet list for cascade
+        // Find exercise and capture all sets as LoggedSet list for cascade (setId from JSONB)
         List<LoggedSet> oldValues = new ArrayList<>();
         Map<String, Object> targetEx = null;
         for (int i = 0; i < exercises.size(); i++) {
@@ -557,11 +543,14 @@ public class SessionController {
                 List<Map<String, Object>> sets = (List<Map<String, Object>>) ex.get("sets");
                 if (sets != null) {
                     for (Map<String, Object> s : sets) {
+                        UUID setId = s.get("setId") != null
+                                ? UUID.fromString(s.get("setId").toString())
+                                : null;
                         BigDecimal wt = s.get("weightKg") != null
                                 ? new BigDecimal(s.get("weightKg").toString())
                                 : null;
                         int reps = ((Number) s.get("reps")).intValue();
-                        oldValues.add(new LoggedSet(exerciseId, wt, reps, null));
+                        oldValues.add(new LoggedSet(setId, exerciseId, wt, reps, null));
                     }
                 }
                 exercises.remove(i);
@@ -583,9 +572,6 @@ public class SessionController {
         }
 
         sessionRepo.save(session);
-
-        // Delete from set_logs
-        setLogRepo.deleteBySessionIdAndExerciseId(id, exerciseId);
 
         // Call cascade
         try {
@@ -683,10 +669,20 @@ public class SessionController {
         int totalSets;
         BigDecimal totalVolumeKg;
         String exercisesJson;
-        // Collects exercises where a new PR was set — used later for coin awards
-        List<ExerciseLogRequest> newPrExercises = new ArrayList<>();
 
         List<ExerciseLogRequest> exercises = request.exercises();
+
+        // Pre-fetch set_log UUIDs keyed by "exerciseId:setNumber". Embedded into
+        // each per-set JSONB entry so PATCH/DELETE during the edit window can read
+        // setId from the JSONB without touching set_logs (deleted at end of finish).
+        Map<String, UUID> setIdByExerciseAndNumber = (exercises != null && !exercises.isEmpty())
+                ? setLogRepo.findBySessionId(id).stream()
+                        .collect(Collectors.toMap(
+                                sl -> sl.getExerciseId() + ":" + sl.getSetNumber(),
+                                SetLog::getId,
+                                (a, b) -> a))
+                : Map.of();
+
         if (exercises == null || exercises.isEmpty()) {
             totalSets       = 0;
             totalVolumeKg   = BigDecimal.ZERO;
@@ -715,17 +711,11 @@ public class SessionController {
                         .max(BigDecimal::compareTo)
                         .orElse(BigDecimal.ZERO);
 
-                // PR detection: bodyweight exercises (all sets weightKg = 0) never get weight PR
+                // isPr is intentionally false at finish time. PrWritePathService runs
+                // AFTER this block and is the sole authority on PR detection — it writes
+                // pr_events and updates user_exercise_bests. The frontend should rely
+                // on pr_events or the /finish response to learn which exercises PR'd.
                 boolean isPr = false;
-                boolean isBodyweight = ex.sets().stream()
-                        .allMatch(s -> s.weightKg() == null
-                                || s.weightKg().compareTo(BigDecimal.ZERO) == 0);
-                if (!isBodyweight && todayMax.compareTo(BigDecimal.ZERO) > 0) {
-                    BigDecimal historicalMax = sessionRepo.findMaxWeightForExercise(
-                            userId, ex.exerciseId(), session.getId());
-                    isPr = historicalMax == null
-                            || todayMax.compareTo(historicalMax) > 0;
-                }
 
                 BigDecimal exVolume = ex.sets().stream()
                         .map(s -> s.weightKg() != null
@@ -739,6 +729,8 @@ public class SessionController {
                             m.put("setNumber", s.setNumber());
                             m.put("reps",      s.reps());
                             m.put("weightKg",  s.weightKg());
+                            m.put("setId",     setIdByExerciseAndNumber.get(
+                                    ex.exerciseId() + ":" + s.setNumber()));
                             return m;
                         })
                         .collect(Collectors.toList());
@@ -751,7 +743,6 @@ public class SessionController {
                 exMap.put("totalVolume",  exVolume);
                 exMap.put("isPr",         isPr);
                 exerciseData.add(exMap);
-                if (isPr) newPrExercises.add(ex);
             }
 
             try {
@@ -821,31 +812,6 @@ public class SessionController {
         // so a failure in one block cannot mark the others rollback-only.
         // Every failure is logged at error level; nothing is swallowed.
         // ────────────────────────────────────────────────────────────────
-
-        // PR upsert — personal_records table.
-        // Runs after session is COMPLETED so the history query in PR detection
-        // excludes today correctly. One upsert per exercise; skips bodyweight sets.
-        try {
-            if (exercises != null) {
-                for (ExerciseLogRequest ex : exercises) {
-                    if (ex.sets() == null || ex.sets().isEmpty()) continue;
-                    // Skip bodyweight exercises (all sets have null or zero weightKg)
-                    boolean isBodyweight = ex.sets().stream()
-                            .allMatch(s -> s.weightKg() == null
-                                    || s.weightKg().compareTo(BigDecimal.ZERO) == 0);
-                    if (isBodyweight) continue;
-                    // Best set this session for this exercise
-                    ex.sets().stream()
-                            .filter(s -> s.weightKg() != null
-                                    && s.weightKg().compareTo(BigDecimal.ZERO) > 0)
-                            .max(Comparator.comparing(SetLogRequest::weightKg))
-                            .ifPresent(best -> prRepo.upsertPr(
-                                    userId, ex.exerciseId(), best.weightKg(), best.reps()));
-                }
-            }
-        } catch (Exception e) {
-            log.error("Failed to upsert personal records for session={}", id, e);
-        }
 
         // Streak update — atomic SQL to avoid detached-entity merge races
         // with RankService.checkAndPromote (which also writes to users).
@@ -917,21 +883,13 @@ public class SessionController {
             coinService.awardCoins(userId, COINS_PER_SESSION, "LOG_WORKOUT",
                     "Logged " + session.getName(), id.toString());
 
-            // 2. Personal record awards +25 per new PR
-            for (ExerciseLogRequest prEx : newPrExercises) {
-                String exerciseName = prEx.exerciseName() != null ? prEx.exerciseName() : prEx.exerciseId();
-                coinService.awardCoins(userId, 25, "PERSONAL_RECORD",
-                        exerciseName + " PR",
-                        "PR_" + id + "_" + prEx.exerciseId());
-            }
-
-            // 3. Weekly goal +50 — only on the exact session that hits the goal
+            // 2. Weekly goal +50 — only on the exact session that hits the goal
             if (count == weeklyGoal) {
                 coinService.awardCoins(userId, 50, "WEEKLY_GOAL",
                         "Weekly goal hit", weekEpoch);
             }
 
-            // 4. Volume improvement vs last week +30
+            // 3. Volume improvement vs last week +30
             Instant lastWeekFrom = weekFrom.minus(7, ChronoUnit.DAYS);
             BigDecimal thisWeekVol = sessionRepo.sumVolumeByUserIdAndFinishedAtBetween(userId, weekFrom, weekTo);
             BigDecimal lastWeekVol = sessionRepo.sumVolumeByUserIdAndFinishedAtBetween(userId, lastWeekFrom, weekFrom);
@@ -941,7 +899,7 @@ public class SessionController {
                         "Improved vs last week", weekEpoch);
             }
 
-            // 5. Streak milestones
+            // 4. Streak milestones
             int currentStreak = user.getStreak();
             if (currentStreak > 0 && currentStreak % 7 == 0) {
                 coinService.awardCoins(userId, 35, "STREAK_MILESTONE",
@@ -957,16 +915,23 @@ public class SessionController {
         }
 
         // ── PR System V2 write path ──────────────────────────────────────
-        // Process PR detection and persist events for Phase 3a.
-        // Failure here must not affect session finish or other derived data.
+        // Build LoggedSets from request payload. setIds come from setIdByExerciseAndNumber
+        // (pre-fetched before CORE SAVE while set_logs still exist). set_logs is
+        // deleted as the final derived block below (Option Y — JSONB is source of truth).
         try {
             List<LoggedSet> loggedSets = new ArrayList<>();
-            if (exercises != null && !exercises.isEmpty()) {
+            if (exercises != null) {
                 for (ExerciseLogRequest ex : exercises) {
-                    if (ex.sets() == null || ex.sets().isEmpty()) continue;
+                    if (ex.sets() == null) continue;
                     for (SetLogRequest setReq : ex.sets()) {
-                        loggedSets.add(new LoggedSet(ex.exerciseId(), setReq.weightKg(),
-                                setReq.reps(), null)); // holdSeconds not yet populated in log-set
+                        UUID setId = setIdByExerciseAndNumber.get(
+                                ex.exerciseId() + ":" + setReq.setNumber());
+                        loggedSets.add(new LoggedSet(
+                                setId,
+                                ex.exerciseId(),
+                                setReq.weightKg(),
+                                setReq.reps(),
+                                null));  // holdSeconds not in SetLogRequest; TIMED support is future
                     }
                 }
             }
@@ -997,34 +962,20 @@ public class SessionController {
                     }
                 }
 
-                // PR feed items — one per PR exercise, posted to every group
-                for (ExerciseLogRequest prEx : newPrExercises) {
-                    String exerciseName = prEx.exerciseName() != null ? prEx.exerciseName() : prEx.exerciseId();
-                    BigDecimal prWeight = prEx.sets().stream()
-                            .map(s -> s.weightKg() != null ? s.weightKg() : BigDecimal.ZERO)
-                            .max(BigDecimal::compareTo).orElse(BigDecimal.ZERO);
-                    int prReps = prEx.sets().stream()
-                            .filter(s -> s.weightKg() != null && s.weightKg().compareTo(prWeight) == 0)
-                            .mapToInt(SetLogRequest::reps)
-                            .max().orElse(0);
-                    String prBody = displayName + " hit a new PR · " + exerciseName + " · "
-                            + prWeight.stripTrailingZeros().toPlainString() + "kg × " + prReps;
-                    for (GroupMember gm : memberships) {
-                        try {
-                            FeedItem fi = new FeedItem();
-                            fi.setGroupId(gm.getGroupId());
-                            fi.setUserId(userId);
-                            fi.setType("PR");
-                            fi.setBody(prBody);
-                            feedItemRepo.save(fi);
-                        } catch (Exception e) {
-                            log.error("Failed to post PR feed for group={}", gm.getGroupId(), e);
-                        }
-                    }
-                }
             }
         } catch (Exception e) {
             log.error("Failed to post feed items for session={}", id, e);
+        }
+
+        // ── Delete set_logs (Option Y cleanup) ──────────────────────────
+        // set_logs was a mid-workout crash-recovery buffer. Under Option Y the
+        // exercises JSONB (with embedded setIds) written at finish is the single
+        // source of truth. set_logs rows are no longer needed; PATCH/DELETE during
+        // the edit window read setId from JSONB, not set_logs.
+        try {
+            setLogRepo.deleteBySessionId(id);
+        } catch (Exception e) {
+            log.error("Failed to delete set_logs for session={} — rows will persist but are not load-bearing", id, e);
         }
 
         return ResponseEntity.ok(ApiResponse.success(new FinishSessionResponse(
@@ -1298,6 +1249,39 @@ public class SessionController {
         if (!"IN_PROGRESS".equals(session.getStatus())) {
             throw new ApiException(HttpStatus.CONFLICT, "SESSION_NOT_IN_PROGRESS",
                     "This session is already " + session.getStatus() + ".");
+        }
+        return session;
+    }
+
+    /**
+     * Requires the session to be owned by the user AND within the edit window.
+     * Edit window = session is COMPLETED and finished_at is before 6:00 AM IST
+     * the day after the session was finished.
+     */
+    private WorkoutSession requireOwnedAndEditable(UUID sessionId, UUID userId) {
+        WorkoutSession session = requireOwned(sessionId, userId);
+        if ("IN_PROGRESS".equals(session.getStatus())) {
+            return session; // mid-workout edits are always allowed
+        }
+        if (!"COMPLETED".equals(session.getStatus())) {
+            throw new ApiException(HttpStatus.CONFLICT, "SESSION_NOT_EDITABLE",
+                    "This session is " + session.getStatus() + " and cannot be edited.");
+        }
+        if (session.getFinishedAt() == null) {
+            throw new ApiException(HttpStatus.CONFLICT, "SESSION_NOT_EDITABLE",
+                    "Session has no finish timestamp.");
+        }
+        // Edit window closes at 6:00 AM IST the day after the session was finished.
+        // e.g., finish at 8pm Tue → closes 6am Wed. Finish at 2am Wed → closes 6am Thu.
+        java.time.ZoneId ist = java.time.ZoneId.of("Asia/Kolkata");
+        java.time.ZonedDateTime finishedZoned = session.getFinishedAt().atZone(ist);
+        java.time.LocalDate finishDate = finishedZoned.toLocalDate();
+        java.time.ZonedDateTime cutoff = finishDate.plusDays(1)
+                .atTime(6, 0)
+                .atZone(ist);
+        if (java.time.ZonedDateTime.now(ist).isAfter(cutoff)) {
+            throw new ApiException(HttpStatus.CONFLICT, "EDIT_WINDOW_CLOSED",
+                    "Edit window has closed for this session.");
         }
         return session;
     }

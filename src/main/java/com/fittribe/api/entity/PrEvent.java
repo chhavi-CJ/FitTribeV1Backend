@@ -55,7 +55,7 @@ public class PrEvent {
     @Column(name = "session_id", nullable = false)
     private UUID sessionId;
 
-    @Column(name = "set_id")
+    @Column(name = "set_id", nullable = false)
     private UUID setId;
 
     @Column(name = "pr_category", nullable = false, length = 30)

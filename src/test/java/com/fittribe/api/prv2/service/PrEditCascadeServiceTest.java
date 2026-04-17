@@ -1,6 +1,5 @@
 package com.fittribe.api.prv2.service;
 
-import com.fittribe.api.config.PrSystemConfig;
 import com.fittribe.api.entity.PrEvent;
 import com.fittribe.api.entity.UserExerciseBests;
 import com.fittribe.api.entity.WeeklyPrCount;
@@ -10,7 +9,6 @@ import com.fittribe.api.prv2.detector.PRDetector;
 import com.fittribe.api.prv2.detector.PRResult;
 import com.fittribe.api.prv2.detector.PrCategory;
 import com.fittribe.api.repository.PrEventRepository;
-import com.fittribe.api.repository.SetLogRepository;
 import com.fittribe.api.repository.UserExerciseBestsRepository;
 import com.fittribe.api.repository.WeeklyPrCountRepository;
 import com.fittribe.api.service.CoinService;
@@ -42,20 +40,15 @@ import static org.mockito.Mockito.*;
 
 /**
  * Mockito unit tests for PrEditCascadeService (Phase 3b).
- * DISABLED: Requires Spring context to mock @Configuration beans (PrSystemConfig).
- * Pure Mockito cannot inline-mock Spring @Configuration classes.
- * These tests should be enabled when running with @SpringBootTest context.
  */
-@Disabled("Requires Spring @Configuration bean mocking; enable with @SpringBootTest context")
+@Disabled("Unit tests for PrEditCascadeService — enable with @SpringBootTest context for full integration")
 @ExtendWith(MockitoExtension.class)
 @DisplayName("PrEditCascadeService — PR edit cascade unit tests")
 class PrEditCascadeServiceTest {
 
-    @Mock private PrSystemConfig prSystemConfig;
     @Mock private PRDetector prDetector;
     @Mock private UserExerciseBestsRepository userExerciseBestsRepo;
     @Mock private PrEventRepository prEventRepo;
-    @Mock private SetLogRepository setLogRepo;
     @Mock private WeeklyPrCountRepository weeklyPrCountRepo;
     @Mock private CoinService coinService;
     @Mock private PlatformTransactionManager transactionManager;
@@ -75,11 +68,9 @@ class PrEditCascadeServiceTest {
         transactionTemplate = new TransactionTemplate(transactionManager);
 
         service = new PrEditCascadeService(
-                prSystemConfig,
                 prDetector,
                 userExerciseBestsRepo,
                 prEventRepo,
-                setLogRepo,
                 weeklyPrCountRepo,
                 coinService,
                 transactionManager);
@@ -87,26 +78,9 @@ class PrEditCascadeServiceTest {
         userId = UUID.randomUUID();
         sessionId = UUID.randomUUID();
         setId = UUID.randomUUID();
-        oldValue = new LoggedSet("bench-press", BigDecimal.valueOf(80.0), 10, null);
-        newValue = new LoggedSet("bench-press", BigDecimal.valueOf(85.0), 10, null);
+        oldValue = new LoggedSet(null, "bench-press", BigDecimal.valueOf(80.0), 10, null);
+        newValue = new LoggedSet(null, "bench-press", BigDecimal.valueOf(85.0), 10, null);
         weekStart = LocalDate.now(ZoneOffset.UTC).with(TemporalAdjusters.previousOrSame(DayOfWeek.MONDAY));
-
-        // Default: feature flag enabled
-        when(prSystemConfig.isPrSystemV2Enabled()).thenReturn(true);
-    }
-
-    // ── Feature flag tests ────────────────────────────────────────────
-
-    @Test
-    @DisplayName("Flag off → no-op: no DB calls")
-    void featureFlagOff_noOp() {
-        when(prSystemConfig.isPrSystemV2Enabled()).thenReturn(false);
-
-        service.processSetEdit(userId, sessionId, setId, oldValue, newValue);
-
-        // Verify no repository calls made
-        verify(prEventRepo, never()).findByUserIdAndSessionIdAndSetIdAndSupersededAtNull(any(), any(), any());
-        verify(coinService, never()).awardCoins(any(), anyInt(), any(), any(), any());
     }
 
     // ── Edit cascade tests ────────────────────────────────────────────

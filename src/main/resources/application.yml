@@ -70,11 +70,8 @@ logging:
 
 # ── Feature flags ────────────────────────────────────────────────────
 # Mock auth (local dev only — never enable on Railway)
-# PR System V2 (gated until all phases complete)
 app:
   mock-auth-enabled: false
-  pr-system-v2:
-    enabled: false
 
 # ── Admin endpoints (Wynners A1.5) ────────────────────────────────────
 # Shared secret required on the X-Admin-Secret header for
