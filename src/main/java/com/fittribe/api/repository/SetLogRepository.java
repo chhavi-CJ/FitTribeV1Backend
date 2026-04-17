@@ -24,9 +24,11 @@ public interface SetLogRepository extends JpaRepository<SetLog, UUID> {
     @Transactional
     void deleteBySessionId(UUID sessionId);
 
+    // TODO: remove — no production callers after Option Y migration
     @Transactional
     void deleteBySessionIdAndExerciseIdAndSetNumber(UUID sessionId, String exerciseId, int setNumber);
 
+    // TODO: remove — no production callers after Option Y migration
     @Transactional
     void deleteBySessionIdAndExerciseId(UUID sessionId, String exerciseId);
 
@@ -143,4 +145,21 @@ public interface SetLogRepository extends JpaRepository<SetLog, UUID> {
             @Param("userId")      UUID        userId,
             @Param("before")      Instant     before,
             @Param("exerciseIds") Collection<String> exerciseIds);
+
+    /**
+     * Max weight logged so far in the current session for a given exercise.
+     * Used by sparkle (mid-workout PR celebration) to determine if a new set
+     * beats the bar set by prior sets in the same in-progress session.
+     *
+     * Returns null if no sets logged yet for this (session, exercise) pair
+     * or if all logged sets had null weight_kg (bodyweight).
+     */
+    @Query(value =
+        "SELECT MAX(weight_kg) FROM set_logs " +
+        "WHERE session_id = :sessionId AND exercise_id = :exerciseId",
+        nativeQuery = true)
+    BigDecimal findMaxWeightInSessionForExercise(
+            @Param("sessionId") UUID sessionId,
+            @Param("exerciseId") String exerciseId);
+
 }

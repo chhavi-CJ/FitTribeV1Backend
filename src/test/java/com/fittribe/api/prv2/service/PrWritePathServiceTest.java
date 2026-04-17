@@ -1,6 +1,5 @@
 package com.fittribe.api.prv2.service;
 
-import com.fittribe.api.config.PrSystemConfig;
 import com.fittribe.api.entity.PrEvent;
 import com.fittribe.api.entity.UserExerciseBests;
 import com.fittribe.api.entity.WeeklyPrCount;
@@ -42,16 +41,12 @@ import static org.mockito.Mockito.*;
 
 /**
  * Mockito unit tests for PrWritePathService.
- * DISABLED: Requires Spring context to mock @Configuration beans (PrSystemConfig).
- * Pure Mockito cannot inline-mock Spring @Configuration classes.
- * These tests should be enabled when running with @SpringBootTest context.
  */
-@Disabled("Requires Spring @Configuration bean mocking; enable with @SpringBootTest context")
+@Disabled("Unit tests for PrWritePathService — enable with @SpringBootTest context for full integration")
 @ExtendWith(MockitoExtension.class)
 @DisplayName("PrWritePathService — PR write path unit tests")
 class PrWritePathServiceTest {
 
-    @Mock private PrSystemConfig prSystemConfig;
     @Mock private PRDetector prDetector;
     @Mock private UserExerciseBestsRepository userExerciseBestsRepo;
     @Mock private PrEventRepository prEventRepo;
@@ -74,7 +69,6 @@ class PrWritePathServiceTest {
         transactionTemplate = new TransactionTemplate(transactionManager);
 
         service = new PrWritePathService(
-                prSystemConfig,
                 prDetector,
                 userExerciseBestsRepo,
                 prEventRepo,
@@ -85,27 +79,9 @@ class PrWritePathServiceTest {
 
         userId = UUID.randomUUID();
         sessionId = UUID.randomUUID();
-        loggedSet = new LoggedSet("bench-press", BigDecimal.valueOf(80.0), 10, null);
+        loggedSet = new LoggedSet(null, "bench-press", BigDecimal.valueOf(80.0), 10, null);
         weekStart = LocalDate.now(ZoneOffset.UTC).with(TemporalAdjusters.previousOrSame(DayOfWeek.MONDAY));
 
-        // Default: feature flag enabled
-        when(prSystemConfig.isPrSystemV2Enabled()).thenReturn(true);
-    }
-
-    // ── Feature flag tests ────────────────────────────────────────────
-
-    @Test
-    @DisplayName("Flag off → no-op: no DB calls, no coin calls")
-    void featureFlagOff_noOp() {
-        when(prSystemConfig.isPrSystemV2Enabled()).thenReturn(false);
-        List<LoggedSet> sets = List.of(loggedSet);
-
-        service.processSessionFinish(userId, sessionId, sets);
-
-        // Verify no repository or service calls made
-        verify(userExerciseBestsRepo, never()).findByUserIdAndExerciseId(any(), any());
-        verify(prEventRepo, never()).save(any());
-        verify(coinService, never()).awardCoins(any(), anyInt(), any(), any(), any());
     }
 
     @Test
@@ -234,7 +210,7 @@ class PrWritePathServiceTest {
         when(userExerciseBestsRepo.findByUserIdAndExerciseId(userId, "squat"))
                 .thenReturn(Optional.of(existingBests));
 
-        LoggedSet maxAttempt = new LoggedSet("squat", BigDecimal.valueOf(105.0), 1, null);
+        LoggedSet maxAttempt = new LoggedSet(null, "squat", BigDecimal.valueOf(105.0), 1, null);
 
         // PRDetector returns MAX_ATTEMPT
         PRResult prResult = new PRResult(true, PrCategory.MAX_ATTEMPT,
@@ -295,12 +271,12 @@ class PrWritePathServiceTest {
     @DisplayName("Exception on set 1 → set 2 still processes (P4 pattern)")
     void exceptionHandling_set2ProcessesAfterSet1Fails() {
         // Set 1: simulates a DB failure that throws
-        LoggedSet set1 = new LoggedSet("bench-press", BigDecimal.valueOf(80.0), 10, null);
+        LoggedSet set1 = new LoggedSet(null, "bench-press", BigDecimal.valueOf(80.0), 10, null);
         when(userExerciseBestsRepo.findByUserIdAndExerciseId(userId, "bench-press"))
                 .thenThrow(new RuntimeException("Simulated DB failure on set 1"));
 
         // Set 2: should still process
-        LoggedSet set2 = new LoggedSet("squat", BigDecimal.valueOf(100.0), 5, null);
+        LoggedSet set2 = new LoggedSet(null, "squat", BigDecimal.valueOf(100.0), 5, null);
         when(userExerciseBestsRepo.findByUserIdAndExerciseId(userId, "squat"))
                 .thenReturn(Optional.empty());
 

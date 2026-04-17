@@ -30,7 +30,7 @@ class PRDetectorTest {
     @Test
     @DisplayName("FIRST_EVER fires when currentBests is null")
     void firstEver_whenNullBests() {
-        LoggedSet set = new LoggedSet("bench-press", BigDecimal.valueOf(40.0), 10, null);
+        LoggedSet set = new LoggedSet(null, "bench-press", BigDecimal.valueOf(40.0), 10, null);
         PRResult result = detector.detect(set, null, ExerciseType.WEIGHTED);
 
         assertTrue(result.isPR());
@@ -48,7 +48,7 @@ class PRDetectorTest {
         bests.setExerciseType("WEIGHTED");
         bests.setTotalSessionsWithExercise(0);
 
-        LoggedSet set = new LoggedSet("squat", BigDecimal.valueOf(100.0), 5, null);
+        LoggedSet set = new LoggedSet(null, "squat", BigDecimal.valueOf(100.0), 5, null);
         PRResult result = detector.detect(set, bests, ExerciseType.WEIGHTED);
 
         assertTrue(result.isPR());
@@ -64,7 +64,7 @@ class PRDetectorTest {
         bests.setExerciseType("BODYWEIGHT_UNASSISTED");
         bests.setTotalSessionsWithExercise(0);
 
-        LoggedSet set = new LoggedSet("pushup", null, 15, null);
+        LoggedSet set = new LoggedSet(null, "pushup", null, 15, null);
         PRResult result = detector.detect(set, bests, ExerciseType.BODYWEIGHT_UNASSISTED);
 
         assertTrue(result.isPR());
@@ -79,7 +79,7 @@ class PRDetectorTest {
         bests.setExerciseType("TIMED");
         bests.setTotalSessionsWithExercise(0);
 
-        LoggedSet set = new LoggedSet("plank", null, null, 60);
+        LoggedSet set = new LoggedSet(null, "plank", null, null, 60);
         PRResult result = detector.detect(set, bests, ExerciseType.TIMED);
 
         assertTrue(result.isPR());
@@ -96,7 +96,7 @@ class PRDetectorTest {
         bests.setBestWtKg(BigDecimal.valueOf(40.0));
         bests.setRepsAtBestWt(10);
 
-        LoggedSet set = new LoggedSet("bench", BigDecimal.valueOf(45.0), 3, null);
+        LoggedSet set = new LoggedSet(null, "bench", BigDecimal.valueOf(45.0), 3, null);
         PRResult result = detector.detect(set, bests, ExerciseType.WEIGHTED);
 
         assertTrue(result.isPR());
@@ -111,7 +111,7 @@ class PRDetectorTest {
         bests.setTotalSessionsWithExercise(5);
         bests.setBestWtKg(BigDecimal.valueOf(40.0));
 
-        LoggedSet set = new LoggedSet("bench", BigDecimal.valueOf(45.0), 2, null);
+        LoggedSet set = new LoggedSet(null, "bench", BigDecimal.valueOf(45.0), 2, null);
         PRResult result = detector.detect(set, bests, ExerciseType.WEIGHTED);
 
         assertTrue(result.isPR());
@@ -127,7 +127,7 @@ class PRDetectorTest {
         bests.setTotalSessionsWithExercise(5);
         bests.setBestWtKg(BigDecimal.valueOf(100.0));
 
-        LoggedSet set = new LoggedSet("squat", BigDecimal.valueOf(105.0), 1, null);
+        LoggedSet set = new LoggedSet(null, "squat", BigDecimal.valueOf(105.0), 1, null);
         PRResult result = detector.detect(set, bests, ExerciseType.WEIGHTED);
 
         assertTrue(result.isPR());
@@ -142,7 +142,7 @@ class PRDetectorTest {
         bests.setTotalSessionsWithExercise(5);
         bests.setBestWtKg(BigDecimal.valueOf(100.0));
 
-        LoggedSet set = new LoggedSet("squat", BigDecimal.valueOf(110.0), 2, null);
+        LoggedSet set = new LoggedSet(null, "squat", BigDecimal.valueOf(110.0), 2, null);
         PRResult result = detector.detect(set, bests, ExerciseType.WEIGHTED);
 
         assertTrue(result.isPR());
@@ -156,7 +156,7 @@ class PRDetectorTest {
         bests.setTotalSessionsWithExercise(5);
         bests.setBestWtKg(BigDecimal.valueOf(100.0));
 
-        LoggedSet set = new LoggedSet("squat", BigDecimal.valueOf(100.0), 1, null);
+        LoggedSet set = new LoggedSet(null, "squat", BigDecimal.valueOf(100.0), 1, null);
         PRResult result = detector.detect(set, bests, ExerciseType.WEIGHTED);
 
         assertFalse(result.isPR());
@@ -172,7 +172,7 @@ class PRDetectorTest {
         bests.setBestWtKg(BigDecimal.valueOf(40.0));
         bests.setRepsAtBestWt(10);
 
-        LoggedSet set = new LoggedSet("bench", BigDecimal.valueOf(40.0), 12, null);
+        LoggedSet set = new LoggedSet(null, "bench", BigDecimal.valueOf(40.0), 12, null);
         PRResult result = detector.detect(set, bests, ExerciseType.WEIGHTED);
 
         assertTrue(result.isPR());
@@ -189,7 +189,7 @@ class PRDetectorTest {
         bests.setBestWtKg(BigDecimal.valueOf(40.0));
         bests.setRepsAtBestWt(10);
 
-        LoggedSet set = new LoggedSet("bench", BigDecimal.valueOf(35.0), 15, null);
+        LoggedSet set = new LoggedSet(null, "bench", BigDecimal.valueOf(35.0), 15, null);
         PRResult result = detector.detect(set, bests, ExerciseType.WEIGHTED);
 
         assertFalse(result.isPR());
@@ -206,7 +206,7 @@ class PRDetectorTest {
         bests.setRepsAtBestWt(10);
         bests.setBestSetVolumeKg(BigDecimal.valueOf(400.0)); // 40 * 10
 
-        LoggedSet set = new LoggedSet("bench", BigDecimal.valueOf(35.0), 12, null); // 35 * 12 = 420
+        LoggedSet set = new LoggedSet(null, "bench", BigDecimal.valueOf(35.0), 12, null); // 35 * 12 = 420
         PRResult result = detector.detect(set, bests, ExerciseType.WEIGHTED);
 
         assertTrue(result.isPR());
@@ -225,7 +225,7 @@ class PRDetectorTest {
         bests.setBestSetVolumeKg(BigDecimal.valueOf(400.0));
 
         // New weight at 3+ reps triggers WEIGHT_PR before VOLUME_PR
-        LoggedSet set = new LoggedSet("bench", BigDecimal.valueOf(50.0), 3, null);
+        LoggedSet set = new LoggedSet(null, "bench", BigDecimal.valueOf(50.0), 3, null);
         PRResult result = detector.detect(set, bests, ExerciseType.WEIGHTED);
 
         assertTrue(result.isPR());
@@ -243,7 +243,7 @@ class PRDetectorTest {
         bests.setRepsAtBestWt(10);
         bests.setBestSetVolumeKg(BigDecimal.valueOf(400.0));
 
-        LoggedSet set = new LoggedSet("bench", BigDecimal.valueOf(40.0), 8, null);
+        LoggedSet set = new LoggedSet(null, "bench", BigDecimal.valueOf(40.0), 8, null);
         PRResult result = detector.detect(set, bests, ExerciseType.WEIGHTED);
 
         assertFalse(result.isPR());
@@ -261,7 +261,7 @@ class PRDetectorTest {
         bests.setExerciseType("TIMED");
         bests.setTotalSessionsWithExercise(0);
 
-        LoggedSet set = new LoggedSet("plank", null, null, 45);
+        LoggedSet set = new LoggedSet(null, "plank", null, null, 45);
         PRResult result = detector.detect(set, bests, ExerciseType.TIMED);
 
         assertTrue(result.isPR());
@@ -275,7 +275,7 @@ class PRDetectorTest {
         bests.setTotalSessionsWithExercise(5);
         bests.setBestHoldSeconds(60);
 
-        LoggedSet set = new LoggedSet("plank", null, null, 75);
+        LoggedSet set = new LoggedSet(null, "plank", null, null, 75);
         PRResult result = detector.detect(set, bests, ExerciseType.TIMED);
 
         assertTrue(result.isPR());
@@ -289,7 +289,7 @@ class PRDetectorTest {
     @Test
     @DisplayName("Null currentBests fires FIRST_EVER")
     void edgeCase_nullCurrentBests() {
-        LoggedSet set = new LoggedSet("deadlift", BigDecimal.valueOf(150.0), 5, null);
+        LoggedSet set = new LoggedSet(null, "deadlift", BigDecimal.valueOf(150.0), 5, null);
         PRResult result = detector.detect(set, null, ExerciseType.WEIGHTED);
 
         assertTrue(result.isPR());
@@ -304,7 +304,7 @@ class PRDetectorTest {
         bests.setBestWtKg(BigDecimal.valueOf(40.0));
         bests.setRepsAtBestWt(10);
 
-        LoggedSet set = new LoggedSet("bench", BigDecimal.valueOf(0), 10, null);
+        LoggedSet set = new LoggedSet(null, "bench", BigDecimal.valueOf(0), 10, null);
         PRResult result = detector.detect(set, bests, ExerciseType.WEIGHTED);
 
         assertFalse(result.isPR());
@@ -317,7 +317,7 @@ class PRDetectorTest {
         bests.setTotalSessionsWithExercise(5);
         bests.setBestHoldSeconds(60);
 
-        LoggedSet set = new LoggedSet("plank", null, null, 0);
+        LoggedSet set = new LoggedSet(null, "plank", null, null, 0);
         PRResult result = detector.detect(set, bests, ExerciseType.TIMED);
 
         assertFalse(result.isPR());
@@ -331,7 +331,7 @@ class PRDetectorTest {
         bests.setBestWtKg(BigDecimal.valueOf(40.0));
         bests.setRepsAtBestWt(10);
 
-        LoggedSet set = new LoggedSet("bench", BigDecimal.valueOf(40.0), 10, null);
+        LoggedSet set = new LoggedSet(null, "bench", BigDecimal.valueOf(40.0), 10, null);
         PRResult result = detector.detect(set, bests, ExerciseType.WEIGHTED);
 
         assertFalse(result.isPR());
@@ -344,7 +344,7 @@ class PRDetectorTest {
         bests.setTotalSessionsWithExercise(5);
         bests.setBestWtKg(BigDecimal.valueOf(40.0));
 
-        LoggedSet set = new LoggedSet("bench", null, 10, null);
+        LoggedSet set = new LoggedSet(null, "bench", null, 10, null);
         PRResult result = detector.detect(set, bests, ExerciseType.WEIGHTED);
 
         assertFalse(result.isPR());
@@ -358,7 +358,7 @@ class PRDetectorTest {
         bests.setBestWtKg(BigDecimal.valueOf(40.0));
         bests.setRepsAtBestWt(10);
 
-        LoggedSet set = new LoggedSet("bench", BigDecimal.valueOf(-5.0), 10, null);
+        LoggedSet set = new LoggedSet(null, "bench", BigDecimal.valueOf(-5.0), 10, null);
         PRResult result = detector.detect(set, bests, ExerciseType.WEIGHTED);
 
         assertFalse(result.isPR());
@@ -367,7 +367,7 @@ class PRDetectorTest {
     @Test
     @DisplayName("Detector version is always v1.0")
     void edgeCase_detectorVersion() {
-        LoggedSet set = new LoggedSet("bench", BigDecimal.valueOf(40.0), 10, null);
+        LoggedSet set = new LoggedSet(null, "bench", BigDecimal.valueOf(40.0), 10, null);
         PRResult result = detector.detect(set, null, ExerciseType.WEIGHTED);
 
         assertEquals("v1.0", result.detectorVersion());
@@ -382,7 +382,7 @@ class PRDetectorTest {
         bests.setRepsAtBestWt(10);
 
         // Both WEIGHT_PR and REP_PR could fire, but WEIGHT_PR wins
-        LoggedSet set = new LoggedSet("bench", BigDecimal.valueOf(45.0), 12, null);
+        LoggedSet set = new LoggedSet(null, "bench", BigDecimal.valueOf(45.0), 12, null);
         PRResult result = detector.detect(set, bests, ExerciseType.WEIGHTED);
 
         assertEquals(PrCategory.WEIGHT_PR, result.category());
@@ -398,7 +398,7 @@ class PRDetectorTest {
         bests.setBestSetVolumeKg(BigDecimal.valueOf(400.0));
 
         // Rep PR fires first in waterfall
-        LoggedSet set = new LoggedSet("bench", BigDecimal.valueOf(40.0), 15, null);
+        LoggedSet set = new LoggedSet(null, "bench", BigDecimal.valueOf(40.0), 15, null);
         PRResult result = detector.detect(set, bests, ExerciseType.WEIGHTED);
 
         assertEquals(PrCategory.REP_PR, result.category());

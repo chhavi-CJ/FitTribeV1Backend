@@ -1,8 +1,6 @@
 package com.fittribe.api.prv2.service;
 
-import com.fittribe.api.config.PrSystemConfig;
 import com.fittribe.api.entity.PrEvent;
-import com.fittribe.api.entity.SetLog;
 import com.fittribe.api.entity.UserExerciseBests;
 import com.fittribe.api.entity.WeeklyPrCount;
 import com.fittribe.api.prv2.detector.ExerciseType;
@@ -11,7 +9,6 @@ import com.fittribe.api.prv2.detector.PRDetector;
 import com.fittribe.api.prv2.detector.PRResult;
 import com.fittribe.api.prv2.detector.PrCategory;
 import com.fittribe.api.repository.PrEventRepository;
-import com.fittribe.api.repository.SetLogRepository;
 import com.fittribe.api.repository.UserExerciseBestsRepository;
 import com.fittribe.api.repository.WeeklyPrCountRepository;
 import com.fittribe.api.service.CoinService;
@@ -30,19 +27,9 @@ import java.util.List;
 import java.util.UUID;
 
 /**
- * Service for handling PR event cascades when sets are edited or deleted.
- *
- * <p>Called from SessionController edit/delete endpoints AFTER the set values
- * are updated in workout_sessions and set_logs. Responsible for:
- * 1. Finding superseded PR events
- * 2. Marking them superseded and revoking coins via deferred debt settlement
- * 3. Decrementing weekly_pr_counts
- * 4. Re-running PR detection on the new values
- * 5. Writing new pr_event rows if a PR still fires
- * 6. Updating set_logs.is_pr after cascade completes
- *
- * <p>All behavior is gated by feature flag app.pr-system-v2.enabled.
- * When disabled, this service is a no-op.
+ * Handles PR supersession, un-supersession, and coin reconciliation when a user
+ * edits or deletes a set during the edit window. Operates on pr_events and
+ * user_exercise_bests only — JSONB mutation is handled by the controller.
  *
  * <p>Per-set processing runs in its own TransactionTemplate for error isolation
  * (P4 pattern per HLD §7.3). Failures on one set do not prevent others from processing.
@@ -52,29 +39,23 @@ public class PrEditCascadeService {
 
     private static final Logger log = LoggerFactory.getLogger(PrEditCascadeService.class);
 
-    private final PrSystemConfig prSystemConfig;
     private final PRDetector prDetector;
     private final UserExerciseBestsRepository userExerciseBestsRepo;
     private final PrEventRepository prEventRepo;
-    private final SetLogRepository setLogRepo;
     private final WeeklyPrCountRepository weeklyPrCountRepo;
     private final CoinService coinService;
     private final TransactionTemplate transactionTemplate;
 
     public PrEditCascadeService(
-            PrSystemConfig prSystemConfig,
             PRDetector prDetector,
             UserExerciseBestsRepository userExerciseBestsRepo,
             PrEventRepository prEventRepo,
-            SetLogRepository setLogRepo,
             WeeklyPrCountRepository weeklyPrCountRepo,
             CoinService coinService,
             PlatformTransactionManager transactionManager) {
-        this.prSystemConfig = prSystemConfig;
         this.prDetector = prDetector;
         this.userExerciseBestsRepo = userExerciseBestsRepo;
         this.prEventRepo = prEventRepo;
-        this.setLogRepo = setLogRepo;
         this.weeklyPrCountRepo = weeklyPrCountRepo;
         this.coinService = coinService;
         this.transactionTemplate = new TransactionTemplate(transactionManager);
@@ -83,9 +64,9 @@ public class PrEditCascadeService {
     /**
      * Process a set edit: supersede old PR events, revoke coins, detect new PRs.
      *
-     * <p>Called AFTER workout_sessions.exercises JSONB and set_logs have been updated
-     * with new values. This method determines which PRs are invalidated and handles
-     * the cascade: revocation, redetection, coin award/revocation.
+     * <p>Called AFTER workout_sessions.exercises JSONB has been updated with new
+     * values. This method determines which PRs are invalidated and handles the
+     * cascade: revocation, redetection, coin award/revocation.
      *
      * @param userId    the user who edited
      * @param sessionId the session containing the edited set
@@ -95,12 +76,6 @@ public class PrEditCascadeService {
      */
     public void processSetEdit(UUID userId, UUID sessionId, UUID setId,
                                LoggedSet oldValue, LoggedSet newValue) {
-        // Feature flag gate
-        if (!prSystemConfig.isPrSystemV2Enabled()) {
-            log.debug("PR System V2 disabled; processSetEdit is a no-op for session={}", sessionId);
-            return;
-        }
-
         log.debug("Starting edit cascade for user={} session={} exercise={} setId={}",
                 userId, sessionId, oldValue.exerciseId(), setId);
 
@@ -110,8 +85,8 @@ public class PrEditCascadeService {
     /**
      * Process a set deletion: supersede old PR events, revoke coins, no new PR detection.
      *
-     * <p>Called AFTER the set has been removed from workout_sessions.exercises JSONB
-     * and deleted from set_logs. Marks any associated pr_events as superseded.
+     * <p>Called AFTER the set has been removed from workout_sessions.exercises JSONB.
+     * Marks any associated pr_events as superseded.
      *
      * @param userId    the user who deleted
      * @param sessionId the session containing the deleted set
@@ -119,12 +94,6 @@ public class PrEditCascadeService {
      * @param oldValue  the set's pre-delete values (LoggedSet)
      */
     public void processSetDelete(UUID userId, UUID sessionId, UUID setId, LoggedSet oldValue) {
-        // Feature flag gate
-        if (!prSystemConfig.isPrSystemV2Enabled()) {
-            log.debug("PR System V2 disabled; processSetDelete is a no-op for session={}", sessionId);
-            return;
-        }
-
         log.debug("Starting delete cascade for user={} session={} exercise={} setId={}",
                 userId, sessionId, oldValue.exerciseId(), setId);
 
@@ -141,12 +110,6 @@ public class PrEditCascadeService {
      */
     public void processExerciseDelete(UUID userId, UUID sessionId, String exerciseId,
                                       List<LoggedSet> oldValues) {
-        // Feature flag gate
-        if (!prSystemConfig.isPrSystemV2Enabled()) {
-            log.debug("PR System V2 disabled; processExerciseDelete is a no-op for session={}", sessionId);
-            return;
-        }
-
         log.debug("Starting exercise delete cascade for user={} session={} exercise={}",
                 userId, sessionId, exerciseId);
 
@@ -236,7 +199,7 @@ public class PrEditCascadeService {
                         newEvent.setUserId(userId);
                         newEvent.setExerciseId(oldValue.exerciseId());
                         newEvent.setSessionId(sessionId);
-                        newEvent.setSetId(setId); // Link to set_logs via setId
+                        newEvent.setSetId(setId);
                         newEvent.setPrCategory(prResult.category().toString());
                         newEvent.setWeekStart(weekStart);
                         newEvent.setSignalsMet(prResult.signalsMet().toString());
