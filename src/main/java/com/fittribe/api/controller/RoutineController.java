@@ -1,7 +1,5 @@
 package com.fittribe.api.controller;
 
-import com.fasterxml.jackson.core.type.TypeReference;
-import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fittribe.api.dto.ApiResponse;
 import com.fittribe.api.dto.request.SaveRoutineRequest;
 import com.fittribe.api.dto.request.SaveRoutineRequest.RoutineExerciseInput;
@@ -37,16 +35,13 @@ public class RoutineController {
     private final SavedRoutineRepository     routineRepo;
     private final WorkoutSessionRepository   sessionRepo;
     private final ExerciseRepository         exerciseRepo;
-    private final ObjectMapper               objectMapper;
 
     public RoutineController(SavedRoutineRepository routineRepo,
                              WorkoutSessionRepository sessionRepo,
-                             ExerciseRepository exerciseRepo,
-                             ObjectMapper objectMapper) {
+                             ExerciseRepository exerciseRepo) {
         this.routineRepo  = routineRepo;
         this.sessionRepo  = sessionRepo;
         this.exerciseRepo = exerciseRepo;
-        this.objectMapper = objectMapper;
     }
 
     // ── POST /routines ───────────────────────────────────────────────
@@ -64,12 +59,7 @@ public class RoutineController {
         SavedRoutine routine = new SavedRoutine();
         routine.setUserId(userId);
         routine.setName(request.name().trim());
-        try {
-            routine.setExercises(objectMapper.writeValueAsString(exercisesJson));
-        } catch (Exception e) {
-            log.error("Failed to serialize routine exercises", e);
-            throw new RuntimeException("Could not save routine", e);
-        }
+        routine.setExercises(exercisesJson);
         routineRepo.save(routine);
 
         return ResponseEntity.status(HttpStatus.CREATED)
@@ -114,12 +104,7 @@ public class RoutineController {
         List<Map<String, Object>> exercisesJson = buildExercisesJson(request.exercises());
 
         routine.setName(request.name().trim());
-        try {
-            routine.setExercises(objectMapper.writeValueAsString(exercisesJson));
-        } catch (Exception e) {
-            log.error("Failed to serialize routine exercises", e);
-            throw new RuntimeException("Could not update routine", e);
-        }
+        routine.setExercises(exercisesJson);
         routineRepo.save(routine);
 
         return ResponseEntity.ok(ApiResponse.success(toResponse(routine)));
@@ -204,18 +189,10 @@ public class RoutineController {
     }
 
     private RoutineResponse toResponse(SavedRoutine routine) {
-        List<Map<String, Object>> exercises;
-        try {
-            exercises = objectMapper.readValue(
-                    routine.getExercises(), new TypeReference<>() {});
-        } catch (Exception e) {
-            log.error("Failed to parse routine exercises for id={}", routine.getId(), e);
-            exercises = List.of();
-        }
         return new RoutineResponse(
                 routine.getId(),
                 routine.getName(),
-                exercises,
+                routine.getExercises(),
                 routine.getTimesUsed() != null ? routine.getTimesUsed() : 0,
                 routine.getLastUsedAt(),
                 routine.getCreatedAt(),
