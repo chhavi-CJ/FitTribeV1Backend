@@ -46,23 +46,29 @@ public class PRDetector {
         if (isWeightBased(exerciseType)) {
             // WEIGHT_PR
             if (isWeightPR(set, currentBests)) {
-                return prResult(PrCategory.WEIGHT_PR, 5, signalsMet("weight", true),
-                    weightPRPayload(set, currentBests));
+                Map<String, Boolean> signals = signalsMet("weight", true);
+                Map<String, Object> payload = weightPRPayload(set, currentBests);
+                enrichWithVolumeIfApplicable(signals, payload, set, currentBests);
+                return prResult(PrCategory.WEIGHT_PR, 5, signals, payload);
             }
 
             // MAX_ATTEMPT
             if (isMaxAttempt(set, currentBests)) {
-                return prResult(PrCategory.MAX_ATTEMPT, 5, signalsMet("max_attempt", true),
-                    maxAttemptPayload(set, currentBests));
+                Map<String, Boolean> signals = signalsMet("max_attempt", true);
+                Map<String, Object> payload = maxAttemptPayload(set, currentBests);
+                enrichWithVolumeIfApplicable(signals, payload, set, currentBests);
+                return prResult(PrCategory.MAX_ATTEMPT, 5, signals, payload);
             }
 
             // REP_PR
             if (isRepPR(set, currentBests)) {
-                return prResult(PrCategory.REP_PR, 5, signalsMet("rep", true),
-                    repPRPayload(set, currentBests));
+                Map<String, Boolean> signals = signalsMet("rep", true);
+                Map<String, Object> payload = repPRPayload(set, currentBests);
+                enrichWithVolumeIfApplicable(signals, payload, set, currentBests);
+                return prResult(PrCategory.REP_PR, 5, signals, payload);
             }
 
-            // VOLUME_PR
+            // VOLUME_PR (sole winner — no secondary signals possible)
             if (isVolumePR(set, currentBests)) {
                 return prResult(PrCategory.VOLUME_PR, 5, signalsMet("volume", true),
                     volumePRPayload(set, currentBests));
@@ -277,6 +283,23 @@ public class PRDetector {
         payload.put("new_seconds", set.holdSeconds());
 
         return payload;
+    }
+
+    // ── Secondary signal enrichment ───────────────────────────────────────
+
+    private void enrichWithVolumeIfApplicable(Map<String, Boolean> signals,
+                                              Map<String, Object> payload,
+                                              LoggedSet set,
+                                              UserExerciseBests bests) {
+        if (!isVolumePR(set, bests)) {
+            return;
+        }
+        signals.put("volume", true);
+        BigDecimal newVolume = set.weightKg().multiply(BigDecimal.valueOf(set.reps()));
+        BigDecimal deltaVolume = newVolume.subtract(bests.getBestSetVolumeKg());
+        payload.put("delta_volume", deltaVolume);
+        payload.put("previous_best_volume", bests.getBestSetVolumeKg());
+        payload.put("new_volume", newVolume);
     }
 
     // ── Result builders ─────────────────────────────────────────────────
