@@ -404,4 +404,237 @@ class PRDetectorTest {
         assertEquals(PrCategory.REP_PR, result.category());
     }
 
+    // ── PR 1.5: Multi-signal enrichment tests ───────────────────────────
+
+    @Test
+    @DisplayName("Multi-signal: FIRST_EVER has only first_ever signal, no volume co-signal")
+    void multiSignal_firstEverAlone() {
+        LoggedSet set = new LoggedSet(null, "bench", BigDecimal.valueOf(40.0), 10, null);
+        PRResult result = detector.detect(set, null, ExerciseType.WEIGHTED);
+
+        assertTrue(result.isPR());
+        assertEquals(PrCategory.FIRST_EVER, result.category());
+
+        // signalsMet: only first_ever
+        assertEquals(1, result.signalsMet().size());
+        assertTrue(result.signalsMet().get("first_ever"));
+        assertNull(result.signalsMet().get("volume"));
+        assertNull(result.signalsMet().get("weight"));
+
+        // valuePayload: only new_best, no volume fields
+        assertNotNull(result.valuePayload().get("new_best"));
+        assertNull(result.valuePayload().get("delta_volume"));
+        assertNull(result.valuePayload().get("previous_best_volume"));
+        assertNull(result.valuePayload().get("new_volume"));
+    }
+
+    @Test
+    @DisplayName("Multi-signal: WEIGHT_PR + simultaneous volume improvement")
+    void multiSignal_weightPrPlusVolume() {
+        // bests: 45kg x 8, volume best 360 (45*8)
+        UserExerciseBests bests = new UserExerciseBests();
+        bests.setTotalSessionsWithExercise(5);
+        bests.setBestWtKg(BigDecimal.valueOf(45));
+        bests.setRepsAtBestWt(8);
+        bests.setBestSetVolumeKg(BigDecimal.valueOf(360)); // 45 * 8
+
+        // set: 50kg x 10 → weight PR (50>45, reps≥3) AND volume PR (500>360)
+        LoggedSet set = new LoggedSet(null, "bench", BigDecimal.valueOf(50), 10, null);
+        PRResult result = detector.detect(set, bests, ExerciseType.WEIGHTED);
+
+        assertTrue(result.isPR());
+        assertEquals(PrCategory.WEIGHT_PR, result.category());
+        assertEquals(5, result.suggestedCoins());
+
+        // signalsMet: both weight and volume
+        assertTrue(result.signalsMet().get("weight"));
+        assertTrue(result.signalsMet().get("volume"));
+        assertEquals(2, result.signalsMet().size());
+
+        // valuePayload: weight PR fields present
+        assertNotNull(result.valuePayload().get("delta_kg"));
+        assertNotNull(result.valuePayload().get("previous_best"));
+        assertNotNull(result.valuePayload().get("new_best"));
+
+        // valuePayload: volume enrichment fields present with correct values
+        assertEquals(new BigDecimal("500"), result.valuePayload().get("new_volume"));
+        assertEquals(BigDecimal.valueOf(360), result.valuePayload().get("previous_best_volume"));
+        assertEquals(new BigDecimal("140"), result.valuePayload().get("delta_volume"));
+    }
+
+    @Test
+    @DisplayName("Multi-signal: REP_PR + simultaneous volume improvement")
+    void multiSignal_repPrPlusVolume() {
+        // bests: 45kg x 8, volume best 360
+        UserExerciseBests bests = new UserExerciseBests();
+        bests.setTotalSessionsWithExercise(5);
+        bests.setBestWtKg(BigDecimal.valueOf(45));
+        bests.setRepsAtBestWt(8);
+        bests.setBestSetVolumeKg(BigDecimal.valueOf(360)); // 45 * 8
+
+        // set: 45kg x 10 → REP_PR (same weight, 10>8) AND volume PR (450>360)
+        LoggedSet set = new LoggedSet(null, "bench", BigDecimal.valueOf(45), 10, null);
+        PRResult result = detector.detect(set, bests, ExerciseType.WEIGHTED);
+
+        assertTrue(result.isPR());
+        assertEquals(PrCategory.REP_PR, result.category());
+
+        // signalsMet: both rep and volume
+        assertTrue(result.signalsMet().get("rep"));
+        assertTrue(result.signalsMet().get("volume"));
+        assertEquals(2, result.signalsMet().size());
+
+        // valuePayload: rep PR fields present
+        assertEquals(2, result.valuePayload().get("delta_reps")); // 10 - 8
+        assertEquals(BigDecimal.valueOf(45), result.valuePayload().get("weight_kg"));
+        assertEquals(8, result.valuePayload().get("previous_reps"));
+        assertEquals(10, result.valuePayload().get("new_reps"));
+
+        // valuePayload: volume enrichment fields present
+        assertEquals(new BigDecimal("450"), result.valuePayload().get("new_volume"));
+        assertEquals(BigDecimal.valueOf(360), result.valuePayload().get("previous_best_volume"));
+        assertEquals(new BigDecimal("90"), result.valuePayload().get("delta_volume"));
+    }
+
+    @Test
+    @DisplayName("Multi-signal: MAX_ATTEMPT + simultaneous volume improvement")
+    void multiSignal_maxAttemptPlusVolume() {
+        // bests: 45kg x 8, volume best 50 (low enough that 50x2=100 beats it)
+        UserExerciseBests bests = new UserExerciseBests();
+        bests.setTotalSessionsWithExercise(5);
+        bests.setBestWtKg(BigDecimal.valueOf(45));
+        bests.setRepsAtBestWt(8);
+        bests.setBestSetVolumeKg(BigDecimal.valueOf(50));
+
+        // set: 50kg x 2 → MAX_ATTEMPT (50>45, reps=2) AND volume PR (100>50)
+        LoggedSet set = new LoggedSet(null, "bench", BigDecimal.valueOf(50), 2, null);
+        PRResult result = detector.detect(set, bests, ExerciseType.WEIGHTED);
+
+        assertTrue(result.isPR());
+        assertEquals(PrCategory.MAX_ATTEMPT, result.category());
+
+        // signalsMet: both max_attempt and volume
+        assertTrue(result.signalsMet().get("max_attempt"));
+        assertTrue(result.signalsMet().get("volume"));
+        assertEquals(2, result.signalsMet().size());
+
+        // valuePayload: max attempt fields present
+        assertEquals(BigDecimal.valueOf(50), result.valuePayload().get("weight_kg"));
+        assertEquals(2, result.valuePayload().get("reps"));
+        assertEquals(BigDecimal.valueOf(45), result.valuePayload().get("previous_best_weight_kg"));
+
+        // valuePayload: volume enrichment fields present
+        assertEquals(new BigDecimal("100"), result.valuePayload().get("new_volume"));
+        assertEquals(BigDecimal.valueOf(50), result.valuePayload().get("previous_best_volume"));
+        assertEquals(new BigDecimal("50"), result.valuePayload().get("delta_volume"));
+    }
+
+    @Test
+    @DisplayName("Multi-signal: WEIGHT_PR without volume (volume best too high)")
+    void multiSignal_weightPrWithoutVolume() {
+        // bests: 45kg x 8, volume best 600 (high enough that 50x10=500 doesn't beat it)
+        UserExerciseBests bests = new UserExerciseBests();
+        bests.setTotalSessionsWithExercise(5);
+        bests.setBestWtKg(BigDecimal.valueOf(45));
+        bests.setRepsAtBestWt(8);
+        bests.setBestSetVolumeKg(BigDecimal.valueOf(600));
+
+        // set: 50kg x 10 → WEIGHT_PR (50>45) but NOT volume PR (500 < 600)
+        LoggedSet set = new LoggedSet(null, "bench", BigDecimal.valueOf(50), 10, null);
+        PRResult result = detector.detect(set, bests, ExerciseType.WEIGHTED);
+
+        assertTrue(result.isPR());
+        assertEquals(PrCategory.WEIGHT_PR, result.category());
+
+        // signalsMet: only weight, no volume
+        assertTrue(result.signalsMet().get("weight"));
+        assertNull(result.signalsMet().get("volume"));
+        assertEquals(1, result.signalsMet().size());
+
+        // valuePayload: weight fields present, no volume fields
+        assertNotNull(result.valuePayload().get("delta_kg"));
+        assertNull(result.valuePayload().get("delta_volume"));
+        assertNull(result.valuePayload().get("previous_best_volume"));
+        assertNull(result.valuePayload().get("new_volume"));
+    }
+
+    @Test
+    @DisplayName("Multi-signal: Non-PR set has empty signals and payload")
+    void multiSignal_noPR() {
+        UserExerciseBests bests = new UserExerciseBests();
+        bests.setTotalSessionsWithExercise(5);
+        bests.setBestWtKg(BigDecimal.valueOf(50));
+        bests.setRepsAtBestWt(12);
+        bests.setBestSetVolumeKg(BigDecimal.valueOf(600));
+
+        // set: 40kg x 8 → nothing beats anything
+        LoggedSet set = new LoggedSet(null, "bench", BigDecimal.valueOf(40), 8, null);
+        PRResult result = detector.detect(set, bests, ExerciseType.WEIGHTED);
+
+        assertFalse(result.isPR());
+        assertNull(result.category());
+        assertEquals(0, result.suggestedCoins());
+        assertTrue(result.signalsMet().isEmpty());
+        assertTrue(result.valuePayload().isEmpty());
+    }
+
+    @Test
+    @DisplayName("Multi-signal: VOLUME_PR as sole winner has only volume signal")
+    void multiSignal_volumePrSoleWinner() {
+        UserExerciseBests bests = new UserExerciseBests();
+        bests.setTotalSessionsWithExercise(5);
+        bests.setBestWtKg(BigDecimal.valueOf(40));
+        bests.setRepsAtBestWt(10);
+        bests.setBestSetVolumeKg(BigDecimal.valueOf(400)); // 40 * 10
+
+        // set: 35kg x 12 = 420 → volume PR only (weight < best, different weight so no rep PR)
+        LoggedSet set = new LoggedSet(null, "bench", BigDecimal.valueOf(35), 12, null);
+        PRResult result = detector.detect(set, bests, ExerciseType.WEIGHTED);
+
+        assertTrue(result.isPR());
+        assertEquals(PrCategory.VOLUME_PR, result.category());
+
+        // signalsMet: only volume
+        assertTrue(result.signalsMet().get("volume"));
+        assertEquals(1, result.signalsMet().size());
+
+        // valuePayload: volume fields present, no weight/rep/max fields
+        assertNotNull(result.valuePayload().get("delta_volume"));
+        assertNotNull(result.valuePayload().get("previous_best_volume"));
+        assertNotNull(result.valuePayload().get("new_volume"));
+        assertNull(result.valuePayload().get("delta_kg"));
+        assertNull(result.valuePayload().get("delta_reps"));
+    }
+
+    @Test
+    @DisplayName("Multi-signal: MAX_ATTEMPT without volume (volume best too high)")
+    void multiSignal_maxAttemptWithoutVolume() {
+        // bests: 45kg x 8, volume best 400 (50x1=50 doesn't beat it)
+        UserExerciseBests bests = new UserExerciseBests();
+        bests.setTotalSessionsWithExercise(5);
+        bests.setBestWtKg(BigDecimal.valueOf(45));
+        bests.setRepsAtBestWt(8);
+        bests.setBestSetVolumeKg(BigDecimal.valueOf(400));
+
+        // set: 50kg x 1 → MAX_ATTEMPT (50>45, reps=1) but NOT volume (50 < 400)
+        LoggedSet set = new LoggedSet(null, "bench", BigDecimal.valueOf(50), 1, null);
+        PRResult result = detector.detect(set, bests, ExerciseType.WEIGHTED);
+
+        assertTrue(result.isPR());
+        assertEquals(PrCategory.MAX_ATTEMPT, result.category());
+
+        // signalsMet: only max_attempt, no volume
+        assertTrue(result.signalsMet().get("max_attempt"));
+        assertNull(result.signalsMet().get("volume"));
+        assertEquals(1, result.signalsMet().size());
+
+        // valuePayload: max attempt fields present, no volume fields
+        assertEquals(BigDecimal.valueOf(50), result.valuePayload().get("weight_kg"));
+        assertEquals(1, result.valuePayload().get("reps"));
+        assertEquals(BigDecimal.valueOf(45), result.valuePayload().get("previous_best_weight_kg"));
+        assertNull(result.valuePayload().get("delta_volume"));
+        assertNull(result.valuePayload().get("previous_best_volume"));
+        assertNull(result.valuePayload().get("new_volume"));
+    }
+
 }
