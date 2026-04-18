@@ -5,6 +5,9 @@ import org.hibernate.annotations.JdbcTypeCode;
 import org.hibernate.type.SqlTypes;
 
 import java.time.Instant;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 
 @Entity
@@ -24,7 +27,7 @@ public class SavedRoutine {
 
     @Column(name = "exercises", columnDefinition = "jsonb", nullable = false)
     @JdbcTypeCode(SqlTypes.JSON)
-    private String exercises;
+    private List<Map<String, Object>> exercises = new ArrayList<>();
 
     @Column(name = "times_used")
     private Integer timesUsed = 0;
@@ -61,8 +64,8 @@ public class SavedRoutine {
     public String getName()                      { return name; }
     public void setName(String v)                { this.name = v; }
 
-    public String getExercises()                 { return exercises; }
-    public void setExercises(String v)           { this.exercises = v; }
+    public List<Map<String, Object>> getExercises()                 { return exercises; }
+    public void setExercises(List<Map<String, Object>> v)           { this.exercises = v; }
 
     public Integer getTimesUsed()                { return timesUsed; }
     public void setTimesUsed(Integer v)          { this.timesUsed = v; }
