@@ -11,7 +11,7 @@ import com.fittribe.api.entity.User;
 import com.fittribe.api.entity.UserPlan;
 import com.fittribe.api.exception.ApiException;
 import com.fittribe.api.healthcondition.HealthConditionNormalizer;
-import com.fittribe.api.repository.PersonalRecordRepository;
+import com.fittribe.api.repository.UserExerciseBestsRepository;
 import com.fittribe.api.repository.UserPlanRepository;
 import com.fittribe.api.repository.UserRepository;
 import com.fittribe.api.repository.WorkoutSessionRepository;
@@ -48,18 +48,18 @@ public class UserController {
     private final UserRepository            userRepository;
     private final WorkoutSessionRepository  sessionRepository;
     private final UserPlanRepository        planRepository;
-    private final PersonalRecordRepository  prRepository;
+    private final UserExerciseBestsRepository bestsRepository;
     private final ObjectMapper              objectMapper;
 
     public UserController(UserRepository userRepository,
                           WorkoutSessionRepository sessionRepository,
                           UserPlanRepository planRepository,
-                          PersonalRecordRepository prRepository,
+                          UserExerciseBestsRepository bestsRepository,
                           ObjectMapper objectMapper) {
         this.userRepository    = userRepository;
         this.sessionRepository = sessionRepository;
         this.planRepository    = planRepository;
-        this.prRepository      = prRepository;
+        this.bestsRepository   = bestsRepository;
         this.objectMapper      = objectMapper;
     }
 
@@ -268,7 +268,7 @@ public class UserController {
         int completedThisWeek = sessionRepository.countByUserIdAndStatusAndFinishedAtBetween(
                 userId, "COMPLETED", weekFrom, weekTo);
         int sessionsTotal = sessionRepository.countByUserIdAndStatus(userId, "COMPLETED");
-        int prsTotal      = prRepository.countByUserId(userId);
+        int prsTotal      = bestsRepository.countByUserId(userId);
 
         return new UserProfileResponse(
                 userId,

@@ -614,7 +614,7 @@ class WeeklyReportComputerTest {
     static final class FakeWeekDataBuilder extends WeekDataBuilder {
         WeekData result;
         final List<Call> calls = new ArrayList<>();
-        FakeWeekDataBuilder() { super(null, null, null, null, null, null); }
+        FakeWeekDataBuilder() { super(null, null, null, null, null); }
         @Override
         public WeekData build(UUID userId, LocalDate weekStart) {
             calls.add(new Call(userId, weekStart));

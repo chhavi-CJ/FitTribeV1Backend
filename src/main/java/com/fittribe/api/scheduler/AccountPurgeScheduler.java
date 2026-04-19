@@ -48,7 +48,6 @@ public class AccountPurgeScheduler {
 
     private void purgeUser(UUID userId) {
         int ct  = jdbcTemplate.update("DELETE FROM coin_transactions WHERE user_id = ?", userId);
-        int pr  = jdbcTemplate.update("DELETE FROM personal_records  WHERE user_id = ?", userId);
         int ws  = jdbcTemplate.update("DELETE FROM workout_sessions  WHERE user_id = ?", userId);
         int gm  = jdbcTemplate.update("DELETE FROM group_members     WHERE user_id = ?", userId);
 
@@ -64,8 +63,8 @@ public class AccountPurgeScheduler {
         jdbcTemplate.update("DELETE FROM users WHERE id = ?", userId);
 
         log.info("AccountPurgeScheduler: purged userId={} " +
-                 "[coin_transactions={}, personal_records={}, workout_sessions={}, " +
+                 "[coin_transactions={}, workout_sessions={}, " +
                  "group_members={}, session_feedback={}]",
-                userId, ct, pr, ws, gm, sf);
+                userId, ct, ws, gm, sf);
     }
 }

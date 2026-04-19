@@ -51,10 +51,11 @@ public class AchievementsController {
 
         // ── Achievement 2: PRs this month ─────────────────────────────
         List<String> prNames = jdbcTemplate.queryForList(
-                "SELECT e.name FROM personal_records pr " +
-                "JOIN exercises e ON e.id = pr.exercise_id " +
-                "WHERE pr.user_id = ? " +
-                "  AND pr.achieved_at >= DATE_TRUNC('month', NOW())",
+                "SELECT DISTINCT e.name FROM pr_events pe " +
+                "JOIN exercises e ON e.id = pe.exercise_id " +
+                "WHERE pe.user_id = ? " +
+                "  AND pe.superseded_at IS NULL " +
+                "  AND pe.created_at >= DATE_TRUNC('month', NOW())",
                 String.class, userId);
 
         int prCount = prNames.size();

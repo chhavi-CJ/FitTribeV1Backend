@@ -5,7 +5,6 @@ import com.fittribe.api.entity.Exercise;
 import com.fittribe.api.entity.User;
 import com.fittribe.api.entity.WorkoutSession;
 import com.fittribe.api.repository.ExerciseRepository;
-import com.fittribe.api.repository.PersonalRecordRepository;
 import com.fittribe.api.repository.SetLogRepository;
 import com.fittribe.api.repository.UserRepository;
 import com.fittribe.api.repository.WorkoutSessionRepository;
@@ -49,7 +48,6 @@ class WeekDataBuilderTest {
 
     private WorkoutSessionRepository sessionRepo;
     private SetLogRepository setLogRepo;
-    private PersonalRecordRepository prRepo;
     private ExerciseRepository exerciseRepo;
     private UserRepository userRepo;
 
@@ -63,12 +61,11 @@ class WeekDataBuilderTest {
     void setUp() {
         sessionRepo  = mock(WorkoutSessionRepository.class);
         setLogRepo   = mock(SetLogRepository.class);
-        prRepo       = mock(PersonalRecordRepository.class);
         exerciseRepo = mock(ExerciseRepository.class);
         userRepo     = mock(UserRepository.class);
 
         builder = new WeekDataBuilder(
-                sessionRepo, setLogRepo, prRepo, exerciseRepo, userRepo,
+                sessionRepo, setLogRepo, exerciseRepo, userRepo,
                 new ObjectMapper()
         );
 
