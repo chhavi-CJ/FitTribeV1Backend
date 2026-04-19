@@ -6,7 +6,6 @@ import com.fittribe.api.entity.Exercise;
 import com.fittribe.api.entity.User;
 import com.fittribe.api.entity.WorkoutSession;
 import com.fittribe.api.repository.ExerciseRepository;
-import com.fittribe.api.repository.PersonalRecordRepository;
 import com.fittribe.api.repository.SetLogRepository;
 import com.fittribe.api.repository.UserRepository;
 import com.fittribe.api.repository.WorkoutSessionRepository;
@@ -46,7 +45,6 @@ import java.util.UUID;
  *   <li>{@code workout_sessions.exercises} JSONB — per-exercise sets for COMPLETED sessions
  *       in {@code [weekStart, weekEnd)}. This is authoritative for this-week data.</li>
  *   <li>{@code workout_sessions.ai_planned_weights} JSONB — plan target per exercise</li>
- *   <li>{@code personal_records} — PRs achieved this week</li>
  *   <li>{@code set_logs} (joined via {@code workout_sessions}) —
  *       <em>only</em> for previous-week top sets (PR regression input) and
  *       all-time previous max (PR "previous best" lookup)</li>
@@ -67,7 +65,6 @@ public class WeekDataBuilder {
 
     private final WorkoutSessionRepository sessionRepo;
     private final SetLogRepository setLogRepo;
-    private final PersonalRecordRepository prRepo;
     private final ExerciseRepository exerciseRepo;
     private final UserRepository userRepo;
     private final ObjectMapper objectMapper;
@@ -75,13 +72,11 @@ public class WeekDataBuilder {
     @Autowired
     public WeekDataBuilder(WorkoutSessionRepository sessionRepo,
                            SetLogRepository setLogRepo,
-                           PersonalRecordRepository prRepo,
                            ExerciseRepository exerciseRepo,
                            UserRepository userRepo,
                            ObjectMapper objectMapper) {
         this.sessionRepo = sessionRepo;
         this.setLogRepo = setLogRepo;
-        this.prRepo = prRepo;
         this.exerciseRepo = exerciseRepo;
         this.userRepo = userRepo;
         this.objectMapper = objectMapper;

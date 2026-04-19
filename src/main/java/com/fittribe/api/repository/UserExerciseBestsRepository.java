@@ -23,4 +23,7 @@ public interface UserExerciseBestsRepository extends JpaRepository<UserExerciseB
      * Returns empty if the user has never logged this exercise.
      */
     Optional<UserExerciseBests> findByUserIdAndExerciseId(UUID userId, String exerciseId);
+
+    /** Count distinct exercises with a recorded best for this user — used in profile response. */
+    int countByUserId(UUID userId);
 }
