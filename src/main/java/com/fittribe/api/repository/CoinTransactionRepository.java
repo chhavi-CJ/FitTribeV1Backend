@@ -25,11 +25,10 @@ import java.util.UUID;
 public interface CoinTransactionRepository extends JpaRepository<CoinTransaction, UUID> {
 
     /**
-     * Legacy method: fetch top 20 most recent transactions for a user.
-     * Used by existing {@code CoinController} and {@code CoinHistoryController}.
-     * Retained for backward compatibility; Phase 2+ code should use paginated queries.
+     * Fetch the 50 most recent transactions for a user.
+     * Used by {@code CoinController} and {@code CoinHistoryController}.
      */
-    List<CoinTransaction> findTop20ByUserIdOrderByCreatedAtDesc(UUID userId);
+    List<CoinTransaction> findTop50ByUserIdOrderByCreatedAtDesc(UUID userId);
 
     /**
      * Fetch the most recent transaction for a user (to derive current balance).

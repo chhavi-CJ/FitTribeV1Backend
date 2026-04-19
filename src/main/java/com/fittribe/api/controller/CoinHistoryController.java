@@ -35,7 +35,7 @@ public class CoinHistoryController {
         LocalDate yesterday = today.minusDays(1);
 
         List<Map<String, Object>> result = coinRepo
-                .findTop20ByUserIdOrderByCreatedAtDesc(userId)
+                .findTop50ByUserIdOrderByCreatedAtDesc(userId)
                 .stream()
                 .map(tx -> {
                     Map<String, Object> m = new LinkedHashMap<>();
@@ -47,6 +47,7 @@ public class CoinHistoryController {
                     m.put("amount", signedAmount);
                     m.put("type",   tx.getType());
                     m.put("label",  tx.getLabel());
+                    m.put("createdAt", tx.getCreatedAt() != null ? tx.getCreatedAt().toString() : null);
                     m.put("formattedDate", formatDate(tx, today, yesterday));
                     return m;
                 })

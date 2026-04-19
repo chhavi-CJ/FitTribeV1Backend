@@ -34,7 +34,7 @@ public class CoinController {
                 .getCoins();
 
         List<Map<String, Object>> transactions = coinRepo
-                .findTop20ByUserIdOrderByCreatedAtDesc(userId)
+                .findTop50ByUserIdOrderByCreatedAtDesc(userId)
                 .stream()
                 .map(tx -> {
                     Map<String, Object> m = new LinkedHashMap<>();
