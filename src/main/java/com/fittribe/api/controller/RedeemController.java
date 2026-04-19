@@ -2,7 +2,8 @@ package com.fittribe.api.controller;
 
 import com.fittribe.api.dto.ApiResponse;
 import com.fittribe.api.exception.ApiException;
-import com.fittribe.api.repository.UserRepository;
+import com.fittribe.api.repository.CoinTransactionRepository;
+import com.fittribe.api.service.CoinService;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.jdbc.core.JdbcTemplate;
@@ -11,6 +12,8 @@ import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.bind.annotation.*;
 
 import java.time.Instant;
+import java.time.LocalDate;
+import java.time.ZoneId;
 import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.UUID;
@@ -19,15 +22,20 @@ import java.util.UUID;
 @RequestMapping("/api/v1/coins")
 public class RedeemController {
 
-    private static final int STREAK_FREEZE_COST = 80;
-    private static final int GROUP_CROWN_COST   = 30;
+    private static final int    STREAK_FREEZE_COST = 80;
+    private static final int    GROUP_CROWN_COST   = 30;
+    private static final ZoneId IST                = ZoneId.of("Asia/Kolkata");
 
-    private final UserRepository userRepo;
-    private final JdbcTemplate   jdbcTemplate;
+    private final JdbcTemplate             jdbcTemplate;
+    private final CoinService              coinService;
+    private final CoinTransactionRepository coinRepo;
 
-    public RedeemController(UserRepository userRepo, JdbcTemplate jdbcTemplate) {
-        this.userRepo     = userRepo;
+    public RedeemController(JdbcTemplate jdbcTemplate,
+                            CoinService coinService,
+                            CoinTransactionRepository coinRepo) {
         this.jdbcTemplate = jdbcTemplate;
+        this.coinService  = coinService;
+        this.coinRepo     = coinRepo;
     }
 
     // ── POST /api/v1/coins/redeem ─────────────────────────────────────
@@ -52,23 +60,31 @@ public class RedeemController {
 
     // ── Streak Freeze ─────────────────────────────────────────────────
     private ResponseEntity<ApiResponse<?>> redeemStreakFreeze(UUID userId) {
-        int coins = currentCoins(userId);
-        if (coins < STREAK_FREEZE_COST) {
+        String refId = "STREAK_FREEZE:" + LocalDate.now(IST);
+
+        // Idempotency guard: reject duplicate redeem on same day (don't silently no-op)
+        if (coinRepo.existsByUserIdAndTypeAndReferenceId(userId, "STREAK_FREEZE_REDEEM", refId)) {
+            throw new ApiException(HttpStatus.CONFLICT, "ALREADY_REDEEMED",
+                    "Already redeemed today");
+        }
+
+        if (currentCoins(userId) < STREAK_FREEZE_COST) {
             throw new ApiException(HttpStatus.BAD_REQUEST, "INSUFFICIENT_COINS",
                     "Insufficient coins");
         }
 
-        jdbcTemplate.update(
-                "UPDATE users SET coins = coins - ?, streak_freeze_balance = streak_freeze_balance + 1 WHERE id = ?",
-                STREAK_FREEZE_COST, userId);
+        // Debit through CoinService: handles balance_after, debt_after, delta,
+        // clamped_amount, debt_before, and the users.coins denormalized update.
+        coinService.awardCoins(userId, -STREAK_FREEZE_COST,
+                "STREAK_FREEZE_REDEEM", "Extra streak freeze", refId);
 
+        // Bank the freeze day
         jdbcTemplate.update(
-                "INSERT INTO coin_transactions (id, user_id, amount, direction, label, type, reference_id, created_at) " +
-                "VALUES (gen_random_uuid(), ?, ?, 'DEBIT', 'Extra streak freeze', 'STREAK_FREEZE_REDEEM', NULL, NOW())",
-                userId, STREAK_FREEZE_COST);
+                "UPDATE users SET streak_freeze_balance = streak_freeze_balance + 1 WHERE id = ?",
+                userId);
 
-        int newBalance         = currentCoins(userId);
-        int freezeBalance      = jdbcTemplate.queryForObject(
+        int newBalance    = currentCoins(userId);
+        int freezeBalance = jdbcTemplate.queryForObject(
                 "SELECT streak_freeze_balance FROM users WHERE id = ?", Integer.class, userId);
 
         Map<String, Object> result = new LinkedHashMap<>();
@@ -79,24 +95,34 @@ public class RedeemController {
 
     // ── Group Crown ───────────────────────────────────────────────────
     private ResponseEntity<ApiResponse<?>> redeemGroupCrown(UUID userId) {
-        int coins = currentCoins(userId);
-        if (coins < GROUP_CROWN_COST) {
+        // Guard: user must be in a group before they can redeem a crown.
+        // (Fixes the known GROUP_CROWN-deducts-with-no-membership bug.)
+        Integer memberCount = jdbcTemplate.queryForObject(
+                "SELECT COUNT(*) FROM group_members WHERE user_id = ?",
+                Integer.class, userId);
+        if (memberCount == null || memberCount == 0) {
+            throw new ApiException(HttpStatus.BAD_REQUEST, "NO_GROUP_MEMBERSHIP",
+                    "Join a group before redeeming a crown");
+        }
+
+        String refId = "GROUP_CROWN:" + LocalDate.now(IST);
+
+        if (coinRepo.existsByUserIdAndTypeAndReferenceId(userId, "GROUP_CROWN_REDEEM", refId)) {
+            throw new ApiException(HttpStatus.CONFLICT, "ALREADY_REDEEMED",
+                    "Already redeemed today");
+        }
+
+        if (currentCoins(userId) < GROUP_CROWN_COST) {
             throw new ApiException(HttpStatus.BAD_REQUEST, "INSUFFICIENT_COINS",
                     "Insufficient coins");
         }
 
-        jdbcTemplate.update(
-                "UPDATE users SET coins = coins - ? WHERE id = ?",
-                GROUP_CROWN_COST, userId);
+        coinService.awardCoins(userId, -GROUP_CROWN_COST,
+                "GROUP_CROWN_REDEEM", "Group crown 7 days", refId);
 
         jdbcTemplate.update(
                 "UPDATE group_members SET crown_expires_at = NOW() + INTERVAL '7 days' WHERE user_id = ?",
                 userId);
-
-        jdbcTemplate.update(
-                "INSERT INTO coin_transactions (id, user_id, amount, direction, label, type, reference_id, created_at) " +
-                "VALUES (gen_random_uuid(), ?, ?, 'DEBIT', 'Group crown 7 days', 'GROUP_CROWN_REDEEM', NULL, NOW())",
-                userId, GROUP_CROWN_COST);
 
         int newBalance      = currentCoins(userId);
         Instant crownExpiry = jdbcTemplate.queryForObject(
