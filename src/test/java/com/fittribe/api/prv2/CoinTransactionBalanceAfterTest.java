@@ -60,7 +60,7 @@ class CoinTransactionBalanceAfterTest {
         coinService.awardCoins(testUserId, 10, "LOG_WORKOUT", "Workout logged", "session_1");
 
         // Retrieve and verify balance_after
-        List<CoinTransaction> txns = coinRepo.findTop20ByUserIdOrderByCreatedAtDesc(testUserId);
+        List<CoinTransaction> txns = coinRepo.findTop50ByUserIdOrderByCreatedAtDesc(testUserId);
         assertEquals(1, txns.size());
 
         CoinTransaction tx = txns.get(0);
@@ -81,7 +81,7 @@ class CoinTransactionBalanceAfterTest {
         coinService.awardCoins(testUserId, 20, "PERSONAL_RECORD", "PR achieved", "pr_1");
 
         // Retrieve both transactions, ordered newest first
-        List<CoinTransaction> txns = coinRepo.findTop20ByUserIdOrderByCreatedAtDesc(testUserId);
+        List<CoinTransaction> txns = coinRepo.findTop50ByUserIdOrderByCreatedAtDesc(testUserId);
         assertEquals(2, txns.size());
 
         // txns[0] is the most recent (second coin)
@@ -105,7 +105,7 @@ class CoinTransactionBalanceAfterTest {
         // Second: debit 20 (negative amount)
         coinService.awardCoins(testUserId, -20, "PURCHASE", "Streak freeze", "purchase_1");
 
-        List<CoinTransaction> txns = coinRepo.findTop20ByUserIdOrderByCreatedAtDesc(testUserId);
+        List<CoinTransaction> txns = coinRepo.findTop50ByUserIdOrderByCreatedAtDesc(testUserId);
         assertEquals(2, txns.size());
 
         // Most recent is the debit
@@ -155,7 +155,7 @@ class CoinTransactionBalanceAfterTest {
         coinService.awardCoins(testUserId, 10, "LOG_WORKOUT", "Workout", "session_1");
 
         // Should only have one entry
-        List<CoinTransaction> txns = coinRepo.findTop20ByUserIdOrderByCreatedAtDesc(testUserId);
+        List<CoinTransaction> txns = coinRepo.findTop50ByUserIdOrderByCreatedAtDesc(testUserId);
         assertEquals(1, txns.size());
         assertEquals(10, txns.get(0).getBalanceAfter());
     }
@@ -165,7 +165,7 @@ class CoinTransactionBalanceAfterTest {
     void testBalanceAfterNotNull() {
         coinService.awardCoins(testUserId, 10, "LOG_WORKOUT", "Workout", "session_1");
 
-        List<CoinTransaction> txns = coinRepo.findTop20ByUserIdOrderByCreatedAtDesc(testUserId);
+        List<CoinTransaction> txns = coinRepo.findTop50ByUserIdOrderByCreatedAtDesc(testUserId);
         assertEquals(1, txns.size());
 
         CoinTransaction tx = txns.get(0);
@@ -177,7 +177,7 @@ class CoinTransactionBalanceAfterTest {
     void testPhase2LedgerFieldDefaults() {
         coinService.awardCoins(testUserId, 10, "LOG_WORKOUT", "Workout", "session_1");
 
-        List<CoinTransaction> txns = coinRepo.findTop20ByUserIdOrderByCreatedAtDesc(testUserId);
+        List<CoinTransaction> txns = coinRepo.findTop50ByUserIdOrderByCreatedAtDesc(testUserId);
         CoinTransaction tx = txns.get(0);
 
         // Phase 2 fields are set to defaults; Phase 2 code will populate them
