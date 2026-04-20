@@ -59,6 +59,12 @@ public interface WorkoutSessionRepository extends JpaRepository<WorkoutSession, 
     /** Total completed sessions ever for a user — used in profile response. */
     int countByUserIdAndStatus(UUID userId, String status);
 
+    /** Distinct calendar dates on which the user completed any session — drives rank system. */
+    @Query(value = "SELECT COUNT(DISTINCT DATE(finished_at)) FROM workout_sessions " +
+                   "WHERE user_id = :userId AND status = 'COMPLETED' AND finished_at IS NOT NULL",
+           nativeQuery = true)
+    int countDistinctTrainingDays(@Param("userId") UUID userId);
+
     /**
      * Returns the historical max weight ever logged for a given exercise by this user,
      * read from the JSONB exercises snapshot stored at session finish.
