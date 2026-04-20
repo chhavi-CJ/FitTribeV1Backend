@@ -1115,6 +1115,64 @@ public class SessionController {
                 .map(fb -> new FeedbackInfo(fb.getRating(), fb.getNotes(), fb.getCreatedAt()))
                 .orElse(null);
 
+        // Parse exercises JSONB and enrich with set-level PR flags from pr_events.
+        // pr_events.set_id references the specific set that earned the PR — badges
+        // are set-level per the HLD, not exercise-level.
+        List<Map<String, Object>> exercises;
+        try {
+            String rawEx = session.getExercises();
+            if (rawEx != null && !rawEx.isBlank()) {
+                List<Map<String, Object>> parsed = objectMapper.readValue(
+                        rawEx, new TypeReference<List<Map<String, Object>>>() {});
+
+                // Single query: collect set_ids that have active (non-superseded) PRs
+                java.util.Set<UUID> prSetIds = prEventRepo
+                        .findBySessionIdAndSupersededAtIsNull(session.getId())
+                        .stream()
+                        .map(pe -> pe.getSetId())
+                        .collect(java.util.stream.Collectors.toSet());
+
+                exercises = new ArrayList<>();
+                for (Map<String, Object> ex : parsed) {
+                    Map<String, Object> enrichedEx = new LinkedHashMap<>(ex);
+                    enrichedEx.remove("isPr"); // strip legacy exercise-level field
+
+                    boolean anySetIsPr = false;
+
+                    // Enrich each set with isPr from pr_events
+                    Object setsRaw = enrichedEx.get("sets");
+                    if (setsRaw instanceof List<?> setsList) {
+                        List<Map<String, Object>> enrichedSets = new ArrayList<>();
+                        for (Object setObj : setsList) {
+                            if (!(setObj instanceof Map<?, ?> setMap)) continue;
+                            Map<String, Object> enrichedSet = new LinkedHashMap<>((Map<String, Object>) setMap);
+                            // Parse setId from JSONB — may be String UUID or null
+                            Object setIdRaw = enrichedSet.get("setId");
+                            UUID setId = null;
+                            if (setIdRaw != null) {
+                                try {
+                                    setId = UUID.fromString(setIdRaw.toString());
+                                } catch (IllegalArgumentException ignored) {}
+                            }
+                            boolean isPr = setId != null && prSetIds.contains(setId);
+                            enrichedSet.put("isPr", isPr);
+                            if (isPr) anySetIsPr = true;
+                            enrichedSets.add(enrichedSet);
+                        }
+                        enrichedEx.put("sets", enrichedSets);
+                    }
+
+                    enrichedEx.put("prAchieved", anySetIsPr);
+                    exercises.add(enrichedEx);
+                }
+            } else {
+                exercises = List.of();
+            }
+        } catch (Exception e) {
+            log.warn("Failed to parse exercises JSONB for session={}", session.getId(), e);
+            exercises = List.of();
+        }
+
         TodaySessionResponse response = new TodaySessionResponse(
                 session.getId(),
                 session.getName(),
@@ -1130,6 +1188,7 @@ public class SessionController {
                 swapLog,
                 session.getSource(),
                 plannedExercises,
+                exercises,
                 feedback);
 
         return ResponseEntity.ok(ApiResponse.success(response));
