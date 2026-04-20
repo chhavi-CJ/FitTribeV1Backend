@@ -22,5 +22,9 @@ public record UserProfileResponse(
         String rank,
         boolean notificationsEnabled,
         boolean showInLeaderboard,
-        String weightUnit
+        String weightUnit,
+        int trainingDaysTotal,
+        String currentRank,
+        String nextRankName,   // null if at LEGEND
+        int daysToNextRank     // 0 if at LEGEND
 ) {}

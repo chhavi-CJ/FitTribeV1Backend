@@ -15,6 +15,7 @@ import com.fittribe.api.repository.UserExerciseBestsRepository;
 import com.fittribe.api.repository.UserPlanRepository;
 import com.fittribe.api.repository.UserRepository;
 import com.fittribe.api.repository.WorkoutSessionRepository;
+import com.fittribe.api.service.RankService;
 import com.fittribe.api.util.PromptSanitiser;
 import jakarta.validation.Valid;
 import org.springframework.http.HttpStatus;
@@ -73,9 +74,16 @@ public class UserController {
         int completedThisWeek          = sessionRepository.countCompletedThisWeekByStartedAt(userId);
         List<String> workoutDatesThisWeek = sessionRepository.findWorkoutDatesThisWeekByStartedAt(userId);
 
+        int trainingDaysTotal = sessionRepository.countDistinctTrainingDays(userId);
+        String currentRank    = RankService.rankFor(trainingDaysTotal);
+
         Map<String, Object> response = objectMapper.convertValue(user, Map.class);
         response.put("completedThisWeek",    completedThisWeek);
         response.put("workoutDatesThisWeek", workoutDatesThisWeek);
+        response.put("trainingDaysTotal",    trainingDaysTotal);
+        response.put("currentRank",          currentRank);
+        response.put("nextRankName",         RankService.nextRank(currentRank));
+        response.put("daysToNextRank",       RankService.daysToNext(trainingDaysTotal));
 
         return ResponseEntity.ok(ApiResponse.success(response));
     }
@@ -270,6 +278,11 @@ public class UserController {
         int sessionsTotal = sessionRepository.countByUserIdAndStatus(userId, "COMPLETED");
         int prsTotal      = bestsRepository.countByUserId(userId);
 
+        int trainingDaysTotal = sessionRepository.countDistinctTrainingDays(userId);
+        String currentRank    = RankService.rankFor(trainingDaysTotal);
+        String nextRankName   = RankService.nextRank(currentRank);
+        int daysToNextRank    = RankService.daysToNext(trainingDaysTotal);
+
         return new UserProfileResponse(
                 userId,
                 user.getDisplayName(),
@@ -286,9 +299,13 @@ public class UserController {
                 user.getCoins() != null ? user.getCoins() : 0,
                 user.getStreakFreezeBalance() != null ? user.getStreakFreezeBalance() : 0,
                 Boolean.TRUE.equals(user.getAutoFreezeEnabled()),
-                user.getRank() != null ? user.getRank() : "ROOKIE",
+                currentRank,
                 Boolean.TRUE.equals(user.getNotificationsEnabled()),
                 Boolean.TRUE.equals(user.getShowInLeaderboard()),
-                user.getWeightUnit() != null ? user.getWeightUnit() : "KG");
+                user.getWeightUnit() != null ? user.getWeightUnit() : "KG",
+                trainingDaysTotal,
+                currentRank,
+                nextRankName,
+                daysToNextRank);
     }
 }
