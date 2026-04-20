@@ -80,3 +80,6 @@ docs/architecture/05_findings.md
 docs/architecture/PR_System_V2_HLD_with_Flowcharts.md
 docs/audit/jsonb_string_field_audit.md
 docs/architecture/ADR-002_PR_1.5_multi_signal_detector.md
+
+
+src/test/outputs/*.json
