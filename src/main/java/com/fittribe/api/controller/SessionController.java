@@ -15,6 +15,7 @@ import com.fittribe.api.dto.response.EditSetResponse;
 import com.fittribe.api.dto.response.FeedbackInfo;
 import com.fittribe.api.dto.response.FinishSessionResponse;
 import com.fittribe.api.dto.response.LogSetResponse;
+import com.fittribe.api.dto.response.PrDetails;
 import com.fittribe.api.dto.response.SessionHistoryItem;
 import com.fittribe.api.dto.response.StartSessionResponse;
 import com.fittribe.api.dto.response.TodaySessionResponse;
@@ -28,7 +29,10 @@ import com.fittribe.api.entity.SetLog;
 import com.fittribe.api.entity.User;
 import com.fittribe.api.entity.WorkoutSession;
 import com.fittribe.api.exception.ApiException;
+import com.fittribe.api.prv2.detector.ExerciseType;
 import com.fittribe.api.prv2.detector.LoggedSet;
+import com.fittribe.api.prv2.detector.PRDetector;
+import com.fittribe.api.prv2.detector.PRResult;
 import com.fittribe.api.prv2.service.PrEditCascadeService;
 import com.fittribe.api.prv2.service.PrWritePathService;
 import com.fittribe.api.repository.CoinTransactionRepository;
@@ -105,6 +109,7 @@ public class SessionController {
     private final PrEditCascadeService      prEditCascadeService;
     private final PrEventRepository         prEventRepo;
     private final UserExerciseBestsRepository userExerciseBestsRepo;
+    private final PRDetector                 prDetector;
 
     public SessionController(WorkoutSessionRepository sessionRepo,
                              SetLogRepository setLogRepo,
@@ -125,7 +130,8 @@ public class SessionController {
                              PrWritePathService prWritePathService,
                              PrEditCascadeService prEditCascadeService,
                              PrEventRepository prEventRepo,
-                             UserExerciseBestsRepository userExerciseBestsRepo) {
+                             UserExerciseBestsRepository userExerciseBestsRepo,
+                             PRDetector prDetector) {
         this.sessionRepo         = sessionRepo;
         this.setLogRepo          = setLogRepo;
         this.userRepo            = userRepo;
@@ -146,6 +152,7 @@ public class SessionController {
         this.prEditCascadeService = prEditCascadeService;
         this.prEventRepo = prEventRepo;
         this.userExerciseBestsRepo = userExerciseBestsRepo;
+        this.prDetector = prDetector;
     }
 
     // ── POST /sessions/start ──────────────────────────────────────────
@@ -307,8 +314,33 @@ public class SessionController {
                 .orElseThrow(() -> new ApiException(HttpStatus.INTERNAL_SERVER_ERROR,
                         "SET_LOG_ERROR", "Failed to retrieve saved set."));
 
+        // Build PrDetails for celebration popup when isPr=true.
+        // Runs PRDetector to get category, payload, and coin amount.
+        // This is read-only — pr_events are NOT written until session finish.
+        PrDetails prDetails = null;
+        if (isPr) {
+            try {
+                var currentBests = userExerciseBestsRepo
+                        .findByUserIdAndExerciseId(userId, request.exerciseId())
+                        .orElse(null);
+                ExerciseType exerciseType = (currentBests != null && currentBests.getExerciseType() != null)
+                        ? ExerciseType.valueOf(currentBests.getExerciseType())
+                        : ExerciseType.WEIGHTED;
+                LoggedSet detectorInput = new LoggedSet(
+                        saved.getId(), request.exerciseId(), request.weightKg(),
+                        request.reps(), null);
+                PRResult result = prDetector.detect(detectorInput, currentBests, exerciseType);
+                if (result.isPR()) {
+                    prDetails = buildPrDetails(result);
+                }
+            } catch (Exception e) {
+                log.debug("Could not build PrDetails for sparkle: exercise={}", request.exerciseId(), e);
+                // Non-fatal: isPr stays true, prDetails stays null
+            }
+        }
+
         return ResponseEntity.ok(ApiResponse.success(
-                new LogSetResponse(saved.getId(), isPr)));
+                new LogSetResponse(saved.getId(), isPr, prDetails)));
     }
 
     // ── PATCH /sessions/{id}/log-set/{exerciseId}/{setNumber} ───────
@@ -1269,6 +1301,71 @@ public class SessionController {
                 plannedExercises,
                 exercises,
                 feedback);
+    }
+
+    /**
+     * Builds a {@link PrDetails} from a {@link PRResult} for the celebration popup.
+     * Extracts current/previous values and unit from the result's valuePayload.
+     */
+    @SuppressWarnings("unchecked")
+    private PrDetails buildPrDetails(PRResult result) {
+        String type = result.category().toString();
+        int coins = result.suggestedCoins();
+        Map<String, Object> payload = result.valuePayload();
+
+        double currentValue = 0;
+        Double previousValue = null;
+        String unit = "kg";
+
+        switch (result.category()) {
+            case FIRST_EVER -> {
+                Map<String, Object> newBest = (Map<String, Object>) payload.get("new_best");
+                if (newBest != null && newBest.get("weight_kg") != null) {
+                    currentValue = ((Number) newBest.get("weight_kg")).doubleValue();
+                } else if (newBest != null && newBest.get("reps") != null) {
+                    currentValue = ((Number) newBest.get("reps")).doubleValue();
+                    unit = "reps";
+                }
+                // previousValue stays null for FIRST_EVER
+            }
+            case WEIGHT_PR -> {
+                Map<String, Object> newBest = (Map<String, Object>) payload.get("new_best");
+                Map<String, Object> prevBest = (Map<String, Object>) payload.get("previous_best");
+                if (newBest != null && newBest.get("weight_kg") != null) {
+                    currentValue = ((Number) newBest.get("weight_kg")).doubleValue();
+                }
+                if (prevBest != null && prevBest.get("weight_kg") != null) {
+                    previousValue = ((Number) prevBest.get("weight_kg")).doubleValue();
+                }
+            }
+            case MAX_ATTEMPT -> {
+                if (payload.get("weight_kg") != null) {
+                    currentValue = ((Number) payload.get("weight_kg")).doubleValue();
+                }
+                if (payload.get("previous_best_weight_kg") != null) {
+                    previousValue = ((Number) payload.get("previous_best_weight_kg")).doubleValue();
+                }
+            }
+            case REP_PR -> {
+                unit = "reps";
+                if (payload.get("new_reps") != null) {
+                    currentValue = ((Number) payload.get("new_reps")).doubleValue();
+                }
+                if (payload.get("previous_reps") != null) {
+                    previousValue = ((Number) payload.get("previous_reps")).doubleValue();
+                }
+            }
+            case VOLUME_PR -> {
+                if (payload.get("new_volume") != null) {
+                    currentValue = ((Number) payload.get("new_volume")).doubleValue();
+                }
+                if (payload.get("previous_best_volume") != null) {
+                    previousValue = ((Number) payload.get("previous_best_volume")).doubleValue();
+                }
+            }
+        }
+
+        return new PrDetails(type, currentValue, previousValue, unit, coins);
     }
 
     private UUID userId(Authentication auth) {
