@@ -1098,7 +1098,7 @@ public class SessionController {
             @PathVariable UUID id,
             Authentication auth) {
 
-        WorkoutSession session = requireOwned(id, userId(auth));
+        WorkoutSession session = requireOwnedInProgress(id, userId(auth));
         setLogRepo.deleteBySessionId(session.getId());
         sessionRepo.delete(session);
 
