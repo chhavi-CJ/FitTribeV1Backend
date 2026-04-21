@@ -6,6 +6,7 @@ import com.fittribe.api.dto.request.HealthConditionsRequest;
 import com.fittribe.api.dto.request.UpdateProfileRequest;
 import com.fittribe.api.dto.request.UpdateSettingsRequest;
 import com.fittribe.api.dto.request.UpdateUserProfileRequest;
+import com.fittribe.api.dto.response.UserExerciseBestDto;
 import com.fittribe.api.dto.response.UserProfileResponse;
 import com.fittribe.api.entity.User;
 import com.fittribe.api.entity.UserPlan;
@@ -62,6 +63,20 @@ public class UserController {
         this.planRepository    = planRepository;
         this.bestsRepository   = bestsRepository;
         this.objectMapper      = objectMapper;
+    }
+
+    // ── GET /api/v1/users/me/exercise-bests ─────────────────────────────
+    @GetMapping("/me/exercise-bests")
+    public ResponseEntity<ApiResponse<List<UserExerciseBestDto>>> getExerciseBests(Authentication auth) {
+        UUID userId = (UUID) auth.getPrincipal();
+        List<UserExerciseBestDto> bests = bestsRepository.findByUserId(userId).stream()
+                .map(b -> new UserExerciseBestDto(
+                        b.getExerciseId(),
+                        b.getBestWtKg() != null ? b.getBestWtKg().doubleValue() : null,
+                        b.getBestReps(),
+                        b.getRepsAtBestWt()))
+                .toList();
+        return ResponseEntity.ok(ApiResponse.success(bests));
     }
 
     // ── GET /api/v1/users/me ──────────────────────────────────────────
