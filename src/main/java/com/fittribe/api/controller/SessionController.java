@@ -10,6 +10,8 @@ import com.fittribe.api.dto.request.LogSetRequest;
 import com.fittribe.api.dto.request.SetLogRequest;
 import com.fittribe.api.dto.request.StartSessionRequest;
 import com.fittribe.api.dto.request.SwapExerciseRequest;
+import com.fittribe.api.dto.response.DeleteSetResponse;
+import com.fittribe.api.dto.response.EditSetResponse;
 import com.fittribe.api.dto.response.FeedbackInfo;
 import com.fittribe.api.dto.response.FinishSessionResponse;
 import com.fittribe.api.dto.response.LogSetResponse;
@@ -312,7 +314,7 @@ public class SessionController {
     // ── PATCH /sessions/{id}/log-set/{exerciseId}/{setNumber} ───────
     @PatchMapping("/{id}/log-set/{exerciseId}/{setNumber}")
     @Transactional
-    public ResponseEntity<ApiResponse<LogSetResponse>> editSet(
+    public ResponseEntity<ApiResponse<EditSetResponse>> editSet(
             @PathVariable UUID id,
             @PathVariable String exerciseId,
             @PathVariable int setNumber,
@@ -409,14 +411,19 @@ public class SessionController {
             isPr = !events.isEmpty();
         }
 
+        // Re-read session from DB (cascade may have mutated derived fields)
+        // and build the full today DTO so frontend can replace state atomically.
+        WorkoutSession updated = sessionRepo.findById(session.getId()).orElse(session);
+        TodaySessionResponse todayDto = buildTodayResponse(updated, userId);
+
         return ResponseEntity.ok(ApiResponse.success(
-                new LogSetResponse(setId, isPr)));
+                new EditSetResponse(setId, isPr, todayDto)));
     }
 
     // ── DELETE /sessions/{id}/log-set/{exerciseId}/{setNumber} ───────
     @DeleteMapping("/{id}/log-set/{exerciseId}/{setNumber}")
     @Transactional
-    public ResponseEntity<ApiResponse<Map<String, Boolean>>> deleteSet(
+    public ResponseEntity<ApiResponse<DeleteSetResponse>> deleteSet(
             @PathVariable UUID id,
             @PathVariable String exerciseId,
             @PathVariable int setNumber,
@@ -505,7 +512,12 @@ public class SessionController {
                     session.getId(), exerciseId, setNumber, e);
         }
 
-        return ResponseEntity.ok(ApiResponse.success(Map.of("deleted", true)));
+        // Re-read session and build the full today DTO
+        WorkoutSession updated = sessionRepo.findById(session.getId()).orElse(session);
+        TodaySessionResponse todayDto = buildTodayResponse(updated, userId);
+
+        return ResponseEntity.ok(ApiResponse.success(
+                new DeleteSetResponse(true, todayDto)));
     }
 
     // ── DELETE /sessions/{id}/log-set/exercise/{exerciseId} ──────────
@@ -1077,121 +1089,7 @@ public class SessionController {
             return ResponseEntity.ok(ApiResponse.success(null));
         }
 
-        List<SetLog> logs = setLogRepo.findBySessionId(session.getId());
-
-        User user = userRepo.findById(userId).orElseThrow(() -> ApiException.notFound("User"));
-
-        LocalDate monday   = LocalDate.now(ZoneOffset.UTC).with(DayOfWeek.MONDAY);
-        Instant weekFrom   = monday.atStartOfDay(ZoneOffset.UTC).toInstant();
-        Instant weekTo     = monday.plusDays(7).atStartOfDay(ZoneOffset.UTC).toInstant();
-        int completedThisWeek = sessionRepo.countByUserIdAndStatusAndFinishedAtBetween(
-                userId, "COMPLETED", weekFrom, weekTo);
-
-        String date = session.getStartedAt() != null
-                ? LocalDate.ofInstant(session.getStartedAt(), ZoneOffset.UTC).toString()
-                : null;
-
-        List<Map<String, Object>> swapLog;
-        try {
-            String raw = session.getSwapLog();
-            swapLog = (raw != null && !raw.isBlank())
-                    ? objectMapper.readValue(raw, new TypeReference<>() {})
-                    : List.of();
-        } catch (Exception e) {
-            swapLog = List.of();
-        }
-
-        List<Map<String, Object>> plannedExercises;
-        try {
-            String raw = session.getPlannedExercises();
-            plannedExercises = (raw != null && !raw.isBlank())
-                    ? objectMapper.readValue(raw, new TypeReference<>() {})
-                    : null;
-        } catch (Exception e) {
-            plannedExercises = null;
-        }
-
-        FeedbackInfo feedback = feedbackRepo.findBySessionId(session.getId())
-                .map(fb -> new FeedbackInfo(fb.getRating(), fb.getNotes(), fb.getCreatedAt()))
-                .orElse(null);
-
-        // Parse exercises JSONB and enrich with set-level PR flags from pr_events.
-        // pr_events.set_id references the specific set that earned the PR — badges
-        // are set-level per the HLD, not exercise-level.
-        List<Map<String, Object>> exercises;
-        try {
-            String rawEx = session.getExercises();
-            if (rawEx != null && !rawEx.isBlank()) {
-                List<Map<String, Object>> parsed = objectMapper.readValue(
-                        rawEx, new TypeReference<List<Map<String, Object>>>() {});
-
-                // Single query: collect set_ids that have active (non-superseded) PRs
-                java.util.Set<UUID> prSetIds = prEventRepo
-                        .findBySessionIdAndSupersededAtIsNull(session.getId())
-                        .stream()
-                        .map(pe -> pe.getSetId())
-                        .collect(java.util.stream.Collectors.toSet());
-
-                exercises = new ArrayList<>();
-                for (Map<String, Object> ex : parsed) {
-                    Map<String, Object> enrichedEx = new LinkedHashMap<>(ex);
-                    enrichedEx.remove("isPr"); // strip legacy exercise-level field
-
-                    boolean anySetIsPr = false;
-
-                    // Enrich each set with isPr from pr_events
-                    Object setsRaw = enrichedEx.get("sets");
-                    if (setsRaw instanceof List<?> setsList) {
-                        List<Map<String, Object>> enrichedSets = new ArrayList<>();
-                        for (Object setObj : setsList) {
-                            if (!(setObj instanceof Map<?, ?> setMap)) continue;
-                            Map<String, Object> enrichedSet = new LinkedHashMap<>((Map<String, Object>) setMap);
-                            // Parse setId from JSONB — may be String UUID or null
-                            Object setIdRaw = enrichedSet.get("setId");
-                            UUID setId = null;
-                            if (setIdRaw != null) {
-                                try {
-                                    setId = UUID.fromString(setIdRaw.toString());
-                                } catch (IllegalArgumentException ignored) {}
-                            }
-                            boolean isPr = setId != null && prSetIds.contains(setId);
-                            enrichedSet.put("isPr", isPr);
-                            if (isPr) anySetIsPr = true;
-                            enrichedSets.add(enrichedSet);
-                        }
-                        enrichedEx.put("sets", enrichedSets);
-                    }
-
-                    enrichedEx.put("prAchieved", anySetIsPr);
-                    exercises.add(enrichedEx);
-                }
-            } else {
-                exercises = List.of();
-            }
-        } catch (Exception e) {
-            log.warn("Failed to parse exercises JSONB for session={}", session.getId(), e);
-            exercises = List.of();
-        }
-
-        TodaySessionResponse response = new TodaySessionResponse(
-                session.getId(),
-                session.getName(),
-                date,
-                session.getTotalVolumeKg() != null ? session.getTotalVolumeKg() : BigDecimal.ZERO,
-                session.getTotalSets()     != null ? session.getTotalSets()     : logs.size(),
-                session.getDurationMins(),
-                session.getFinishedAt(),
-                session.getAiInsight(),
-                session.getStatus(),
-                user.getStreak(),
-                completedThisWeek,
-                swapLog,
-                session.getSource(),
-                plannedExercises,
-                exercises,
-                feedback);
-
-        return ResponseEntity.ok(ApiResponse.success(response));
+        return ResponseEntity.ok(ApiResponse.success(buildTodayResponse(session, userId)));
     }
 
     // ── GET /sessions/history ─────────────────────────────────────────
@@ -1255,6 +1153,123 @@ public class SessionController {
     }
 
     // ── Helpers ───────────────────────────────────────────────────────
+
+    /**
+     * Builds a {@link TodaySessionResponse} from a loaded session.
+     * Shared by GET /sessions/today, PATCH /log-set, and DELETE /log-set
+     * so all three return the same shape and the frontend can replace
+     * its state atomically.
+     */
+    private TodaySessionResponse buildTodayResponse(WorkoutSession session, UUID userId) {
+        List<SetLog> logs = setLogRepo.findBySessionId(session.getId());
+
+        User user = userRepo.findById(userId).orElseThrow(() -> ApiException.notFound("User"));
+
+        LocalDate monday   = LocalDate.now(ZoneOffset.UTC).with(DayOfWeek.MONDAY);
+        Instant weekFrom   = monday.atStartOfDay(ZoneOffset.UTC).toInstant();
+        Instant weekTo     = monday.plusDays(7).atStartOfDay(ZoneOffset.UTC).toInstant();
+        int completedThisWeek = sessionRepo.countByUserIdAndStatusAndFinishedAtBetween(
+                userId, "COMPLETED", weekFrom, weekTo);
+
+        String date = session.getStartedAt() != null
+                ? LocalDate.ofInstant(session.getStartedAt(), ZoneOffset.UTC).toString()
+                : null;
+
+        List<Map<String, Object>> swapLog;
+        try {
+            String raw = session.getSwapLog();
+            swapLog = (raw != null && !raw.isBlank())
+                    ? objectMapper.readValue(raw, new TypeReference<>() {})
+                    : List.of();
+        } catch (Exception e) {
+            swapLog = List.of();
+        }
+
+        List<Map<String, Object>> plannedExercises;
+        try {
+            String raw = session.getPlannedExercises();
+            plannedExercises = (raw != null && !raw.isBlank())
+                    ? objectMapper.readValue(raw, new TypeReference<>() {})
+                    : null;
+        } catch (Exception e) {
+            plannedExercises = null;
+        }
+
+        FeedbackInfo feedback = feedbackRepo.findBySessionId(session.getId())
+                .map(fb -> new FeedbackInfo(fb.getRating(), fb.getNotes(), fb.getCreatedAt()))
+                .orElse(null);
+
+        // Parse exercises JSONB and enrich with set-level PR flags from pr_events.
+        List<Map<String, Object>> exercises;
+        try {
+            String rawEx = session.getExercises();
+            if (rawEx != null && !rawEx.isBlank()) {
+                List<Map<String, Object>> parsed = objectMapper.readValue(
+                        rawEx, new TypeReference<List<Map<String, Object>>>() {});
+
+                java.util.Set<UUID> prSetIds = prEventRepo
+                        .findBySessionIdAndSupersededAtIsNull(session.getId())
+                        .stream()
+                        .map(pe -> pe.getSetId())
+                        .collect(java.util.stream.Collectors.toSet());
+
+                exercises = new ArrayList<>();
+                for (Map<String, Object> ex : parsed) {
+                    Map<String, Object> enrichedEx = new LinkedHashMap<>(ex);
+                    enrichedEx.remove("isPr");
+
+                    boolean anySetIsPr = false;
+                    Object setsRaw = enrichedEx.get("sets");
+                    if (setsRaw instanceof List<?> setsList) {
+                        List<Map<String, Object>> enrichedSets = new ArrayList<>();
+                        for (Object setObj : setsList) {
+                            if (!(setObj instanceof Map<?, ?> setMap)) continue;
+                            @SuppressWarnings("unchecked")
+                            Map<String, Object> enrichedSet = new LinkedHashMap<>((Map<String, Object>) setMap);
+                            Object setIdRaw = enrichedSet.get("setId");
+                            UUID setId = null;
+                            if (setIdRaw != null) {
+                                try {
+                                    setId = UUID.fromString(setIdRaw.toString());
+                                } catch (IllegalArgumentException ignored) {}
+                            }
+                            boolean isPr = setId != null && prSetIds.contains(setId);
+                            enrichedSet.put("isPr", isPr);
+                            if (isPr) anySetIsPr = true;
+                            enrichedSets.add(enrichedSet);
+                        }
+                        enrichedEx.put("sets", enrichedSets);
+                    }
+
+                    enrichedEx.put("prAchieved", anySetIsPr);
+                    exercises.add(enrichedEx);
+                }
+            } else {
+                exercises = List.of();
+            }
+        } catch (Exception e) {
+            log.warn("Failed to parse exercises JSONB for session={}", session.getId(), e);
+            exercises = List.of();
+        }
+
+        return new TodaySessionResponse(
+                session.getId(),
+                session.getName(),
+                date,
+                session.getTotalVolumeKg() != null ? session.getTotalVolumeKg() : BigDecimal.ZERO,
+                session.getTotalSets()     != null ? session.getTotalSets()     : logs.size(),
+                session.getDurationMins(),
+                session.getFinishedAt(),
+                session.getAiInsight(),
+                session.getStatus(),
+                user.getStreak(),
+                completedThisWeek,
+                swapLog,
+                session.getSource(),
+                plannedExercises,
+                exercises,
+                feedback);
+    }
 
     private UUID userId(Authentication auth) {
         return (UUID) auth.getPrincipal();
