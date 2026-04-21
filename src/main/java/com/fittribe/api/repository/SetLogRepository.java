@@ -162,4 +162,21 @@ public interface SetLogRepository extends JpaRepository<SetLog, UUID> {
             @Param("sessionId") UUID sessionId,
             @Param("exerciseId") String exerciseId);
 
+    /**
+     * Max reps logged so far in the current session for a given exercise at
+     * a specific weight. Used by sparkle to detect REP_PR when a new set
+     * has the same weight as the session's prior best but more reps.
+     *
+     * Returns null if no matching sets exist.
+     */
+    @Query(value =
+        "SELECT MAX(reps) FROM set_logs " +
+        "WHERE session_id = :sessionId AND exercise_id = :exerciseId " +
+        "  AND weight_kg = :weightKg",
+        nativeQuery = true)
+    Integer findMaxRepsInSessionForExerciseAtWeight(
+            @Param("sessionId") UUID sessionId,
+            @Param("exerciseId") String exerciseId,
+            @Param("weightKg") BigDecimal weightKg);
+
 }

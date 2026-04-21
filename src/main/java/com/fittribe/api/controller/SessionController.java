@@ -31,6 +31,7 @@ import com.fittribe.api.entity.WorkoutSession;
 import com.fittribe.api.exception.ApiException;
 import com.fittribe.api.prv2.detector.ExerciseType;
 import com.fittribe.api.prv2.detector.LoggedSet;
+import com.fittribe.api.prv2.detector.PrCategory;
 import com.fittribe.api.prv2.detector.PRDetector;
 import com.fittribe.api.prv2.detector.PRResult;
 import com.fittribe.api.prv2.service.PrEditCascadeService;
@@ -272,6 +273,9 @@ public class SessionController {
         // max already logged in this session). Bodyweight sets (null weightKg)
         // can only sparkle on first-ever logging of the exercise.
         //
+        // Also detects REP_PR: when weight matches the session's current max
+        // for this exercise AND reps exceed the session's max reps at that weight.
+        //
         // This is read-only — does NOT write to user_exercise_bests or pr_events.
         // Those are updated only at session finish by PrWritePathService, which
         // is the single source of truth for PR detection.
@@ -295,6 +299,28 @@ public class SessionController {
             if (currentSessionMax == null) currentSessionMax = BigDecimal.ZERO;
             BigDecimal barToBeat = historicalBest.max(currentSessionMax);
             isPr = request.weightKg().compareTo(barToBeat) > 0;
+
+            // REP_PR check: weight matches session/historical best but reps are higher
+            if (!isPr && request.reps() != null && request.reps() > 0) {
+                BigDecimal effectiveBest = currentSessionMax.compareTo(BigDecimal.ZERO) > 0
+                        ? currentSessionMax.max(historicalBest)
+                        : historicalBest;
+                if (request.weightKg().compareTo(effectiveBest) == 0) {
+                    // Same weight as best — check if reps beat session max at this weight
+                    Integer sessionMaxReps = setLogRepo
+                            .findMaxRepsInSessionForExerciseAtWeight(
+                                    session.getId(), request.exerciseId(), request.weightKg());
+                    // Also check historical reps at this weight
+                    Integer historicalReps = userExerciseBestsRepo
+                            .findByUserIdAndExerciseId(userId, request.exerciseId())
+                            .map(b -> b.getRepsAtBestWt())
+                            .orElse(null);
+                    int bestReps = Math.max(
+                            sessionMaxReps != null ? sessionMaxReps : 0,
+                            historicalReps != null ? historicalReps : 0);
+                    isPr = request.reps() > bestReps;
+                }
+            }
         }
 
         // Upsert: insert or update if same session+exercise+setNumber already exists
@@ -317,7 +343,13 @@ public class SessionController {
         // Build PrDetails for celebration popup when isPr=true.
         // Runs PRDetector to get category, payload, and coin amount.
         // This is read-only — pr_events are NOT written until session finish.
+        //
+        // FIRST_EVER is suppressed from the mid-workout sparkle: it's a silent
+        // benchmark, not a user-facing celebration. FIRST_EVER sets still earn
+        // 3 coins at session finish via PrWritePathService — only the sparkle
+        // is hidden here.
         PrDetails prDetails = null;
+        boolean userFacingIsPr = false;
         if (isPr) {
             try {
                 var currentBests = userExerciseBestsRepo
@@ -330,17 +362,17 @@ public class SessionController {
                         saved.getId(), request.exerciseId(), request.weightKg(),
                         request.reps(), null);
                 PRResult result = prDetector.detect(detectorInput, currentBests, exerciseType);
-                if (result.isPR()) {
+                if (result.isPR() && result.category() != PrCategory.FIRST_EVER) {
                     prDetails = buildPrDetails(result);
+                    userFacingIsPr = true;
                 }
             } catch (Exception e) {
                 log.debug("Could not build PrDetails for sparkle: exercise={}", request.exerciseId(), e);
-                // Non-fatal: isPr stays true, prDetails stays null
             }
         }
 
         return ResponseEntity.ok(ApiResponse.success(
-                new LogSetResponse(saved.getId(), isPr, prDetails)));
+                new LogSetResponse(saved.getId(), userFacingIsPr, prDetails)));
     }
 
     // ── PATCH /sessions/{id}/log-set/{exerciseId}/{setNumber} ───────
