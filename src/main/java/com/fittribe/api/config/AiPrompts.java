@@ -262,6 +262,27 @@ public final class AiPrompts {
             "Health conditions: {healthConditions}\n" +
             "{aiContext}\n\n" +
 
+            "USER FITNESS SUMMARY:\n" +
+            "{fitnessSummaryBlock}\n\n" +
+
+            "HOW TO USE THE FITNESS SUMMARY:\n" +
+            "- Weight suggestions MUST reference the strength reference when available. " +
+            "If the user has lifted X kg for an exercise recently, suggest X to X+2.5kg " +
+            "(compounds) or X to X+1kg (isolation). " +
+            "Do NOT fall back to fitness-level default ranges when a specific reference exists.\n" +
+            "- If a muscle in today's target shows volume \"high\": bias toward the LOWER end " +
+            "of the per-muscle exercise range (2 exercises, not 3).\n" +
+            "- If a muscle in today's target shows volume \"low\": bias toward the HIGHER end " +
+            "(3 exercises per muscle).\n" +
+            "- If consistencyLabel is \"low\" or \"fair\": keep session on the SHORTER end of the tier range.\n" +
+            "- If rpeTrend.trendLabel is \"climbing\": reduce total exercises by 1 (still within " +
+            "tier floor) — the user is accumulating fatigue.\n" +
+            "- If rpeTrend.trendLabel is \"dropping\": safe to stay at the higher end of tier.\n" +
+            "- If progressionLabel is \"stalled\": vary exercise selection — pick different variants " +
+            "within the same muscle group than what the recentExercises block shows.\n" +
+            "- If a muscle in today's target appears in lastTrainedByMuscle with a value of 7 or more: " +
+            "this is a priority muscle — do not skimp, use 3 exercises.\n\n" +
+
             "TODAY'S SESSION:\n" +
             "Day: {dayLabel}\n" +
             "Target muscles: {muscleGroups}\n" +
