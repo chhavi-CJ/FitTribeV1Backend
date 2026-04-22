@@ -445,6 +445,12 @@ public class PlanService {
         // Build fitness summary block — additive: absent row falls back to default text
         String fitnessSummaryBlock = buildFitnessSummaryBlock(userId, muscleGroups);
 
+        List<String> canonicalMuscles = muscleGroups.stream()
+                .map(MuscleGroupUtil::canonicalize)
+                .filter(s -> !s.isEmpty())
+                .distinct()
+                .toList();
+
         String userPrompt = AiPrompts.DAILY_EXERCISE_USER
                 .replace("{name}",                 PromptSanitiser.sanitise(
                         user.getDisplayName() != null ? user.getDisplayName() : "Athlete"))
@@ -458,12 +464,7 @@ public class PlanService {
                 .replace("{aiContext}",            aiContextBlock)
                 .replace("{fitnessSummaryBlock}",  fitnessSummaryBlock)
                 .replace("{dayLabel}",             dayLabel)
-                .replace("{muscleGroups}",         String.join(", ",
-                        muscleGroups.stream()
-                                .map(MuscleGroupUtil::canonicalize)
-                                .filter(s -> !s.isEmpty())
-                                .distinct()
-                                .toList()))
+                .replace("{muscleGroups}",         String.join(", ", canonicalMuscles))
                 .replace("{includesCore}",         String.valueOf(includesCore))
                 .replace("{estimatedMins}",        String.valueOf(estimatedMins != null ? estimatedMins : 45))
                 .replace("{guidanceText}",         guidanceText != null ? guidanceText : "")
@@ -478,6 +479,9 @@ public class PlanService {
         String cardioSuggestion = null;
 
         if (openAiKey != null && !openAiKey.isBlank()) {
+            log.info("[PROMPT_DEBUG] userId={} muscleGroupsRaw={} muscleGroupsCanonical={}\n--- SYSTEM ---\n{}\n--- USER ---\n{}",
+                    userId, muscleGroups, canonicalMuscles,
+                    AiPrompts.DAILY_EXERCISE_SYSTEM, userPrompt);
             String aiResponse = callDailyOpenAi(userPrompt);
             if (aiResponse != null) {
                 try {
