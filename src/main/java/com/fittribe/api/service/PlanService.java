@@ -458,7 +458,12 @@ public class PlanService {
                 .replace("{aiContext}",            aiContextBlock)
                 .replace("{fitnessSummaryBlock}",  fitnessSummaryBlock)
                 .replace("{dayLabel}",             dayLabel)
-                .replace("{muscleGroups}",         String.join(", ", muscleGroups))
+                .replace("{muscleGroups}",         String.join(", ",
+                        muscleGroups.stream()
+                                .map(MuscleGroupUtil::canonicalize)
+                                .filter(s -> !s.isEmpty())
+                                .distinct()
+                                .toList()))
                 .replace("{includesCore}",         String.valueOf(includesCore))
                 .replace("{estimatedMins}",        String.valueOf(estimatedMins != null ? estimatedMins : 45))
                 .replace("{guidanceText}",         guidanceText != null ? guidanceText : "")
