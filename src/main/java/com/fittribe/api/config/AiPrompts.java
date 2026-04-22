@@ -96,7 +96,12 @@ public final class AiPrompts {
             "Core finisher exercises (ONLY add core to days marked '+ Core finisher'): " +
             "plank, dead-bug, mountain-climbers, russian-twist, leg-raises, bicycle-crunches, hanging-leg-raises, ab-wheel-rollout\n\n" +
             "EXERCISE RULES:\n" +
-            "- MANDATORY: include EXACTLY 5 exercises per day — no more, no fewer\n" +
+            "- MANDATORY exercise count per day — MUST follow these tier rules:\n" +
+            "  BEGINNER: 4–6 working exercises (2–3 per target muscle group)\n" +
+            "  INTERMEDIATE: 5–8 working exercises (2–3 per target muscle group)\n" +
+            "  ADVANCED: 6–10 working exercises (2–3 per target muscle group)\n" +
+            "  Core finisher (if day is marked '+ Core finisher') is ADDITIONAL and does NOT count toward the working exercise total.\n" +
+            "  Hard cap: NEVER exceed 10 working exercises + 1 optional core finisher = 11 total.\n" +
             "- Always include 1 core exercise per day from: dead-bug, mountain-climbers, russian-twist, leg-raises, bicycle-crunches, hanging-leg-raises, ab-wheel-rollout\n" +
             "- NEVER select 'plank' as a core exercise — it is duration-based and not supported in the app. Use any of the 7 core exercises listed above instead.\n" +
             "- Do NOT include REST days in the response — only return training days\n" +
@@ -271,10 +276,15 @@ public final class AiPrompts {
             "{feedbackBlock}\n\n" +
 
             "EXERCISE RULES:\n" +
-            "- Generate EXACTLY 5 exercises\n" +
+            "- REQUIRED exercise count — MUST follow these tier rules based on the user's fitness level:\n" +
+            "  BEGINNER: generate 4–6 working exercises (2–3 per target muscle group)\n" +
+            "  INTERMEDIATE: generate 5–8 working exercises (2–3 per target muscle group)\n" +
+            "  ADVANCED: generate 6–10 working exercises (2–3 per target muscle group)\n" +
+            "  If includesCore is TRUE, the core finisher is ADDITIONAL — do NOT count it in the working exercise total.\n" +
+            "  Hard cap: NEVER exceed 10 working exercises + 1 optional core finisher = 11 total.\n" +
             "- Use ONLY exercise IDs from the catalog below\n" +
             "- Order: compound movements first, isolation last\n" +
-            "- If includesCore is TRUE: 5th exercise MUST be a core exercise\n" +
+            "- If includesCore is TRUE, the FINAL exercise in the array (last position, regardless of total count) MUST be a core exercise\n" +
             "- If includesCore is FALSE: do NOT include any core exercises\n" +
             "- NEVER select 'plank' as a core exercise — it is duration-based and not supported in the app. For core, choose from: dead-bug, mountain-climbers, russian-twist, leg-raises, bicycle-crunches, hanging-leg-raises, ab-wheel-rollout\n" +
             "- Do NOT repeat any exercise listed in recentExercises block\n\n" +
