@@ -3,6 +3,9 @@ package com.fittribe.api.service;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fittribe.api.config.AiPrompts;
+import com.fittribe.api.fitnesssummary.FitnessSummary;
+import com.fittribe.api.fitnesssummary.FitnessSummaryService;
+import com.fittribe.api.util.MuscleGroupUtil;
 import com.fittribe.api.util.PromptSanitiser;
 import com.fittribe.api.entity.AiInsight;
 import com.fittribe.api.entity.Exercise;
@@ -100,6 +103,7 @@ public class PlanService {
     private final SplitTemplateDayRepository  splitTemplateDayRepo;
     private final DailyPlanGeneratedRepository dailyPlanRepo;
     private final UserDayStatusRepository      dayStatusRepo;
+    private final FitnessSummaryService        fitnessSummaryService;
     private final ObjectMapper                mapper;
     private final RestTemplate                restTemplate = new RestTemplate();
 
@@ -113,6 +117,7 @@ public class PlanService {
                        SplitTemplateDayRepository splitTemplateDayRepo,
                        DailyPlanGeneratedRepository dailyPlanRepo,
                        UserDayStatusRepository dayStatusRepo,
+                       FitnessSummaryService fitnessSummaryService,
                        ObjectMapper mapper) {
         this.userRepo             = userRepo;
         this.planRepo             = planRepo;
@@ -124,6 +129,7 @@ public class PlanService {
         this.splitTemplateDayRepo = splitTemplateDayRepo;
         this.dailyPlanRepo        = dailyPlanRepo;
         this.dayStatusRepo        = dayStatusRepo;
+        this.fitnessSummaryService = fitnessSummaryService;
         this.mapper               = mapper;
     }
 
@@ -436,25 +442,29 @@ public class PlanService {
         String aiContextBlock = (user.getAiContext() != null && !user.getAiContext().isBlank())
                 ? "PERSONAL CONTEXT: " + user.getAiContext() : "";
 
+        // Build fitness summary block — additive: absent row falls back to default text
+        String fitnessSummaryBlock = buildFitnessSummaryBlock(userId, muscleGroups);
+
         String userPrompt = AiPrompts.DAILY_EXERCISE_USER
-                .replace("{name}",             PromptSanitiser.sanitise(
+                .replace("{name}",                 PromptSanitiser.sanitise(
                         user.getDisplayName() != null ? user.getDisplayName() : "Athlete"))
-                .replace("{gender}",           user.getGender() != null ? user.getGender() : "Not specified")
-                .replace("{weightKg}",         user.getWeightKg() != null ? user.getWeightKg().toString() : "70")
-                .replace("{heightCm}",         user.getHeightCm() != null ? user.getHeightCm().toString() : "Not specified")
-                .replace("{fitnessLevel}",     level)
-                .replace("{goal}",             user.getGoal() != null ? user.getGoal() : "BUILD_MUSCLE")
-                .replace("{weekNumber}",       String.valueOf(weekNumber))
-                .replace("{healthConditions}", formatHealthConditions(user.getHealthConditions()))
-                .replace("{aiContext}",        aiContextBlock)
-                .replace("{dayLabel}",         dayLabel)
-                .replace("{muscleGroups}",     String.join(", ", muscleGroups))
-                .replace("{includesCore}",     String.valueOf(includesCore))
-                .replace("{estimatedMins}",    String.valueOf(estimatedMins != null ? estimatedMins : 45))
-                .replace("{guidanceText}",     guidanceText != null ? guidanceText : "")
-                .replace("{recoveryBlock}",    recoveryBlock)
-                .replace("{historyBlock}",     historyBlock + "\n" + recentExBlock)
-                .replace("{feedbackBlock}",    feedbackBlock);
+                .replace("{gender}",               user.getGender() != null ? user.getGender() : "Not specified")
+                .replace("{weightKg}",             user.getWeightKg() != null ? user.getWeightKg().toString() : "70")
+                .replace("{heightCm}",             user.getHeightCm() != null ? user.getHeightCm().toString() : "Not specified")
+                .replace("{fitnessLevel}",         level)
+                .replace("{goal}",                 user.getGoal() != null ? user.getGoal() : "BUILD_MUSCLE")
+                .replace("{weekNumber}",           String.valueOf(weekNumber))
+                .replace("{healthConditions}",     formatHealthConditions(user.getHealthConditions()))
+                .replace("{aiContext}",            aiContextBlock)
+                .replace("{fitnessSummaryBlock}",  fitnessSummaryBlock)
+                .replace("{dayLabel}",             dayLabel)
+                .replace("{muscleGroups}",         String.join(", ", muscleGroups))
+                .replace("{includesCore}",         String.valueOf(includesCore))
+                .replace("{estimatedMins}",        String.valueOf(estimatedMins != null ? estimatedMins : 45))
+                .replace("{guidanceText}",         guidanceText != null ? guidanceText : "")
+                .replace("{recoveryBlock}",        recoveryBlock)
+                .replace("{historyBlock}",         historyBlock + "\n" + recentExBlock)
+                .replace("{feedbackBlock}",        feedbackBlock);
 
         // Call AI or fallback
         String exercises;
@@ -1228,6 +1238,121 @@ When you change a weight from last week, explain why in that exercise's whyThisE
         return sb.toString().trim();
     }
 
+    /**
+     * Builds the fitness summary block for the AI prompt.
+     *
+     * <p>Additive: if no summary row exists yet (new user) the method returns a
+     * fallback instruction rather than an empty block. This keeps the prompt valid
+     * and the AI can still suggest sensible starting weights.
+     *
+     * <p>When a summary is present, {@code mainLiftStrength} entries are filtered
+     * to the muscle groups targeted in today's session so the AI receives only
+     * directly relevant strength references.
+     */
+    /** Package-private so {@code PlanServiceFitnessSummaryTest} can call it directly. */
+    String buildFitnessSummaryBlock(UUID userId, List<String> muscleGroups) {
+        Optional<FitnessSummary> summaryOpt = fitnessSummaryService.getSummary(userId);
+        if (summaryOpt.isEmpty()) {
+            return "(No historical data yet — this user is new. Use fitness level defaults for weight suggestions.)";
+        }
+
+        FitnessSummary summary = summaryOpt.get();
+
+        // Canonicalize today's target muscles for filtering
+        Set<String> canonicalTargets = muscleGroups == null ? Set.of() :
+                muscleGroups.stream()
+                        .map(MuscleGroupUtil::canonicalize)
+                        .filter(s -> !s.isEmpty())
+                        .collect(Collectors.toSet());
+
+        StringBuilder sb = new StringBuilder();
+
+        // Section 1: Strength reference — filtered to today's muscle groups
+        List<FitnessSummary.MainLiftEntry> relevantLifts = summary.mainLiftStrength() == null
+                ? List.of()
+                : summary.mainLiftStrength().stream()
+                        .filter(e -> e.maxKg() != null)
+                        .filter(e -> canonicalTargets.isEmpty() ||
+                                canonicalTargets.contains(MuscleGroupUtil.canonicalize(e.muscleGroup())))
+                        .collect(Collectors.toList());
+
+        if (!relevantLifts.isEmpty()) {
+            LocalDate today = LocalDate.now(ZoneOffset.UTC);
+            sb.append("Strength reference (use for weight suggestions):\n");
+            for (FitnessSummary.MainLiftEntry lift : relevantLifts) {
+                long daysAgo = -1;
+                if (lift.lastLiftedDate() != null) {
+                    try {
+                        LocalDate liftDate = LocalDate.parse(lift.lastLiftedDate());
+                        daysAgo = ChronoUnit.DAYS.between(liftDate, today);
+                    } catch (Exception ignored) {}
+                }
+                sb.append("  - ").append(lift.exerciseId())
+                  .append(": last max ").append(lift.maxKg()).append("kg")
+                  .append(" × ").append(lift.maxKgReps());
+                if (daysAgo >= 0) {
+                    sb.append(", ").append(daysAgo)
+                      .append(" day").append(daysAgo == 1 ? "" : "s").append(" ago");
+                }
+                sb.append("\n");
+            }
+            sb.append("\n");
+        }
+
+        // Section 2: Weekly volume (last 2 weeks)
+        if (summary.muscleGroupVolume() != null && !summary.muscleGroupVolume().isEmpty()) {
+            Map<String, FitnessSummary.MuscleVolume> volumeMap = summary.muscleGroupVolume();
+            Set<String> keysToShow = canonicalTargets.isEmpty() ? volumeMap.keySet() : canonicalTargets;
+            List<String> parts = keysToShow.stream()
+                    .filter(volumeMap::containsKey)
+                    .map(muscle -> muscle + "=" + volumeMap.get(muscle).label())
+                    .collect(Collectors.toList());
+            if (!parts.isEmpty()) {
+                sb.append("Weekly volume (last 2 weeks): ")
+                  .append(String.join(", ", parts))
+                  .append("\n\n");
+            }
+        }
+
+        // Section 3: Last trained (days ago)
+        if (summary.lastTrainedByMuscle() != null && !summary.lastTrainedByMuscle().isEmpty()) {
+            Map<String, Integer> lastTrained = summary.lastTrainedByMuscle();
+            Set<String> keysToShow = canonicalTargets.isEmpty() ? lastTrained.keySet() : canonicalTargets;
+            List<String> parts = keysToShow.stream()
+                    .filter(lastTrained::containsKey)
+                    .map(muscle -> muscle + "=" + lastTrained.get(muscle))
+                    .collect(Collectors.toList());
+            if (!parts.isEmpty()) {
+                sb.append("Last trained (days ago): ")
+                  .append(String.join(", ", parts))
+                  .append("\n\n");
+            }
+        }
+
+        // Section 4: Recovery & progression
+        sb.append("Recovery & progression:\n");
+        if (summary.weeklyConsistency() != null) {
+            FitnessSummary.WeeklyConsistency c = summary.weeklyConsistency();
+            sb.append("  - Consistency: ").append(c.consistencyLabel())
+              .append(" (").append(String.format("%.1f", c.avgSessionsPerWeek()))
+              .append(" sessions/week vs goal of ").append(c.weeklyGoal()).append(")\n");
+        }
+        if (summary.rpeTrend() != null) {
+            FitnessSummary.RpeTrend r = summary.rpeTrend();
+            sb.append("  - Recent effort: ").append(r.trendLabel())
+              .append(" (").append(r.previousWindowLabel())
+              .append(" → ").append(r.currentWindowLabel()).append(")\n");
+        }
+        if (summary.prActivity() != null) {
+            FitnessSummary.PrActivity p = summary.prActivity();
+            sb.append("  - Progression: ").append(p.progressionLabel())
+              .append(" (").append(p.prCountLast4Weeks()).append(" PR")
+              .append(p.prCountLast4Weeks() == 1 ? "" : "s").append(" in last 4 weeks)\n");
+        }
+
+        return sb.toString().trim();
+    }
+
     private String buildFallbackExercisesJson(String dayType, Map<String, Exercise> exMap,
                                                HistoryAnalysis analysis, double bw, String level) {
         try {
@@ -1541,29 +1666,13 @@ When you change a weight from last week, explain why in that exercise's whyThisE
         return EXERCISE_MUSCLE.getOrDefault(exerciseId, "");
     }
 
-    /**
-     * Canonicalize database muscle_group values to STANDARD_MUSCLES taxonomy.
-     * DB contains variations like "Upper Chest", "Front Delts", etc.
-     * Maps to: Chest, Back, Shoulders, Legs, Arms, Core
-     */
+    /** Delegates to {@link MuscleGroupUtil#canonicalize(String)}. */
     private String canonicalizeMuscle(String dbValue) {
-        String normalized = dbValue.trim().toLowerCase();
-        if (normalized.contains("chest")) return "Chest";
-        if (normalized.contains("back")) return "Back";
-        if (normalized.contains("shoulder") || normalized.contains("delt")) return "Shoulders";
-        if (normalized.contains("leg")
-                || normalized.contains("quad")
-                || normalized.contains("glute")
-                || normalized.contains("calf")
-                || normalized.contains("calves")
-                || normalized.contains("hamstring")) return "Legs";
-        if (normalized.contains("arm")
-                || normalized.contains("bicep")
-                || normalized.contains("tricep")) return "Arms";
-        if (normalized.contains("core") || normalized.contains("ab")) return "Core";
-        if (normalized.contains("full_body") || normalized.contains("full body")) return "";
-        log.debug("Unmapped DB muscleGroup value: '{}'", dbValue);
-        return "";
+        String result = MuscleGroupUtil.canonicalize(dbValue);
+        if (result.isEmpty() && dbValue != null && !dbValue.isBlank()) {
+            log.debug("Unmapped DB muscleGroup value: '{}'", dbValue);
+        }
+        return result;
     }
 
     // ── Split templates ───────────────────────────────────────────────

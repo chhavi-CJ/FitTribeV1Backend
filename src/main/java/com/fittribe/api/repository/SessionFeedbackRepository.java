@@ -20,4 +20,7 @@ public interface SessionFeedbackRepository extends JpaRepository<SessionFeedback
     List<SessionFeedback> findByUserIdOrderByCreatedAtDesc(UUID userId);
 
     List<SessionFeedback> findByUserIdAndCreatedAtAfter(UUID userId, Instant after);
+
+    /** Feedback entries for a user in a half-open window [from, to). Used by FitnessSummaryService. */
+    List<SessionFeedback> findByUserIdAndCreatedAtBetween(UUID userId, Instant from, Instant to);
 }
