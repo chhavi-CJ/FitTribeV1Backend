@@ -297,12 +297,10 @@ public final class AiPrompts {
             "{feedbackBlock}\n\n" +
 
             "EXERCISE RULES:\n" +
-            "- REQUIRED exercise count — MUST follow these tier rules based on the user's fitness level:\n" +
-            "  BEGINNER: generate 4–6 working exercises (2–3 per target muscle group)\n" +
-            "  INTERMEDIATE: generate 5–8 working exercises (2–3 per target muscle group)\n" +
-            "  ADVANCED: generate 6–10 working exercises (2–3 per target muscle group)\n" +
+            "- REQUIRED exercise count — MUST generate between {exerciseMin} and {exerciseMax} working exercises.\n" +
+            "  This range has been computed for this specific session based on target muscles ({muscleGroups}) and fitness level ({fitnessLevel}).\n" +
+            "  Distribute exercises so each target muscle gets 2–3 exercises where possible.\n" +
             "  If includesCore is TRUE, the core finisher is ADDITIONAL — do NOT count it in the working exercise total.\n" +
-            "  Hard cap: NEVER exceed 10 working exercises + 1 optional core finisher = 11 total.\n" +
             "- Use ONLY exercise IDs from the catalog below\n" +
             "- Order: compound movements first, isolation last\n" +
             "- If includesCore is TRUE, the FINAL exercise in the array (last position, regardless of total count) MUST be a core exercise\n" +
