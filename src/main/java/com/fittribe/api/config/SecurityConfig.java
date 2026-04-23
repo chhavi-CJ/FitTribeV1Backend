@@ -1,6 +1,7 @@
 package com.fittribe.api.config;
 
 import com.fittribe.api.filter.JwtAuthFilter;
+import com.fittribe.api.waitlist.WaitlistRateLimitFilter;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -22,12 +23,15 @@ import java.util.List;
 public class SecurityConfig {
 
     private final JwtAuthFilter jwtAuthFilter;
+    private final WaitlistRateLimitFilter waitlistRateLimitFilter;
 
     @Value("${firebase.project-id:placeholder}")
     private String firebaseProjectId;
 
-    public SecurityConfig(JwtAuthFilter jwtAuthFilter) {
+    public SecurityConfig(JwtAuthFilter jwtAuthFilter,
+                          WaitlistRateLimitFilter waitlistRateLimitFilter) {
         this.jwtAuthFilter = jwtAuthFilter;
+        this.waitlistRateLimitFilter = waitlistRateLimitFilter;
     }
 
     @Bean
@@ -35,6 +39,8 @@ public class SecurityConfig {
         CorsConfiguration config = new CorsConfiguration();
         config.setAllowedOriginPatterns(List.of(
                 "https://*.vercel.app",
+                "https://wynners.in",
+                "https://www.wynners.in",
                 "http://localhost:3000",
                 "https://localhost",
                 "http://localhost",
@@ -66,7 +72,8 @@ public class SecurityConfig {
                     // Security would otherwise 401 the request before the
                     // secret check could run. The empty-secret deny-by-default
                     // posture lives in the controller itself.
-                    .requestMatchers("/api/v1/admin/jobs/**").permitAll();
+                    .requestMatchers("/api/v1/admin/jobs/**").permitAll()
+                    .requestMatchers("/api/waitlist", "/api/waitlist/**").permitAll();
                 // Dev endpoints are only permitted when running in dev/test mode.
                 // In production (real FIREBASE_PROJECT_ID set), the DevController bean
                 // is not registered at all — this is a second layer of protection.
@@ -84,6 +91,7 @@ public class SecurityConfig {
                         "{\"data\":null,\"error\":{\"message\":\"Authentication required.\",\"code\":\"UNAUTHORIZED\"}}");
                 })
             )
+            .addFilterBefore(waitlistRateLimitFilter, UsernamePasswordAuthenticationFilter.class)
             .addFilterBefore(jwtAuthFilter, UsernamePasswordAuthenticationFilter.class);
 
         return http.build();
