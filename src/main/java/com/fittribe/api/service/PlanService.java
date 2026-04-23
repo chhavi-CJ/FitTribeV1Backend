@@ -52,6 +52,14 @@ public class PlanService {
 
     private static final Logger log = LoggerFactory.getLogger(PlanService.class);
 
+    // ── Exercise-count tier constants ─────────────────────────────────────
+    private static final Map<String, Integer> TIER_MIN = Map.of(
+            "BEGINNER", 4, "INTERMEDIATE", 5, "ADVANCED", 6);
+    private static final Map<String, Integer> TIER_HARD_CAP = Map.of(
+            "BEGINNER", 6, "INTERMEDIATE", 8, "ADVANCED", 10);
+    private static final int PER_MUSCLE_MIN = 2;
+    private static final int PER_MUSCLE_MAX = 3;
+
     /** Maps common AI-invented exerciseIds to the canonical DB id. */
     private static final Map<String, String> EXERCISE_ID_ALIASES = Map.ofEntries(
             Map.entry("tricep-dips",                "dips"),
@@ -451,6 +459,19 @@ public class PlanService {
                 .distinct()
                 .toList();
 
+        // Compute dynamic exercise floor/ceiling based on muscle count and tier
+        String levelKey    = level.toUpperCase();
+        int tierMin        = TIER_MIN.getOrDefault(levelKey, 5);
+        int tierHardCap    = TIER_HARD_CAP.getOrDefault(levelKey, 8);
+        int muscleCount    = canonicalMuscles.size();
+        int exerciseMin    = Math.max(muscleCount * PER_MUSCLE_MIN, tierMin);
+        int exerciseMax    = Math.min(muscleCount * PER_MUSCLE_MAX, tierHardCap);
+        if (exerciseMin > exerciseMax) {
+            log.warn("[TIER_WARN] floor>ceiling: userId={} tier={} muscleCount={} floor={} ceiling={} — using floor as exact count",
+                    userId, levelKey, muscleCount, exerciseMin, exerciseMax);
+            exerciseMax = exerciseMin;
+        }
+
         String userPrompt = AiPrompts.DAILY_EXERCISE_USER
                 .replace("{name}",                 PromptSanitiser.sanitise(
                         user.getDisplayName() != null ? user.getDisplayName() : "Athlete"))
@@ -465,6 +486,8 @@ public class PlanService {
                 .replace("{fitnessSummaryBlock}",  fitnessSummaryBlock)
                 .replace("{dayLabel}",             dayLabel)
                 .replace("{muscleGroups}",         String.join(", ", canonicalMuscles))
+                .replace("{exerciseMin}",          String.valueOf(exerciseMin))
+                .replace("{exerciseMax}",          String.valueOf(exerciseMax))
                 .replace("{includesCore}",         String.valueOf(includesCore))
                 .replace("{estimatedMins}",        String.valueOf(estimatedMins != null ? estimatedMins : 45))
                 .replace("{guidanceText}",         guidanceText != null ? guidanceText : "")
@@ -479,9 +502,9 @@ public class PlanService {
         String cardioSuggestion = null;
 
         if (openAiKey != null && !openAiKey.isBlank()) {
-            log.info("[PROMPT_DEBUG] userId={} muscleGroupsRaw={} muscleGroupsCanonical={}\n--- SYSTEM ---\n{}\n--- USER ---\n{}",
-                    userId, muscleGroups, canonicalMuscles,
-                    AiPrompts.DAILY_EXERCISE_SYSTEM, userPrompt);
+            log.info("[PROMPT_DEBUG_META] userId={} tier={} muscleCount={} muscleGroupsRaw={} muscleGroupsCanonical={} exerciseMin={} exerciseMax={}",
+                    userId, levelKey, muscleCount, muscleGroups, canonicalMuscles, exerciseMin, exerciseMax);
+            log.info("[PROMPT_DEBUG_BODY] userId={} fullPrompt=\n{}", userId, userPrompt);
             String aiResponse = callDailyOpenAi(userPrompt);
             if (aiResponse != null) {
                 try {
