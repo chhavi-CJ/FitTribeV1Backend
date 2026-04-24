@@ -88,9 +88,8 @@ logging:
 # Mock auth (local dev only — never enable on Railway)
 app:
   mock-auth-enabled: false
-  mail:
-    from-name: ${MAIL_FROM_NAME:Wynners}
-    from-address: ${MAIL_USERNAME}
+resend:
+  api-key: ${RESEND_API_KEY}
 
 # ── Admin endpoints (Wynners A1.5) ────────────────────────────────────
 # Shared secret required on the X-Admin-Secret header for
