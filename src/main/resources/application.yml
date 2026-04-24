@@ -26,6 +26,22 @@ spring:
     locations: classpath:db/migration
     baseline-on-migrate: false
 
+  # ── Mail ──────────────────────────────────────────────────────────────
+  mail:
+    host: ${MAIL_HOST}
+    port: ${MAIL_PORT}
+    username: ${MAIL_USERNAME}
+    password: ${MAIL_PASSWORD}
+    properties:
+      mail:
+        smtp:
+          auth: true
+          starttls:
+            enable: true
+          connectiontimeout: 5000
+          timeout: 5000
+          writetimeout: 5000
+
   # ── MVC ───────────────────────────────────────────────────────────────
   mvc:
     # Throw NoHandlerFoundException for unknown paths instead of forwarding to /error.
@@ -72,6 +88,9 @@ logging:
 # Mock auth (local dev only — never enable on Railway)
 app:
   mock-auth-enabled: false
+  mail:
+    from-name: ${MAIL_FROM_NAME:Wynners}
+    from-address: ${MAIL_USERNAME}
 
 # ── Admin endpoints (Wynners A1.5) ────────────────────────────────────
 # Shared secret required on the X-Admin-Secret header for

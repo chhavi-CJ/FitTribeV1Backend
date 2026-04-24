@@ -24,8 +24,11 @@ public class WaitlistService {
     @PersistenceContext
     private EntityManager entityManager;
 
-    public WaitlistService(WaitlistRepository repo) {
+    private final WaitlistEmailService emailService;
+
+    public WaitlistService(WaitlistRepository repo, WaitlistEmailService emailService) {
         this.repo = repo;
+        this.emailService = emailService;
     }
 
     @Transactional
@@ -51,6 +54,7 @@ public class WaitlistService {
         // Pull back the DB-assigned position and start_position (set via sequence + trigger).
         // flush forces the INSERT so DEFAULT-assigned position becomes readable via refresh()
         entityManager.refresh(saved);
+        emailService.sendConfirmation(saved.getEmail(), saved.getReferralCode(), saved.getPosition());
 
         // Credit referrer (non-blocking if fails)
         if (req.getReferredByCode() != null && !req.getReferredByCode().isBlank()) {

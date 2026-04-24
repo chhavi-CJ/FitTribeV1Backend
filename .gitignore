@@ -83,3 +83,4 @@ docs/architecture/ADR-002_PR_1.5_multi_signal_detector.md
 
 
 src/test/outputs/*.json
+src/main/resources/application-local.properties
