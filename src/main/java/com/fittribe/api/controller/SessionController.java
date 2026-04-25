@@ -1493,8 +1493,8 @@ public class SessionController {
             return session; // mid-workout edits are always allowed
         }
         if (!"COMPLETED".equals(session.getStatus())) {
-            throw new ApiException(HttpStatus.CONFLICT, "SESSION_NOT_EDITABLE",
-                    "This session is " + session.getStatus() + " and cannot be edited.");
+            throw new ApiException(HttpStatus.CONFLICT, "SESSION_NOT_IN_PROGRESS",
+                    "This session is already " + session.getStatus() + ".");
         }
         if (session.getFinishedAt() == null) {
             throw new ApiException(HttpStatus.CONFLICT, "SESSION_NOT_EDITABLE",
