@@ -1143,10 +1143,40 @@ public class SessionController {
     public ResponseEntity<ApiResponse<TodaySessionResponse>> todaySession(Authentication auth) {
         UUID userId = userId(auth);
 
-        // IST-scoped: this endpoint defines "today" in IST
-        // because users are India-based. Other endpoints in the
-        // codebase still use UTC — pending chore/migrate-utc-to-ist.
         ZoneId IST = ZoneId.of("Asia/Kolkata");
+
+        // 1. Look for any IN_PROGRESS session for this user,
+        //    regardless of calendar day. A user may have started
+        //    a session yesterday and not yet finished it — they
+        //    should still be able to resume.
+        WorkoutSession inProgress = sessionRepo
+                .findFirstByUserIdAndStatusOrderByStartedAtDesc(userId, "IN_PROGRESS")
+                .orElse(null);
+
+        if (inProgress != null) {
+            // Stale-week backstop: if the IN_PROGRESS session started
+            // in a previous ISO week (IST), the Sunday cron should
+            // have abandoned it but didn't. Self-heal.
+            LocalDate sessionDate       = inProgress.getStartedAt().atZone(IST).toLocalDate();
+            LocalDate sessionWeekMonday = sessionDate.with(TemporalAdjusters.previousOrSame(DayOfWeek.MONDAY));
+            LocalDate currentWeekMonday = LocalDate.now(IST).with(TemporalAdjusters.previousOrSame(DayOfWeek.MONDAY));
+
+            if (sessionWeekMonday.isBefore(currentWeekMonday)) {
+                inProgress.setStatus("ABANDONED");
+                sessionRepo.save(inProgress);
+                log.info("Self-healed stale IN_PROGRESS session {} from week {} to ABANDONED",
+                        inProgress.getId(), sessionWeekMonday);
+                // Fall through to look for a COMPLETED session today instead.
+            } else {
+                // Current-week IN_PROGRESS — return it regardless of
+                // which day it started.
+                return ResponseEntity.ok(ApiResponse.success(buildTodayResponse(inProgress, userId)));
+            }
+        }
+
+        // 2. No active session — look for a COMPLETED session today
+        //    (IST). This drives the post-workout home card UX, which
+        //    is inherently a today-scoped behavior.
         Instant dayStart = LocalDate.now(IST).atStartOfDay(IST).toInstant();
         Instant dayEnd   = dayStart.plus(1, ChronoUnit.DAYS);
 
@@ -1158,22 +1188,9 @@ public class SessionController {
             return ResponseEntity.ok(ApiResponse.success(null));
         }
 
-        // CHANGE C — backstop for stale IN_PROGRESS sessions the cron missed
-        if ("IN_PROGRESS".equals(session.getStatus())) {
-            LocalDate sessionDate        = session.getStartedAt().atZone(IST).toLocalDate();
-            LocalDate sessionWeekMonday  = sessionDate.with(TemporalAdjusters.previousOrSame(DayOfWeek.MONDAY));
-            LocalDate currentWeekMonday  = LocalDate.now(IST).with(TemporalAdjusters.previousOrSame(DayOfWeek.MONDAY));
-
-            if (sessionWeekMonday.isBefore(currentWeekMonday)) {
-                session.setStatus("ABANDONED");
-                sessionRepo.save(session);
-                log.info("Self-healed stale IN_PROGRESS session {} from week {} to ABANDONED",
-                        session.getId(), sessionWeekMonday);
-                return ResponseEntity.ok(ApiResponse.success(null));
-            }
-        }
-
-        // CHANGE D — defense-in-depth: never surface an ABANDONED session via /today
+        // 3. Defense-in-depth: never surface ABANDONED via /today.
+        //    (Should not happen in practice — ABANDONED is filtered
+        //    out elsewhere — but cheap to guard.)
         if ("ABANDONED".equals(session.getStatus())) {
             return ResponseEntity.ok(ApiResponse.success(null));
         }
