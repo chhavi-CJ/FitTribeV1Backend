@@ -1314,9 +1314,15 @@ public class SessionController {
                 List<Map<String, Object>> parsed = objectMapper.readValue(
                         rawEx, new TypeReference<List<Map<String, Object>>>() {});
 
+                // Exclude FIRST_EVER events — those mark the first time a
+                // user logs an exercise (useful for analytics / future
+                // achievements) but should not surface as trophies on the
+                // Summary screen. Within-session PRs (REP_PR, WEIGHT_PR, etc.)
+                // continue to render normally.
                 java.util.Set<UUID> prSetIds = prEventRepo
                         .findBySessionIdAndSupersededAtIsNull(session.getId())
                         .stream()
+                        .filter(pe -> !"FIRST_EVER".equals(pe.getPrCategory()))
                         .map(pe -> pe.getSetId())
                         .collect(java.util.stream.Collectors.toSet());
 
