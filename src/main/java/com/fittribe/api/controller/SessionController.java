@@ -70,6 +70,7 @@ import java.util.Comparator;
 import java.time.DayOfWeek;
 import java.time.Instant;
 import java.time.LocalDate;
+import java.time.ZoneId;
 import java.time.ZoneOffset;
 import java.time.temporal.ChronoUnit;
 import java.time.temporal.TemporalAdjusters;
@@ -1142,7 +1143,11 @@ public class SessionController {
     public ResponseEntity<ApiResponse<TodaySessionResponse>> todaySession(Authentication auth) {
         UUID userId = userId(auth);
 
-        Instant dayStart = LocalDate.now(ZoneOffset.UTC).atStartOfDay(ZoneOffset.UTC).toInstant();
+        // IST-scoped: this endpoint defines "today" in IST
+        // because users are India-based. Other endpoints in the
+        // codebase still use UTC — pending chore/migrate-utc-to-ist.
+        ZoneId IST = ZoneId.of("Asia/Kolkata");
+        Instant dayStart = LocalDate.now(IST).atStartOfDay(IST).toInstant();
         Instant dayEnd   = dayStart.plus(1, ChronoUnit.DAYS);
 
         WorkoutSession session = sessionRepo
@@ -1150,6 +1155,26 @@ public class SessionController {
                 .orElse(null);
 
         if (session == null) {
+            return ResponseEntity.ok(ApiResponse.success(null));
+        }
+
+        // CHANGE C — backstop for stale IN_PROGRESS sessions the cron missed
+        if ("IN_PROGRESS".equals(session.getStatus())) {
+            LocalDate sessionDate        = session.getStartedAt().atZone(IST).toLocalDate();
+            LocalDate sessionWeekMonday  = sessionDate.with(TemporalAdjusters.previousOrSame(DayOfWeek.MONDAY));
+            LocalDate currentWeekMonday  = LocalDate.now(IST).with(TemporalAdjusters.previousOrSame(DayOfWeek.MONDAY));
+
+            if (sessionWeekMonday.isBefore(currentWeekMonday)) {
+                session.setStatus("ABANDONED");
+                sessionRepo.save(session);
+                log.info("Self-healed stale IN_PROGRESS session {} from week {} to ABANDONED",
+                        session.getId(), sessionWeekMonday);
+                return ResponseEntity.ok(ApiResponse.success(null));
+            }
+        }
+
+        // CHANGE D — defense-in-depth: never surface an ABANDONED session via /today
+        if ("ABANDONED".equals(session.getStatus())) {
             return ResponseEntity.ok(ApiResponse.success(null));
         }
 
@@ -1229,9 +1254,10 @@ public class SessionController {
 
         User user = userRepo.findById(userId).orElseThrow(() -> ApiException.notFound("User"));
 
-        LocalDate monday   = LocalDate.now(ZoneOffset.UTC).with(DayOfWeek.MONDAY);
-        Instant weekFrom   = monday.atStartOfDay(ZoneOffset.UTC).toInstant();
-        Instant weekTo     = monday.plusDays(7).atStartOfDay(ZoneOffset.UTC).toInstant();
+        ZoneId IST = ZoneId.of("Asia/Kolkata");
+        LocalDate monday   = LocalDate.now(IST).with(TemporalAdjusters.previousOrSame(DayOfWeek.MONDAY));
+        Instant weekFrom   = monday.atStartOfDay(IST).toInstant();
+        Instant weekTo     = monday.plusDays(7).atStartOfDay(IST).toInstant();
         int completedThisWeek = sessionRepo.countByUserIdAndStatusAndFinishedAtBetween(
                 userId, "COMPLETED", weekFrom, weekTo);
 
