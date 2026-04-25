@@ -391,8 +391,7 @@ public class GroupController {
     @GetMapping("/pulse")
     public ResponseEntity<ApiResponse<?>> pulse(Authentication auth) {
         UUID userId = userId(auth);
-        Instant startOfToday = LocalDate.now(Zones.APP_ZONE)
-                .atStartOfDay(Zones.APP_ZONE).toInstant();
+        Instant startOfToday = Zones.fitnessDayStart(Zones.fitnessDayNow());
 
         // 1 query: user's group memberships
         List<GroupMember> myMemberships = memberRepo.findByUserId(userId);

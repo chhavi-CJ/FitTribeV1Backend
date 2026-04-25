@@ -1178,8 +1178,9 @@ public class SessionController {
         // 2. No active session — look for a COMPLETED session today
         //    (IST). This drives the post-workout home card UX, which
         //    is inherently a today-scoped behavior.
-        Instant dayStart = LocalDate.now(IST).atStartOfDay(IST).toInstant();
-        Instant dayEnd   = dayStart.plus(1, ChronoUnit.DAYS);
+        LocalDate today  = Zones.fitnessDayNow();
+        Instant dayStart = Zones.fitnessDayStart(today);
+        Instant dayEnd   = Zones.fitnessDayStart(today.plusDays(1));
 
         WorkoutSession session = sessionRepo
                 .findFirstByUserIdAndStartedAtBetweenOrderByStartedAtDesc(userId, dayStart, dayEnd)

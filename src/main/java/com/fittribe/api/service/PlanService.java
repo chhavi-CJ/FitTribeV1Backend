@@ -8,6 +8,7 @@ import com.fittribe.api.fitnesssummary.FitnessSummaryService;
 import com.fittribe.api.util.MuscleGroupUtil;
 import com.fittribe.api.util.PromptSanitiser;
 import static com.fittribe.api.util.Zones.APP_ZONE;
+import com.fittribe.api.util.Zones;
 import com.fittribe.api.entity.AiInsight;
 import com.fittribe.api.entity.Exercise;
 import com.fittribe.api.entity.SetLog;
@@ -201,7 +202,7 @@ public class PlanService {
         User user = userRepo.findById(userId)
                 .orElseThrow(() -> ApiException.notFound("User"));
 
-        LocalDate today = LocalDate.now(APP_ZONE);
+        LocalDate today = Zones.fitnessDayNow();
         LocalDate monday = today
                 .with(TemporalAdjusters.previousOrSame(DayOfWeek.MONDAY));
 
@@ -222,7 +223,7 @@ public class PlanService {
         }
 
         // Check for IN_PROGRESS session today
-        Instant startOfDay = today.atStartOfDay(APP_ZONE).toInstant();
+        Instant startOfDay = Zones.fitnessDayStart(today);
         Optional<WorkoutSession> inProgress = sessionRepo
                 .findFirstByUserIdAndStatusAndFinishedAtAfter(
                         userId, "IN_PROGRESS", startOfDay);
@@ -327,7 +328,7 @@ public class PlanService {
     public Map<String, Object> generateTodaysPlan(UUID userId) {
         User user = userRepo.findById(userId)
                 .orElseThrow(() -> ApiException.notFound("User"));
-        LocalDate today = LocalDate.now(APP_ZONE);
+        LocalDate today = Zones.fitnessDayNow();
 
         // Gate 1 — user set a status today
         Optional<UserDayStatus> statusOpt = dayStatusRepo
@@ -339,7 +340,7 @@ public class PlanService {
         }
 
         // Gate 2 — IN_PROGRESS session exists today
-        Instant startOfDay = today.atStartOfDay(APP_ZONE).toInstant();
+        Instant startOfDay = Zones.fitnessDayStart(today);
         Optional<WorkoutSession> inProgress = sessionRepo
                 .findFirstByUserIdAndStatusAndFinishedAtAfter(userId, "IN_PROGRESS", startOfDay);
         if (inProgress.isPresent()) {
