@@ -14,6 +14,7 @@ import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 
+import com.fittribe.api.util.Zones;
 import java.math.BigDecimal;
 import java.time.Instant;
 import java.time.LocalDate;
@@ -94,8 +95,8 @@ public class WeekDataBuilder {
      */
     public WeekData build(UUID userId, LocalDate weekStart) {
         LocalDate weekEnd = weekStart.plusDays(7);
-        Instant weekStartInstant = weekStart.atStartOfDay(ZoneOffset.UTC).toInstant();
-        Instant weekEndInstant   = weekEnd.atStartOfDay(ZoneOffset.UTC).toInstant();
+        Instant weekStartInstant = weekStart.atStartOfDay(Zones.APP_ZONE).toInstant();
+        Instant weekEndInstant   = weekEnd.atStartOfDay(Zones.APP_ZONE).toInstant();
 
         // ── 1. User (weekly goal + first name) ─────────────────────────
         User user = userRepo.findById(userId).orElse(null);
@@ -260,7 +261,7 @@ public class WeekDataBuilder {
         }
 
         // ── 6. previousWeekTopSets via set_logs ────────────────────────
-        Instant prevStartInstant = weekStart.minusDays(7).atStartOfDay(ZoneOffset.UTC).toInstant();
+        Instant prevStartInstant = weekStart.minusDays(7).atStartOfDay(Zones.APP_ZONE).toInstant();
         Instant prevEndInstant = weekStartInstant;
         Map<String, WeekData.TopSet> previousWeekTopSets = new LinkedHashMap<>();
         List<Object[]> prevRows = setLogRepo.findTopSetsPerExerciseInWindow(

@@ -7,10 +7,12 @@ import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.*;
 
 import java.sql.Timestamp;
+import com.fittribe.api.util.Zones;
 import java.time.DayOfWeek;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.time.ZoneOffset;
+import java.time.temporal.TemporalAdjusters;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -75,12 +77,12 @@ public class AchievementsController {
 
         int consecutive = 0;
         // Start from the most recently COMPLETED ISO week (last week), go back up to 12
-        LocalDate todayMonday = LocalDate.now(ZoneOffset.UTC).with(DayOfWeek.MONDAY);
+        LocalDate todayMonday = LocalDate.now(Zones.APP_ZONE).with(TemporalAdjusters.previousOrSame(DayOfWeek.MONDAY));
         for (int w = 1; w <= 12; w++) {
             LocalDate weekStart = todayMonday.minusWeeks(w);
             LocalDate weekEnd   = weekStart.plusDays(7);
-            Timestamp from = Timestamp.from(weekStart.atStartOfDay(ZoneOffset.UTC).toInstant());
-            Timestamp to   = Timestamp.from(weekEnd.atStartOfDay(ZoneOffset.UTC).toInstant());
+            Timestamp from = Timestamp.from(weekStart.atStartOfDay(Zones.APP_ZONE).toInstant());
+            Timestamp to   = Timestamp.from(weekEnd.atStartOfDay(Zones.APP_ZONE).toInstant());
 
             Integer count = jdbcTemplate.queryForObject(
                     "SELECT COUNT(*) FROM workout_sessions " +

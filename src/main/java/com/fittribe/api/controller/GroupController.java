@@ -15,6 +15,7 @@ import org.springframework.security.core.Authentication;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.bind.annotation.*;
 
+import com.fittribe.api.util.Zones;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.time.ZoneOffset;
@@ -390,8 +391,8 @@ public class GroupController {
     @GetMapping("/pulse")
     public ResponseEntity<ApiResponse<?>> pulse(Authentication auth) {
         UUID userId = userId(auth);
-        Instant startOfToday = LocalDate.now(ZoneOffset.UTC)
-                .atStartOfDay(ZoneOffset.UTC).toInstant();
+        Instant startOfToday = LocalDate.now(Zones.APP_ZONE)
+                .atStartOfDay(Zones.APP_ZONE).toInstant();
 
         // 1 query: user's group memberships
         List<GroupMember> myMemberships = memberRepo.findByUserId(userId);

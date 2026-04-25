@@ -67,6 +67,7 @@ import org.springframework.web.bind.annotation.*;
 
 import java.math.BigDecimal;
 import java.util.Comparator;
+import com.fittribe.api.util.Zones;
 import java.time.DayOfWeek;
 import java.time.Instant;
 import java.time.LocalDate;
@@ -842,11 +843,11 @@ public class SessionController {
         CoreFinishData core = transactionTemplate.execute(txStatus -> {
             User u = userRepo.findByIdForUpdate(userId)
                     .orElseThrow(() -> ApiException.notFound("User"));
-            LocalDate monday = LocalDate.now(ZoneOffset.UTC).with(DayOfWeek.MONDAY);
+            LocalDate monday = LocalDate.now(Zones.APP_ZONE).with(TemporalAdjusters.previousOrSame(DayOfWeek.MONDAY));
             int weekNum  = weekNumberFor(u, monday);
             int wkGoal   = u.getWeeklyGoal() != null ? u.getWeeklyGoal() : 4;
-            Instant from = monday.atStartOfDay(ZoneOffset.UTC).toInstant();
-            Instant to   = monday.plusDays(7).atStartOfDay(ZoneOffset.UTC).toInstant();
+            Instant from = monday.atStartOfDay(Zones.APP_ZONE).toInstant();
+            Instant to   = monday.plusDays(7).atStartOfDay(Zones.APP_ZONE).toInstant();
 
             // Mutate the outer `session` reference. With open-in-view=false
             // it's detached here, so sessionRepo.save triggers em.merge():
@@ -936,8 +937,8 @@ public class SessionController {
         // so the Trends tab can show mid-week progression. Isolated try/catch — failure
         // here must not affect /finish 200 or any sibling derived-data blocks.
         try {
-            LocalDate snapshotWeekStart = LocalDate.ofInstant(session.getFinishedAt(), ZoneOffset.UTC)
-                    .with(DayOfWeek.MONDAY);
+            LocalDate snapshotWeekStart = LocalDate.ofInstant(session.getFinishedAt(), Zones.APP_ZONE)
+                    .with(TemporalAdjusters.previousOrSame(DayOfWeek.MONDAY));
             progressSnapshotService.computeForUserWeek(userId, snapshotWeekStart);
         } catch (Exception e) {
             log.error("Failed to compute strength snapshot for user {} session {}",
