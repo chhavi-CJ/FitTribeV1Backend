@@ -13,6 +13,7 @@ import com.fittribe.api.repository.UserRepository;
 import com.fittribe.api.repository.WorkoutSessionRepository;
 import com.fittribe.api.service.RecoveryGateService;
 import com.fittribe.api.service.RecoveryGateService.RecoveryState;
+import static com.fittribe.api.util.Zones.APP_ZONE;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -113,9 +114,9 @@ public class BonusSessionService {
 
         // Weekly goal hit gate — users cannot bonus before completing their weekly commitment
         int weeklyGoal = user.getWeeklyGoal() != null ? user.getWeeklyGoal() : 3;
-        LocalDate today = LocalDate.now(ZoneOffset.UTC);
+        LocalDate today = LocalDate.now(APP_ZONE);
         LocalDate weekStart = today.with(TemporalAdjusters.previousOrSame(DayOfWeek.MONDAY));
-        Instant weekStartInstant = weekStart.atStartOfDay(ZoneOffset.UTC).toInstant();
+        Instant weekStartInstant = weekStart.atStartOfDay(APP_ZONE).toInstant();
         Instant nowInstant = Instant.now();
         int completedThisWeek = sessionRepo.countByUserIdAndStatusAndSourceNotAndFinishedAtBetween(
                 userId, "COMPLETED", "BONUS", weekStartInstant, nowInstant);

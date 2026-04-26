@@ -67,9 +67,11 @@ import org.springframework.web.bind.annotation.*;
 
 import java.math.BigDecimal;
 import java.util.Comparator;
+import com.fittribe.api.util.Zones;
 import java.time.DayOfWeek;
 import java.time.Instant;
 import java.time.LocalDate;
+import java.time.ZoneId;
 import java.time.ZoneOffset;
 import java.time.temporal.ChronoUnit;
 import java.time.temporal.TemporalAdjusters;
@@ -841,11 +843,11 @@ public class SessionController {
         CoreFinishData core = transactionTemplate.execute(txStatus -> {
             User u = userRepo.findByIdForUpdate(userId)
                     .orElseThrow(() -> ApiException.notFound("User"));
-            LocalDate monday = LocalDate.now(ZoneOffset.UTC).with(DayOfWeek.MONDAY);
+            LocalDate monday = LocalDate.now(Zones.APP_ZONE).with(TemporalAdjusters.previousOrSame(DayOfWeek.MONDAY));
             int weekNum  = weekNumberFor(u, monday);
             int wkGoal   = u.getWeeklyGoal() != null ? u.getWeeklyGoal() : 4;
-            Instant from = monday.atStartOfDay(ZoneOffset.UTC).toInstant();
-            Instant to   = monday.plusDays(7).atStartOfDay(ZoneOffset.UTC).toInstant();
+            Instant from = monday.atStartOfDay(Zones.APP_ZONE).toInstant();
+            Instant to   = monday.plusDays(7).atStartOfDay(Zones.APP_ZONE).toInstant();
 
             // Mutate the outer `session` reference. With open-in-view=false
             // it's detached here, so sessionRepo.save triggers em.merge():
@@ -935,8 +937,8 @@ public class SessionController {
         // so the Trends tab can show mid-week progression. Isolated try/catch — failure
         // here must not affect /finish 200 or any sibling derived-data blocks.
         try {
-            LocalDate snapshotWeekStart = LocalDate.ofInstant(session.getFinishedAt(), ZoneOffset.UTC)
-                    .with(DayOfWeek.MONDAY);
+            LocalDate snapshotWeekStart = LocalDate.ofInstant(session.getFinishedAt(), Zones.APP_ZONE)
+                    .with(TemporalAdjusters.previousOrSame(DayOfWeek.MONDAY));
             progressSnapshotService.computeForUserWeek(userId, snapshotWeekStart);
         } catch (Exception e) {
             log.error("Failed to compute strength snapshot for user {} session {}",
@@ -1142,14 +1144,56 @@ public class SessionController {
     public ResponseEntity<ApiResponse<TodaySessionResponse>> todaySession(Authentication auth) {
         UUID userId = userId(auth);
 
-        Instant dayStart = LocalDate.now(ZoneOffset.UTC).atStartOfDay(ZoneOffset.UTC).toInstant();
-        Instant dayEnd   = dayStart.plus(1, ChronoUnit.DAYS);
+        ZoneId IST = ZoneId.of("Asia/Kolkata");
+
+        // 1. Look for any IN_PROGRESS session for this user,
+        //    regardless of calendar day. A user may have started
+        //    a session yesterday and not yet finished it — they
+        //    should still be able to resume.
+        WorkoutSession inProgress = sessionRepo
+                .findFirstByUserIdAndStatusOrderByStartedAtDesc(userId, "IN_PROGRESS")
+                .orElse(null);
+
+        if (inProgress != null) {
+            // Stale-week backstop: if the IN_PROGRESS session started
+            // in a previous ISO week (IST), the Sunday cron should
+            // have abandoned it but didn't. Self-heal.
+            LocalDate sessionDate       = inProgress.getStartedAt().atZone(IST).toLocalDate();
+            LocalDate sessionWeekMonday = sessionDate.with(TemporalAdjusters.previousOrSame(DayOfWeek.MONDAY));
+            LocalDate currentWeekMonday = LocalDate.now(IST).with(TemporalAdjusters.previousOrSame(DayOfWeek.MONDAY));
+
+            if (sessionWeekMonday.isBefore(currentWeekMonday)) {
+                inProgress.setStatus("ABANDONED");
+                sessionRepo.save(inProgress);
+                log.info("Self-healed stale IN_PROGRESS session {} from week {} to ABANDONED",
+                        inProgress.getId(), sessionWeekMonday);
+                // Fall through to look for a COMPLETED session today instead.
+            } else {
+                // Current-week IN_PROGRESS — return it regardless of
+                // which day it started.
+                return ResponseEntity.ok(ApiResponse.success(buildTodayResponse(inProgress, userId)));
+            }
+        }
+
+        // 2. No active session — look for a COMPLETED session today
+        //    (IST). This drives the post-workout home card UX, which
+        //    is inherently a today-scoped behavior.
+        LocalDate today  = Zones.fitnessDayNow();
+        Instant dayStart = Zones.fitnessDayStart(today);
+        Instant dayEnd   = Zones.fitnessDayStart(today.plusDays(1));
 
         WorkoutSession session = sessionRepo
                 .findFirstByUserIdAndStartedAtBetweenOrderByStartedAtDesc(userId, dayStart, dayEnd)
                 .orElse(null);
 
         if (session == null) {
+            return ResponseEntity.ok(ApiResponse.success(null));
+        }
+
+        // 3. Defense-in-depth: never surface ABANDONED via /today.
+        //    (Should not happen in practice — ABANDONED is filtered
+        //    out elsewhere — but cheap to guard.)
+        if ("ABANDONED".equals(session.getStatus())) {
             return ResponseEntity.ok(ApiResponse.success(null));
         }
 
@@ -1229,9 +1273,10 @@ public class SessionController {
 
         User user = userRepo.findById(userId).orElseThrow(() -> ApiException.notFound("User"));
 
-        LocalDate monday   = LocalDate.now(ZoneOffset.UTC).with(DayOfWeek.MONDAY);
-        Instant weekFrom   = monday.atStartOfDay(ZoneOffset.UTC).toInstant();
-        Instant weekTo     = monday.plusDays(7).atStartOfDay(ZoneOffset.UTC).toInstant();
+        ZoneId IST = ZoneId.of("Asia/Kolkata");
+        LocalDate monday   = LocalDate.now(IST).with(TemporalAdjusters.previousOrSame(DayOfWeek.MONDAY));
+        Instant weekFrom   = monday.atStartOfDay(IST).toInstant();
+        Instant weekTo     = monday.plusDays(7).atStartOfDay(IST).toInstant();
         int completedThisWeek = sessionRepo.countByUserIdAndStatusAndFinishedAtBetween(
                 userId, "COMPLETED", weekFrom, weekTo);
 
@@ -1271,9 +1316,15 @@ public class SessionController {
                 List<Map<String, Object>> parsed = objectMapper.readValue(
                         rawEx, new TypeReference<List<Map<String, Object>>>() {});
 
+                // Exclude FIRST_EVER events — those mark the first time a
+                // user logs an exercise (useful for analytics / future
+                // achievements) but should not surface as trophies on the
+                // Summary screen. Within-session PRs (REP_PR, WEIGHT_PR, etc.)
+                // continue to render normally.
                 java.util.Set<UUID> prSetIds = prEventRepo
                         .findBySessionIdAndSupersededAtIsNull(session.getId())
                         .stream()
+                        .filter(pe -> !"FIRST_EVER".equals(pe.getPrCategory()))
                         .map(pe -> pe.getSetId())
                         .collect(java.util.stream.Collectors.toSet());
 
@@ -1467,8 +1518,8 @@ public class SessionController {
             return session; // mid-workout edits are always allowed
         }
         if (!"COMPLETED".equals(session.getStatus())) {
-            throw new ApiException(HttpStatus.CONFLICT, "SESSION_NOT_EDITABLE",
-                    "This session is " + session.getStatus() + " and cannot be edited.");
+            throw new ApiException(HttpStatus.CONFLICT, "SESSION_NOT_IN_PROGRESS",
+                    "This session is already " + session.getStatus() + ".");
         }
         if (session.getFinishedAt() == null) {
             throw new ApiException(HttpStatus.CONFLICT, "SESSION_NOT_EDITABLE",

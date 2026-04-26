@@ -7,6 +7,7 @@ import com.fittribe.api.repository.SessionFeedbackRepository;
 import com.fittribe.api.repository.UserFitnessSummaryRepository;
 import com.fittribe.api.repository.WorkoutSessionRepository;
 import com.fittribe.api.util.MuscleGroupUtil;
+import static com.fittribe.api.util.Zones.APP_ZONE;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.jdbc.core.JdbcTemplate;
@@ -267,10 +268,10 @@ public class FitnessSummaryService {
         int total2w = sessionRepo.countByUserIdAndStatusAndFinishedAtBetween(userId, "COMPLETED", from, to);
         double avg  = Math.round((total2w / 2.0) * 10.0) / 10.0;  // round to 1 dp
 
-        // Current ISO week: Monday 00:00 UTC to now
-        LocalDate monday = LocalDate.now(ZoneOffset.UTC)
+        // Current ISO week: Monday 00:00 IST to now
+        LocalDate monday = LocalDate.now(APP_ZONE)
                 .with(TemporalAdjusters.previousOrSame(DayOfWeek.MONDAY));
-        Instant weekStart = monday.atStartOfDay(ZoneOffset.UTC).toInstant();
+        Instant weekStart = monday.atStartOfDay(APP_ZONE).toInstant();
         int currentWeekSessions = sessionRepo.countByUserIdAndStatusAndFinishedAtBetween(
                 userId, "COMPLETED", weekStart, to);
 
