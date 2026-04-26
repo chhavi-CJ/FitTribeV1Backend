@@ -316,6 +316,15 @@ public class PrEditCascadeService {
                     b.setUserId(userId);
                     b.setExerciseId(exerciseId);
                     b.setExerciseType(ExerciseType.WEIGHTED.toString());
+                    // When rebuilding after edits, set counter to distinct session count from
+                    // active pr_events. This is a lower bound — sessions that logged this exercise
+                    // without producing a PR event are not counted. The counter will continue
+                    // incrementing correctly on future sessions via processSessionFinish.
+                    long distinctSessions = activeEvents.stream()
+                            .map(PrEvent::getSessionId)
+                            .distinct()
+                            .count();
+                    b.setTotalSessionsWithExercise((int) distinctSessions);
                     return b;
                 });
 
