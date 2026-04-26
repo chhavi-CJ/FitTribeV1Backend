@@ -46,6 +46,12 @@ public interface WorkoutSessionRepository extends JpaRepository<WorkoutSession, 
     @Query("UPDATE WorkoutSession w SET w.aiInsight = :insight WHERE w.id = :id")
     void updateAiInsight(@Param("id") UUID id, @Param("insight") String insight);
 
+    /** Bulk-abandons all sessions still IN_PROGRESS at Sunday end-of-week reset. */
+    @Modifying
+    @Transactional
+    @Query("UPDATE WorkoutSession ws SET ws.status = 'ABANDONED' WHERE ws.status = 'IN_PROGRESS'")
+    int abandonAllInProgressSessions();
+
     // Used for weeklyGoalHit and weekly report: sessions completed in a date range
     int countByUserIdAndStatusAndFinishedAtBetween(UUID userId, String status, Instant from, Instant to);
 

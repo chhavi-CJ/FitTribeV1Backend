@@ -7,6 +7,8 @@ import com.fittribe.api.fitnesssummary.FitnessSummary;
 import com.fittribe.api.fitnesssummary.FitnessSummaryService;
 import com.fittribe.api.util.MuscleGroupUtil;
 import com.fittribe.api.util.PromptSanitiser;
+import static com.fittribe.api.util.Zones.APP_ZONE;
+import com.fittribe.api.util.Zones;
 import com.fittribe.api.entity.AiInsight;
 import com.fittribe.api.entity.Exercise;
 import com.fittribe.api.entity.User;
@@ -150,7 +152,7 @@ public class PlanService {
         User user = userRepo.findById(userId)
                 .orElseThrow(() -> ApiException.notFound("User"));
 
-        LocalDate monday = LocalDate.now(ZoneOffset.UTC)
+        LocalDate monday = LocalDate.now(APP_ZONE)
                 .with(TemporalAdjusters.previousOrSame(DayOfWeek.MONDAY));
         int weekNumber = weekNumberFor(user, monday);
 
@@ -202,7 +204,7 @@ public class PlanService {
         User user = userRepo.findById(userId)
                 .orElseThrow(() -> ApiException.notFound("User"));
 
-        LocalDate today = LocalDate.now(ZoneOffset.UTC);
+        LocalDate today = Zones.fitnessDayNow();
         LocalDate monday = today
                 .with(TemporalAdjusters.previousOrSame(DayOfWeek.MONDAY));
 
@@ -223,7 +225,7 @@ public class PlanService {
         }
 
         // Check for IN_PROGRESS session today
-        Instant startOfDay = today.atStartOfDay(ZoneOffset.UTC).toInstant();
+        Instant startOfDay = Zones.fitnessDayStart(today);
         Optional<WorkoutSession> inProgress = sessionRepo
                 .findFirstByUserIdAndStatusAndFinishedAtAfter(
                         userId, "IN_PROGRESS", startOfDay);
@@ -292,7 +294,7 @@ public class PlanService {
         User user = userRepo.findById(userId)
                 .orElseThrow(() -> ApiException.notFound("User"));
 
-        LocalDate monday = LocalDate.now(ZoneOffset.UTC)
+        LocalDate monday = LocalDate.now(APP_ZONE)
                 .with(TemporalAdjusters.previousOrSame(DayOfWeek.MONDAY));
 
         UserPlan plan = planRepo.findByUserIdAndWeekStartDate(userId, monday)
@@ -301,7 +303,7 @@ public class PlanService {
         int weeklyGoal = user.getWeeklyGoal() != null ? user.getWeeklyGoal() : 4;
 
         // Count completed sessions this week so frontend knows progress
-        Instant weekStart = monday.atStartOfDay(ZoneOffset.UTC).toInstant();
+        Instant weekStart = monday.atStartOfDay(APP_ZONE).toInstant();
         Instant now       = Instant.now();
         int completedThisWeek = sessionRepo.countByUserIdAndStatusAndFinishedAtBetween(
                 userId, "COMPLETED", weekStart, now);
@@ -328,7 +330,7 @@ public class PlanService {
     public Map<String, Object> generateTodaysPlan(UUID userId) {
         User user = userRepo.findById(userId)
                 .orElseThrow(() -> ApiException.notFound("User"));
-        LocalDate today = LocalDate.now(ZoneOffset.UTC);
+        LocalDate today = Zones.fitnessDayNow();
 
         // Gate 1 — user set a status today
         Optional<UserDayStatus> statusOpt = dayStatusRepo
@@ -340,7 +342,7 @@ public class PlanService {
         }
 
         // Gate 2 — IN_PROGRESS session exists today
-        Instant startOfDay = today.atStartOfDay(ZoneOffset.UTC).toInstant();
+        Instant startOfDay = Zones.fitnessDayStart(today);
         Optional<WorkoutSession> inProgress = sessionRepo
                 .findFirstByUserIdAndStatusAndFinishedAtAfter(userId, "IN_PROGRESS", startOfDay);
         if (inProgress.isPresent()) {
@@ -362,7 +364,7 @@ public class PlanService {
         UserPlan weekPlan = planRepo.findByUserIdAndWeekStartDate(userId, monday)
                 .orElseGet(() -> generatePlan(userId));
 
-        Instant weekStart = monday.atStartOfDay(ZoneOffset.UTC).toInstant();
+        Instant weekStart = monday.atStartOfDay(APP_ZONE).toInstant();
         Instant now       = Instant.now();
         int completedThisWeek = sessionRepo.countByUserIdAndStatusAndFinishedAtBetween(
                 userId, "COMPLETED", weekStart, now);
@@ -425,8 +427,8 @@ public class PlanService {
         }
 
         // Build context for AI
-        Instant since4Days  = today.minusDays(4).atStartOfDay(ZoneOffset.UTC).toInstant();
-        Instant since14Days = today.minusDays(14).atStartOfDay(ZoneOffset.UTC).toInstant();
+        Instant since4Days  = today.minusDays(4).atStartOfDay(APP_ZONE).toInstant();
+        Instant since14Days = today.minusDays(14).atStartOfDay(APP_ZONE).toInstant();
 
         Map<String, Exercise> exMap = exerciseMap();
         List<WorkoutSession> recentSessions = sessionRepo
@@ -587,10 +589,10 @@ public class PlanService {
     }
 
     public Map<String, Object> setTodayStatus(UUID userId, String status) {
-        LocalDate today = LocalDate.now(ZoneOffset.UTC);
+        LocalDate today = LocalDate.now(APP_ZONE);
 
         // Block if IN_PROGRESS session exists
-        Instant startOfDay = today.atStartOfDay(ZoneOffset.UTC).toInstant();
+        Instant startOfDay = today.atStartOfDay(APP_ZONE).toInstant();
         boolean hasActiveSession = sessionRepo
                 .findFirstByUserIdAndStatusAndFinishedAtAfter(userId, "IN_PROGRESS", startOfDay)
                 .isPresent();
@@ -1298,7 +1300,7 @@ When you change a weight from last week, explain why in that exercise's whyThisE
                         .collect(Collectors.toList());
 
         if (!relevantLifts.isEmpty()) {
-            LocalDate today = LocalDate.now(ZoneOffset.UTC);
+            LocalDate today = LocalDate.now(APP_ZONE);
             sb.append("Strength reference (use for weight suggestions):\n");
             for (FitnessSummary.MainLiftEntry lift : relevantLifts) {
                 long daysAgo = -1;

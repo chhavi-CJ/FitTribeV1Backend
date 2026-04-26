@@ -9,19 +9,20 @@ import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Transactional;
 
+import com.fittribe.api.util.Zones;
 import java.time.DayOfWeek;
 import java.time.Instant;
 import java.time.LocalDate;
-import java.time.ZoneOffset;
 import java.time.temporal.ChronoUnit;
+import java.time.temporal.TemporalAdjusters;
 import java.util.List;
 
 /**
  * Daily streak reset job.
  *
- * Runs at 00:05 UTC every day.
+ * Runs at 00:05 IST every day.
  * For every user whose streak > 0, checks whether they completed at least one
- * session yesterday. If not — and if they are not protected by weekly-goal or
+ * session yesterday (IST). If not — and if they are not protected by weekly-goal or
  * new-user grace — their streak is reset to 0 (never negative).
  *
  * Rules:
@@ -43,21 +44,21 @@ public class StreakScheduler {
         this.sessionRepo = sessionRepo;
     }
 
-    @Scheduled(cron = "0 5 0 * * *")   // 00:05 UTC daily
+    @Scheduled(cron = "0 5 0 * * *", zone = "Asia/Kolkata")   // 00:05 IST daily
     @Transactional
     public void resetMissedStreaks() {
 
         Instant now = Instant.now();
 
-        // Yesterday window in UTC — the period we check for sessions
-        LocalDate yesterday   = LocalDate.now(ZoneOffset.UTC).minusDays(1);
-        Instant   yesterdayFrom = yesterday.atStartOfDay(ZoneOffset.UTC).toInstant();
-        Instant   yesterdayTo   = yesterday.plusDays(1).atStartOfDay(ZoneOffset.UTC).toInstant();
+        // Yesterday window in IST — the period we check for sessions
+        LocalDate yesterday     = LocalDate.now(Zones.APP_ZONE).minusDays(1);
+        Instant   yesterdayFrom = yesterday.atStartOfDay(Zones.APP_ZONE).toInstant();
+        Instant   yesterdayTo   = yesterday.plusDays(1).atStartOfDay(Zones.APP_ZONE).toInstant();
 
-        // This week's Monday 00:00 UTC — for weekly goal protection
-        LocalDate monday    = LocalDate.now(ZoneOffset.UTC).with(DayOfWeek.MONDAY);
-        Instant   weekFrom  = monday.atStartOfDay(ZoneOffset.UTC).toInstant();
-        Instant   weekTo    = monday.plusDays(7).atStartOfDay(ZoneOffset.UTC).toInstant();
+        // This week's Monday 00:00 IST — for weekly goal protection
+        LocalDate monday   = LocalDate.now(Zones.APP_ZONE).with(TemporalAdjusters.previousOrSame(DayOfWeek.MONDAY));
+        Instant   weekFrom = monday.atStartOfDay(Zones.APP_ZONE).toInstant();
+        Instant   weekTo   = monday.plusDays(7).atStartOfDay(Zones.APP_ZONE).toInstant();
 
         List<User> activeStreakUsers = userRepo.findAllByStreakGreaterThan(0);
 

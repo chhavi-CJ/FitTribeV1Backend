@@ -25,6 +25,7 @@ import org.springframework.security.core.Authentication;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.bind.annotation.*;
 
+import com.fittribe.api.util.Zones;
 import java.time.DayOfWeek;
 import java.time.Instant;
 import java.time.LocalDate;
@@ -277,16 +278,16 @@ public class UserController {
      * will regenerate it with the correct split on next app open.
      */
     private void invalidateCurrentWeekPlan(UUID userId) {
-        LocalDate monday = LocalDate.now(ZoneOffset.UTC)
+        LocalDate monday = LocalDate.now(Zones.APP_ZONE)
                 .with(TemporalAdjusters.previousOrSame(DayOfWeek.MONDAY));
         Optional<UserPlan> existing = planRepository.findByUserIdAndWeekStartDate(userId, monday);
         existing.ifPresent(planRepository::delete);
     }
 
     private UserProfileResponse buildProfileResponse(UUID userId, User user) {
-        LocalDate monday         = LocalDate.now(ZoneOffset.UTC).with(DayOfWeek.MONDAY);
-        Instant weekFrom         = monday.atStartOfDay(ZoneOffset.UTC).toInstant();
-        Instant weekTo           = monday.plusDays(7).atStartOfDay(ZoneOffset.UTC).toInstant();
+        LocalDate monday         = LocalDate.now(Zones.APP_ZONE).with(TemporalAdjusters.previousOrSame(DayOfWeek.MONDAY));
+        Instant weekFrom         = monday.atStartOfDay(Zones.APP_ZONE).toInstant();
+        Instant weekTo           = monday.plusDays(7).atStartOfDay(Zones.APP_ZONE).toInstant();
 
         int completedThisWeek = sessionRepository.countByUserIdAndStatusAndFinishedAtBetween(
                 userId, "COMPLETED", weekFrom, weekTo);

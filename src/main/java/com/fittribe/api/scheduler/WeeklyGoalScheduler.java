@@ -9,9 +9,9 @@ import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Transactional;
 
+import com.fittribe.api.util.Zones;
 import java.time.DayOfWeek;
 import java.time.LocalDate;
-import java.time.ZoneOffset;
 import java.time.temporal.TemporalAdjusters;
 import java.util.List;
 
@@ -48,7 +48,7 @@ public class WeeklyGoalScheduler {
         List<User> pending = userRepo.findAllByPendingWeeklyGoalIsNotNull();
 
         // This Monday — the new week the promoted goal applies to
-        LocalDate monday = LocalDate.now(ZoneOffset.UTC)
+        LocalDate monday = LocalDate.now(Zones.APP_ZONE)
                 .with(TemporalAdjusters.previousOrSame(DayOfWeek.MONDAY));
 
         int promoted = 0;

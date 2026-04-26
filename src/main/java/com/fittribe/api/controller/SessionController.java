@@ -20,9 +20,11 @@ import com.fittribe.api.dto.response.SessionHistoryItem;
 import com.fittribe.api.dto.response.StartSessionResponse;
 import com.fittribe.api.dto.response.TodaySessionResponse;
 import com.fittribe.api.dto.request.SessionFeedbackRequest;
+import com.fittribe.api.dto.request.UpdateSessionRequest;
 import com.fittribe.api.entity.CoinTransaction;
 import com.fittribe.api.entity.FeedItem;
 import com.fittribe.api.entity.GroupMember;
+import com.fittribe.api.entity.PrEvent;
 import com.fittribe.api.entity.SavedRoutine;
 import com.fittribe.api.entity.SessionFeedback;
 import com.fittribe.api.entity.SetLog;
@@ -36,7 +38,9 @@ import com.fittribe.api.prv2.detector.PRDetector;
 import com.fittribe.api.prv2.detector.PRResult;
 import com.fittribe.api.prv2.service.PrEditCascadeService;
 import com.fittribe.api.prv2.service.PrWritePathService;
+import com.fittribe.api.entity.Exercise;
 import com.fittribe.api.repository.CoinTransactionRepository;
+import com.fittribe.api.repository.ExerciseRepository;
 import com.fittribe.api.repository.FeedItemRepository;
 import com.fittribe.api.repository.GroupMemberRepository;
 import com.fittribe.api.repository.PrEventRepository;
@@ -66,10 +70,16 @@ import org.springframework.transaction.support.TransactionTemplate;
 import org.springframework.web.bind.annotation.*;
 
 import java.math.BigDecimal;
+import java.util.Collection;
 import java.util.Comparator;
+import java.util.LinkedHashSet;
+import java.util.Objects;
+import java.util.Set;
+import com.fittribe.api.util.Zones;
 import java.time.DayOfWeek;
 import java.time.Instant;
 import java.time.LocalDate;
+import java.time.ZoneId;
 import java.time.ZoneOffset;
 import java.time.temporal.ChronoUnit;
 import java.time.temporal.TemporalAdjusters;
@@ -111,6 +121,7 @@ public class SessionController {
     private final PrEventRepository         prEventRepo;
     private final UserExerciseBestsRepository userExerciseBestsRepo;
     private final PRDetector                 prDetector;
+    private final ExerciseRepository         exerciseRepo;
 
     public SessionController(WorkoutSessionRepository sessionRepo,
                              SetLogRepository setLogRepo,
@@ -132,7 +143,8 @@ public class SessionController {
                              PrEditCascadeService prEditCascadeService,
                              PrEventRepository prEventRepo,
                              UserExerciseBestsRepository userExerciseBestsRepo,
-                             PRDetector prDetector) {
+                             PRDetector prDetector,
+                             ExerciseRepository exerciseRepo) {
         this.sessionRepo         = sessionRepo;
         this.setLogRepo          = setLogRepo;
         this.userRepo            = userRepo;
@@ -154,6 +166,7 @@ public class SessionController {
         this.prEventRepo = prEventRepo;
         this.userExerciseBestsRepo = userExerciseBestsRepo;
         this.prDetector = prDetector;
+        this.exerciseRepo = exerciseRepo;
     }
 
     // ── POST /sessions/start ──────────────────────────────────────────
@@ -841,11 +854,11 @@ public class SessionController {
         CoreFinishData core = transactionTemplate.execute(txStatus -> {
             User u = userRepo.findByIdForUpdate(userId)
                     .orElseThrow(() -> ApiException.notFound("User"));
-            LocalDate monday = LocalDate.now(ZoneOffset.UTC).with(DayOfWeek.MONDAY);
+            LocalDate monday = LocalDate.now(Zones.APP_ZONE).with(TemporalAdjusters.previousOrSame(DayOfWeek.MONDAY));
             int weekNum  = weekNumberFor(u, monday);
             int wkGoal   = u.getWeeklyGoal() != null ? u.getWeeklyGoal() : 4;
-            Instant from = monday.atStartOfDay(ZoneOffset.UTC).toInstant();
-            Instant to   = monday.plusDays(7).atStartOfDay(ZoneOffset.UTC).toInstant();
+            Instant from = monday.atStartOfDay(Zones.APP_ZONE).toInstant();
+            Instant to   = monday.plusDays(7).atStartOfDay(Zones.APP_ZONE).toInstant();
 
             // Mutate the outer `session` reference. With open-in-view=false
             // it's detached here, so sessionRepo.save triggers em.merge():
@@ -935,8 +948,8 @@ public class SessionController {
         // so the Trends tab can show mid-week progression. Isolated try/catch — failure
         // here must not affect /finish 200 or any sibling derived-data blocks.
         try {
-            LocalDate snapshotWeekStart = LocalDate.ofInstant(session.getFinishedAt(), ZoneOffset.UTC)
-                    .with(DayOfWeek.MONDAY);
+            LocalDate snapshotWeekStart = LocalDate.ofInstant(session.getFinishedAt(), Zones.APP_ZONE)
+                    .with(TemporalAdjusters.previousOrSame(DayOfWeek.MONDAY));
             progressSnapshotService.computeForUserWeek(userId, snapshotWeekStart);
         } catch (Exception e) {
             log.error("Failed to compute strength snapshot for user {} session {}",
@@ -1123,6 +1136,60 @@ public class SessionController {
                 new FeedbackInfo(feedback.getRating(), feedback.getNotes(), feedback.getCreatedAt())));
     }
 
+    // ── PATCH /sessions/{id} ─────────────────────────────────────────
+    @PatchMapping("/{id}")
+    @Transactional
+    public ResponseEntity<ApiResponse<TodaySessionResponse>> updateSession(
+            @PathVariable UUID id,
+            @RequestBody @Valid UpdateSessionRequest request,
+            Authentication auth) {
+
+        UUID userId = userId(auth);
+        WorkoutSession session = requireOwned(id, userId);
+
+        if (!"COMPLETED".equals(session.getStatus())) {
+            throw new ApiException(HttpStatus.BAD_REQUEST,
+                    "SESSION_NOT_COMPLETE", "Can only edit completed sessions.");
+        }
+
+        // Edit-window guard: allow edits until 05:00 IST the day after the session finished
+        Instant cutoff = session.getFinishedAt()
+                .atZone(Zones.APP_ZONE)
+                .toLocalDate()
+                .plusDays(1)
+                .atTime(5, 0)
+                .atZone(Zones.APP_ZONE)
+                .toInstant();
+        if (Instant.now().isAfter(cutoff)) {
+            throw new ApiException(HttpStatus.CONFLICT,
+                    "EDIT_WINDOW_EXPIRED",
+                    "Sessions can only be edited until 5 AM the day after they finished.");
+        }
+
+        // Timestamp validation
+        if (!request.finishedAt().isAfter(request.startedAt())) {
+            throw new ApiException(HttpStatus.BAD_REQUEST,
+                    "INVALID_TIME_RANGE", "finishedAt must be after startedAt.");
+        }
+        if (request.finishedAt().isAfter(Instant.now().plusSeconds(5))) {
+            throw new ApiException(HttpStatus.BAD_REQUEST,
+                    "FINISH_IN_FUTURE", "finishedAt cannot be in the future.");
+        }
+        long durationMins = Math.round(
+                (request.finishedAt().toEpochMilli() - request.startedAt().toEpochMilli()) / 60000.0);
+        if (durationMins < 1 || durationMins > 120) {
+            throw new ApiException(HttpStatus.BAD_REQUEST,
+                    "DURATION_OUT_OF_RANGE", "Session duration must be between 1 and 120 minutes.");
+        }
+
+        session.setStartedAt(request.startedAt());
+        session.setFinishedAt(request.finishedAt());
+        session.setDurationMins((int) durationMins);
+        sessionRepo.save(session);
+
+        return ResponseEntity.ok(ApiResponse.success(buildTodayResponse(session, userId)));
+    }
+
     // ── POST /sessions/{id}/discard ───────────────────────────────────
     @PostMapping("/{id}/discard")
     @Transactional
@@ -1142,14 +1209,56 @@ public class SessionController {
     public ResponseEntity<ApiResponse<TodaySessionResponse>> todaySession(Authentication auth) {
         UUID userId = userId(auth);
 
-        Instant dayStart = LocalDate.now(ZoneOffset.UTC).atStartOfDay(ZoneOffset.UTC).toInstant();
-        Instant dayEnd   = dayStart.plus(1, ChronoUnit.DAYS);
+        ZoneId IST = ZoneId.of("Asia/Kolkata");
+
+        // 1. Look for any IN_PROGRESS session for this user,
+        //    regardless of calendar day. A user may have started
+        //    a session yesterday and not yet finished it — they
+        //    should still be able to resume.
+        WorkoutSession inProgress = sessionRepo
+                .findFirstByUserIdAndStatusOrderByStartedAtDesc(userId, "IN_PROGRESS")
+                .orElse(null);
+
+        if (inProgress != null) {
+            // Stale-week backstop: if the IN_PROGRESS session started
+            // in a previous ISO week (IST), the Sunday cron should
+            // have abandoned it but didn't. Self-heal.
+            LocalDate sessionDate       = inProgress.getStartedAt().atZone(IST).toLocalDate();
+            LocalDate sessionWeekMonday = sessionDate.with(TemporalAdjusters.previousOrSame(DayOfWeek.MONDAY));
+            LocalDate currentWeekMonday = LocalDate.now(IST).with(TemporalAdjusters.previousOrSame(DayOfWeek.MONDAY));
+
+            if (sessionWeekMonday.isBefore(currentWeekMonday)) {
+                inProgress.setStatus("ABANDONED");
+                sessionRepo.save(inProgress);
+                log.info("Self-healed stale IN_PROGRESS session {} from week {} to ABANDONED",
+                        inProgress.getId(), sessionWeekMonday);
+                // Fall through to look for a COMPLETED session today instead.
+            } else {
+                // Current-week IN_PROGRESS — return it regardless of
+                // which day it started.
+                return ResponseEntity.ok(ApiResponse.success(buildTodayResponse(inProgress, userId)));
+            }
+        }
+
+        // 2. No active session — look for a COMPLETED session today
+        //    (IST). This drives the post-workout home card UX, which
+        //    is inherently a today-scoped behavior.
+        LocalDate today  = Zones.fitnessDayNow();
+        Instant dayStart = Zones.fitnessDayStart(today);
+        Instant dayEnd   = Zones.fitnessDayStart(today.plusDays(1));
 
         WorkoutSession session = sessionRepo
                 .findFirstByUserIdAndStartedAtBetweenOrderByStartedAtDesc(userId, dayStart, dayEnd)
                 .orElse(null);
 
         if (session == null) {
+            return ResponseEntity.ok(ApiResponse.success(null));
+        }
+
+        // 3. Defense-in-depth: never surface ABANDONED via /today.
+        //    (Should not happen in practice — ABANDONED is filtered
+        //    out elsewhere — but cheap to guard.)
+        if ("ABANDONED".equals(session.getStatus())) {
             return ResponseEntity.ok(ApiResponse.success(null));
         }
 
@@ -1164,59 +1273,175 @@ public class SessionController {
         List<WorkoutSession> sessions = sessionRepo
                 .findTop20ByUserIdAndStatusOrderByStartedAtDesc(userId, "COMPLETED");
 
-        // Batch-load feedback for all sessions in one query
-        List<UUID> sessionIds = sessions.stream().map(WorkoutSession::getId).collect(Collectors.toList());
+        if (sessions.isEmpty()) {
+            return ResponseEntity.ok(ApiResponse.success(List.of()));
+        }
+
+        List<UUID> sessionIds = sessions.stream()
+                .map(WorkoutSession::getId).collect(Collectors.toList());
+
+        // Query 2: feedback — one batch for all sessions
         Map<UUID, SessionFeedback> feedbackBySession = feedbackRepo.findBySessionIdIn(sessionIds)
                 .stream()
                 .collect(Collectors.toMap(SessionFeedback::getSessionId, fb -> fb));
 
-        List<SessionHistoryItem> items = sessions.stream()
-                .map(session -> {
-                    List<SetLog> logs = setLogRepo.findBySessionId(session.getId());
+        // Query 3: exercise catalog — needed for muscleGroup lookup per exercise.
+        // Uses findAll() because the catalog is small (19 exercises) and stable.
+        // TODO: if the catalog grows significantly, switch to findAllById(distinctExerciseIds)
+        //   where distinctExerciseIds is collected from session.getExercises() JSONB in a
+        //   first pass — avoids fetching unused rows at the cost of parsing JSONB twice.
+        Map<String, String> muscleGroupById = exerciseRepo.findAll()
+                .stream()
+                .collect(Collectors.toMap(Exercise::getId,
+                        e -> e.getMuscleGroup() != null ? e.getMuscleGroup() : ""));
 
-                    // Group sets by exercise name, preserving first-seen order
-                    Map<String, List<SetLog>> grouped = logs.stream()
-                            .collect(Collectors.groupingBy(
-                                    sl -> sl.getExerciseName() != null
-                                            ? sl.getExerciseName() : sl.getExerciseId(),
-                                    LinkedHashMap::new,
-                                    Collectors.toList()));
+        // Query 4: pr_events — one batch for all sessions.
+        // week_start IN clause is required to hit the correct RANGE partitions.
+        // Uses UTC + Monday, matching PrWritePathService.weekStartFor() exactly:
+        //   LocalDate.ofInstant(instant, ZoneOffset.UTC).with(previousOrSame(DayOfWeek.MONDAY))
+        Set<LocalDate> weekStarts = sessions.stream()
+                .filter(s -> s.getStartedAt() != null)
+                .map(s -> LocalDate.ofInstant(s.getStartedAt(), ZoneOffset.UTC)
+                        .with(TemporalAdjusters.previousOrSame(DayOfWeek.MONDAY)))
+                .collect(Collectors.toSet());
+        Map<UUID, List<PrEvent>> prBySession = prEventRepo
+                .findActiveByUserIdAndSessionIdInAndWeekStartIn(userId, sessionIds, weekStarts)
+                .stream()
+                .collect(Collectors.groupingBy(PrEvent::getSessionId));
 
-                    List<SessionHistoryItem.ExerciseGroup> exercises = grouped.entrySet().stream()
-                            .map(e -> new SessionHistoryItem.ExerciseGroup(
-                                    e.getKey(),
-                                    e.getValue().stream()
-                                            .map(sl -> new SessionHistoryItem.SetSummary(
-                                                    sl.getWeightKg(), sl.getReps()))
-                                            .collect(Collectors.toList())))
-                            .collect(Collectors.toList());
+        // Build response items in memory — no further DB calls
+        List<SessionHistoryItem> items = new ArrayList<>();
+        for (WorkoutSession session : sessions) {
+            List<PrEvent> prs = prBySession.getOrDefault(session.getId(), List.of());
 
-                    String date = session.getStartedAt() != null
-                            ? LocalDate.ofInstant(session.getStartedAt(), ZoneOffset.UTC).toString()
-                            : null;
+            // Set-level PR lookup: non-FIRST_EVER events, keyed by set_id
+            Set<UUID> prSetIds = prs.stream()
+                    .filter(pe -> !"FIRST_EVER".equals(pe.getPrCategory()))
+                    .map(PrEvent::getSetId)
+                    .filter(Objects::nonNull)
+                    .collect(Collectors.toSet());
 
-                    SessionFeedback fb = feedbackBySession.get(session.getId());
-                    FeedbackInfo feedback = fb != null
-                            ? new FeedbackInfo(fb.getRating(), fb.getNotes(), fb.getCreatedAt())
-                            : null;
+            // Exercise-level first-ever lookup: FIRST_EVER events, keyed by exercise_id
+            Set<String> firstEverExerciseIds = prs.stream()
+                    .filter(pe -> "FIRST_EVER".equals(pe.getPrCategory()))
+                    .map(PrEvent::getExerciseId)
+                    .collect(Collectors.toSet());
 
-                    return new SessionHistoryItem(
-                            session.getId(),
-                            session.getName(),
-                            date,
-                            session.getTotalVolumeKg(),
-                            session.getTotalSets() != null ? session.getTotalSets() : 0,
-                            session.getDurationMins(),
-                            session.getStreak(),
-                            exercises,
-                            feedback);
-                })
-                .collect(Collectors.toList());
+            int firstEverCount = (int) prs.stream()
+                    .filter(pe -> "FIRST_EVER".equals(pe.getPrCategory())).count();
+            int prCount = (int) prs.stream()
+                    .filter(pe -> !"FIRST_EVER".equals(pe.getPrCategory())).count();
+
+            // Parse exercises from the JSONB snapshot written at finish time.
+            // This is the same durable source used by buildTodayResponse().
+            List<SessionHistoryItem.ExerciseGroup> exercises =
+                    parseSnapshotIntoExerciseGroups(
+                            session.getExercises(), prSetIds, firstEverExerciseIds, muscleGroupById);
+
+            LinkedHashSet<String> muscleGroupsSeen = new LinkedHashSet<>();
+            for (SessionHistoryItem.ExerciseGroup eg : exercises) {
+                if (eg.muscleGroup() != null && !eg.muscleGroup().isBlank()) {
+                    muscleGroupsSeen.add(eg.muscleGroup());
+                }
+            }
+
+            String date = session.getStartedAt() != null
+                    ? LocalDate.ofInstant(session.getStartedAt(), ZoneOffset.UTC).toString()
+                    : null;
+
+            SessionFeedback fb = feedbackBySession.get(session.getId());
+            FeedbackInfo feedback = fb != null
+                    ? new FeedbackInfo(fb.getRating(), fb.getNotes(), fb.getCreatedAt())
+                    : null;
+
+            items.add(new SessionHistoryItem(
+                    session.getId(),
+                    session.getName(),
+                    date,
+                    session.getTotalVolumeKg(),
+                    session.getTotalSets() != null ? session.getTotalSets() : 0,
+                    session.getDurationMins(),
+                    session.getStreak(),
+                    new ArrayList<>(muscleGroupsSeen),
+                    firstEverCount,
+                    prCount,
+                    exercises,
+                    feedback));
+        }
 
         return ResponseEntity.ok(ApiResponse.success(items));
     }
 
     // ── Helpers ───────────────────────────────────────────────────────
+
+    /**
+     * Parses the {@code workout_sessions.exercises} JSONB snapshot into typed
+     * {@link SessionHistoryItem.ExerciseGroup} objects, enriching each set with
+     * an {@code isPr} flag derived from the caller's pre-fetched PR set-ID set.
+     *
+     * <p>JSONB set shape: {@code {"setId":"<uuid>","weightKg":<n>,"reps":<n>,"setNumber":<n>}}
+     * JSONB exercise shape: {@code {"exerciseId":"<id>","exerciseName":"<name>","sets":[...]}}
+     */
+    @SuppressWarnings("unchecked")
+    private List<SessionHistoryItem.ExerciseGroup> parseSnapshotIntoExerciseGroups(
+            String rawJson,
+            Set<UUID> prSetIds,
+            Set<String> firstEverExerciseIds,
+            Map<String, String> muscleGroupById) {
+
+        if (rawJson == null || rawJson.isBlank()) return List.of();
+
+        try {
+            List<Map<String, Object>> parsed = objectMapper.readValue(
+                    rawJson, new TypeReference<List<Map<String, Object>>>() {});
+
+            List<SessionHistoryItem.ExerciseGroup> result = new ArrayList<>();
+            for (Map<String, Object> ex : parsed) {
+                String exerciseName = (String) ex.get("exerciseName");
+                String exerciseId   = (String) ex.get("exerciseId");
+                String muscleGroup  = muscleGroupById.getOrDefault(
+                        exerciseId != null ? exerciseId : "", "");
+                boolean firstEver   = exerciseId != null && firstEverExerciseIds.contains(exerciseId);
+
+                List<SessionHistoryItem.SetSummary> sets = new ArrayList<>();
+                Object setsRaw = ex.get("sets");
+                if (setsRaw instanceof List<?> setsList) {
+                    for (Object setObj : setsList) {
+                        if (!(setObj instanceof Map<?, ?> rawSet)) continue;
+                        Map<String, Object> setData = (Map<String, Object>) rawSet;
+
+                        UUID setId = null;
+                        Object setIdRaw = setData.get("setId");
+                        if (setIdRaw != null) {
+                            try { setId = UUID.fromString(setIdRaw.toString()); }
+                            catch (IllegalArgumentException ignored) {}
+                        }
+
+                        BigDecimal kg = null;
+                        Object kgRaw = setData.get("weightKg");
+                        if (kgRaw instanceof Number n) {
+                            kg = BigDecimal.valueOf(n.doubleValue());
+                        }
+
+                        int reps = 0;
+                        Object repsRaw = setData.get("reps");
+                        if (repsRaw instanceof Number n) reps = n.intValue();
+
+                        boolean isPr = setId != null && prSetIds.contains(setId);
+                        sets.add(new SessionHistoryItem.SetSummary(setId, kg, reps, isPr));
+                    }
+                }
+
+                result.add(new SessionHistoryItem.ExerciseGroup(
+                        exerciseName != null ? exerciseName : exerciseId,
+                        muscleGroup, firstEver, sets));
+            }
+            return result;
+        } catch (Exception e) {
+            log.warn("Failed to parse exercises JSONB snapshot: {}", e.getMessage());
+            return List.of();
+        }
+    }
 
     /**
      * Builds a {@link TodaySessionResponse} from a loaded session.
@@ -1229,9 +1454,10 @@ public class SessionController {
 
         User user = userRepo.findById(userId).orElseThrow(() -> ApiException.notFound("User"));
 
-        LocalDate monday   = LocalDate.now(ZoneOffset.UTC).with(DayOfWeek.MONDAY);
-        Instant weekFrom   = monday.atStartOfDay(ZoneOffset.UTC).toInstant();
-        Instant weekTo     = monday.plusDays(7).atStartOfDay(ZoneOffset.UTC).toInstant();
+        ZoneId IST = ZoneId.of("Asia/Kolkata");
+        LocalDate monday   = LocalDate.now(IST).with(TemporalAdjusters.previousOrSame(DayOfWeek.MONDAY));
+        Instant weekFrom   = monday.atStartOfDay(IST).toInstant();
+        Instant weekTo     = monday.plusDays(7).atStartOfDay(IST).toInstant();
         int completedThisWeek = sessionRepo.countByUserIdAndStatusAndFinishedAtBetween(
                 userId, "COMPLETED", weekFrom, weekTo);
 
@@ -1271,9 +1497,15 @@ public class SessionController {
                 List<Map<String, Object>> parsed = objectMapper.readValue(
                         rawEx, new TypeReference<List<Map<String, Object>>>() {});
 
+                // Exclude FIRST_EVER events — those mark the first time a
+                // user logs an exercise (useful for analytics / future
+                // achievements) but should not surface as trophies on the
+                // Summary screen. Within-session PRs (REP_PR, WEIGHT_PR, etc.)
+                // continue to render normally.
                 java.util.Set<UUID> prSetIds = prEventRepo
                         .findBySessionIdAndSupersededAtIsNull(session.getId())
                         .stream()
+                        .filter(pe -> !"FIRST_EVER".equals(pe.getPrCategory()))
                         .map(pe -> pe.getSetId())
                         .collect(java.util.stream.Collectors.toSet());
 
@@ -1467,8 +1699,8 @@ public class SessionController {
             return session; // mid-workout edits are always allowed
         }
         if (!"COMPLETED".equals(session.getStatus())) {
-            throw new ApiException(HttpStatus.CONFLICT, "SESSION_NOT_EDITABLE",
-                    "This session is " + session.getStatus() + " and cannot be edited.");
+            throw new ApiException(HttpStatus.CONFLICT, "SESSION_NOT_IN_PROGRESS",
+                    "This session is already " + session.getStatus() + ".");
         }
         if (session.getFinishedAt() == null) {
             throw new ApiException(HttpStatus.CONFLICT, "SESSION_NOT_EDITABLE",
