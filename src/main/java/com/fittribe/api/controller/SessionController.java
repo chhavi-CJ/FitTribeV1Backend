@@ -20,6 +20,7 @@ import com.fittribe.api.dto.response.SessionHistoryItem;
 import com.fittribe.api.dto.response.StartSessionResponse;
 import com.fittribe.api.dto.response.TodaySessionResponse;
 import com.fittribe.api.dto.request.SessionFeedbackRequest;
+import com.fittribe.api.dto.request.UpdateSessionRequest;
 import com.fittribe.api.entity.CoinTransaction;
 import com.fittribe.api.entity.FeedItem;
 import com.fittribe.api.entity.GroupMember;
@@ -1123,6 +1124,60 @@ public class SessionController {
 
         return ResponseEntity.ok(ApiResponse.success(
                 new FeedbackInfo(feedback.getRating(), feedback.getNotes(), feedback.getCreatedAt())));
+    }
+
+    // ── PATCH /sessions/{id} ─────────────────────────────────────────
+    @PatchMapping("/{id}")
+    @Transactional
+    public ResponseEntity<ApiResponse<TodaySessionResponse>> updateSession(
+            @PathVariable UUID id,
+            @RequestBody @Valid UpdateSessionRequest request,
+            Authentication auth) {
+
+        UUID userId = userId(auth);
+        WorkoutSession session = requireOwned(id, userId);
+
+        if (!"COMPLETED".equals(session.getStatus())) {
+            throw new ApiException(HttpStatus.BAD_REQUEST,
+                    "SESSION_NOT_COMPLETE", "Can only edit completed sessions.");
+        }
+
+        // Edit-window guard: allow edits until 05:00 IST the day after the session finished
+        Instant cutoff = session.getFinishedAt()
+                .atZone(Zones.APP_ZONE)
+                .toLocalDate()
+                .plusDays(1)
+                .atTime(5, 0)
+                .atZone(Zones.APP_ZONE)
+                .toInstant();
+        if (Instant.now().isAfter(cutoff)) {
+            throw new ApiException(HttpStatus.CONFLICT,
+                    "EDIT_WINDOW_EXPIRED",
+                    "Sessions can only be edited until 5 AM the day after they finished.");
+        }
+
+        // Timestamp validation
+        if (!request.finishedAt().isAfter(request.startedAt())) {
+            throw new ApiException(HttpStatus.BAD_REQUEST,
+                    "INVALID_TIME_RANGE", "finishedAt must be after startedAt.");
+        }
+        if (request.finishedAt().isAfter(Instant.now().plusSeconds(5))) {
+            throw new ApiException(HttpStatus.BAD_REQUEST,
+                    "FINISH_IN_FUTURE", "finishedAt cannot be in the future.");
+        }
+        long durationMins = Math.round(
+                (request.finishedAt().toEpochMilli() - request.startedAt().toEpochMilli()) / 60000.0);
+        if (durationMins < 1 || durationMins > 120) {
+            throw new ApiException(HttpStatus.BAD_REQUEST,
+                    "DURATION_OUT_OF_RANGE", "Session duration must be between 1 and 120 minutes.");
+        }
+
+        session.setStartedAt(request.startedAt());
+        session.setFinishedAt(request.finishedAt());
+        session.setDurationMins((int) durationMins);
+        sessionRepo.save(session);
+
+        return ResponseEntity.ok(ApiResponse.success(buildTodayResponse(session, userId)));
     }
 
     // ── POST /sessions/{id}/discard ───────────────────────────────────

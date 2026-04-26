@@ -126,7 +126,8 @@ public class WorkoutSession {
     public Integer getDurationMins()              { return durationMins; }
     public void setDurationMins(Integer v)        { this.durationMins = v; }
 
-    public Instant getStartedAt()     { return startedAt; }
+    public Instant getStartedAt()         { return startedAt; }
+    public void setStartedAt(Instant v)   { this.startedAt = v; }
 
     public Instant getFinishedAt()        { return finishedAt; }
     public void setFinishedAt(Instant v)  { this.finishedAt = v; }
