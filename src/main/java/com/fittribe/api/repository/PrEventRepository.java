@@ -5,6 +5,7 @@ import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.stereotype.Repository;
 
 import java.time.LocalDate;
+import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
@@ -63,4 +64,13 @@ public interface PrEventRepository extends JpaRepository<PrEvent, UUID> {
      * when a superseding edit is itself reverted.
      */
     List<PrEvent> findBySupersededByAndPrCategory(UUID supersededBy, String prCategory);
+
+    /**
+     * Bulk fetch of non-superseded PR events for a user across a set of sessions
+     * and their corresponding week-start partition keys.
+     * Used by PlanHistoryService to cross-reference JSONB set snapshots with
+     * PR history in one query instead of N per-session round-trips.
+     */
+    List<PrEvent> findByUserIdAndSessionIdInAndWeekStartInAndSupersededAtIsNull(
+            UUID userId, Collection<UUID> sessionIds, Collection<LocalDate> weekStarts);
 }
