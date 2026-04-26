@@ -61,7 +61,7 @@ public class PRDetector {
             }
 
             // REP_PR
-            if (isRepPR(set, currentBests)) {
+            if (isRepPR(set, currentBests, exerciseType)) {
                 Map<String, Boolean> signals = signalsMet("rep", true);
                 Map<String, Object> payload = repPRPayload(set, currentBests);
                 enrichWithVolumeIfApplicable(signals, payload, set, currentBests);
@@ -136,8 +136,19 @@ public class PRDetector {
         return set.weightKg().compareTo(bests.getBestWtKg()) > 0 && (set.reps() == 1 || set.reps() == 2);
     }
 
-    private boolean isRepPR(LoggedSet set, UserExerciseBests bests) {
-        // Guard: null or zero weight
+    private boolean isRepPR(LoggedSet set, UserExerciseBests bests, ExerciseType exerciseType) {
+        // Bodyweight branch: compare reps against bestReps (no weight involved)
+        // Applies to BODYWEIGHT_UNASSISTED and BODYWEIGHT_ASSISTED — both track reps only
+        if (exerciseType == ExerciseType.BODYWEIGHT_UNASSISTED
+                || exerciseType == ExerciseType.BODYWEIGHT_ASSISTED) {
+            if (set.reps() == null) {
+                return false;
+            }
+            int currentBestReps = bests.getBestReps() != null ? bests.getBestReps() : 0;
+            return set.reps() > currentBestReps;
+        }
+
+        // Weighted branch: guard: null or zero weight
         if (set.weightKg() == null || set.weightKg().signum() <= 0) {
             return false;
         }

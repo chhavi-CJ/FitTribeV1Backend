@@ -1,5 +1,6 @@
 package com.fittribe.api.prv2.service;
 
+import com.fittribe.api.entity.Exercise;
 import com.fittribe.api.entity.PrEvent;
 import com.fittribe.api.entity.UserExerciseBests;
 import com.fittribe.api.entity.WeeklyPrCount;
@@ -8,6 +9,7 @@ import com.fittribe.api.prv2.detector.LoggedSet;
 import com.fittribe.api.prv2.detector.PRDetector;
 import com.fittribe.api.prv2.detector.PRResult;
 import com.fittribe.api.prv2.detector.PrCategory;
+import com.fittribe.api.repository.ExerciseRepository;
 import com.fittribe.api.repository.PrEventRepository;
 import com.fittribe.api.repository.UserExerciseBestsRepository;
 import com.fittribe.api.repository.WeeklyPrCountRepository;
@@ -53,6 +55,7 @@ public class PrWritePathService {
     private final WeeklyPrCountRepository weeklyPrCountRepo;
     private final CoinService coinService;
     private final TransactionTemplate transactionTemplate;
+    private final ExerciseRepository exerciseRepo;
 
     public PrWritePathService(
             PRDetector prDetector,
@@ -60,13 +63,15 @@ public class PrWritePathService {
             PrEventRepository prEventRepo,
             WeeklyPrCountRepository weeklyPrCountRepo,
             CoinService coinService,
-            PlatformTransactionManager transactionManager) {
+            PlatformTransactionManager transactionManager,
+            ExerciseRepository exerciseRepo) {
         this.prDetector = prDetector;
         this.userExerciseBestsRepo = userExerciseBestsRepo;
         this.prEventRepo = prEventRepo;
         this.weeklyPrCountRepo = weeklyPrCountRepo;
         this.coinService = coinService;
         this.transactionTemplate = new TransactionTemplate(transactionManager);
+        this.exerciseRepo = exerciseRepo;
     }
 
     /**
@@ -110,8 +115,9 @@ public class PrWritePathService {
                         .findByUserIdAndExerciseId(userId, set.exerciseId())
                         .orElse(null);
 
-                // Step 2: Determine exercise type
-                ExerciseType exerciseType = determineExerciseType(currentBests);
+                // Step 2: Fetch exercise metadata and determine type
+                Exercise exercise = exerciseRepo.findById(set.exerciseId()).orElse(null);
+                ExerciseType exerciseType = determineExerciseType(currentBests, set, exercise);
 
                 // Step 3: Run PR detection
                 var prResult = prDetector.detect(set, currentBests, exerciseType);
@@ -121,7 +127,7 @@ public class PrWritePathService {
 
                 if (!prResult.isPR()) {
                     // Non-PR sets still update last_logged_at and increment session count
-                    updateNonPrBests(userId, set.exerciseId(), exerciseType, currentBests);
+                    updateNonPrBests(userId, set.exerciseId(), exerciseType, currentBests, set);
                     return;
                 }
 
@@ -171,37 +177,50 @@ public class PrWritePathService {
     }
 
     /**
-     * Determine exercise type from current bests or default to WEIGHTED.
+     * Determine exercise type from set data, exercise metadata, or existing bests.
      *
-     * <p>If currentBests exists and has exerciseType, use it. Otherwise,
-     * default to WEIGHTED and log at INFO level. This is a temporary
-     * limitation until exercise_type is added to the exercises table.
+     * <p>Priority order:
+     * <ol>
+     *   <li>TIMED: set has holdSeconds — Plank etc. classified correctly for future TIMED PR support</li>
+     *   <li>BODYWEIGHT_UNASSISTED: no existing bests row and exercise.isBodyweight() = true</li>
+     *   <li>Existing bests exerciseType: preserves the type written on the first session</li>
+     *   <li>WEIGHTED: fallback default</li>
+     * </ol>
      */
-    private ExerciseType determineExerciseType(UserExerciseBests currentBests) {
-        if (currentBests != null && currentBests.getExerciseType() != null) {
-            try {
-                return ExerciseType.valueOf(currentBests.getExerciseType());
-            } catch (IllegalArgumentException e) {
-                log.warn("Invalid exerciseType in user_exercise_bests: {}",
-                        currentBests.getExerciseType(), e);
-                return ExerciseType.WEIGHTED;
-            }
+    private ExerciseType determineExerciseType(UserExerciseBests currentBests, LoggedSet set, Exercise exercise) {
+        // TIMED takes priority: if the set has hold seconds it's a timed exercise
+        // regardless of is_bodyweight (prevents Plank from being classified as BODYWEIGHT_UNASSISTED)
+        if (set.holdSeconds() != null && set.holdSeconds() > 0) {
+            return ExerciseType.TIMED;
         }
 
-        // Default to WEIGHTED
-        // TODO: Phase 3b — add exercise_type column to exercises table for better classification
-        log.info("PR detection defaulting to WEIGHTED for exerciseId={}; "
-                + "proper exercise_type column is a future schema improvement",
-                currentBests != null ? currentBests.getExerciseId() : "unknown");
-        return ExerciseType.WEIGHTED;
+        // For new bests rows, look up exercise metadata to determine type
+        if (currentBests == null || currentBests.getExerciseType() == null) {
+            // Bodyweight: classify via exercise catalog is_bodyweight flag
+            if (exercise != null && exercise.isBodyweight()) {
+                return ExerciseType.BODYWEIGHT_UNASSISTED;
+            }
+            log.info("PR detection defaulting to WEIGHTED for exerciseId={}",
+                    set.exerciseId());
+            return ExerciseType.WEIGHTED;
+        }
+
+        // Existing bests row: preserve the type already written
+        try {
+            return ExerciseType.valueOf(currentBests.getExerciseType());
+        } catch (IllegalArgumentException e) {
+            log.warn("Invalid exerciseType in user_exercise_bests: {}",
+                    currentBests.getExerciseType(), e);
+            return ExerciseType.WEIGHTED;
+        }
     }
 
     /**
      * Update bests for a non-PR set: increment totalSessionsWithExercise,
-     * update last_logged_at, and potentially update max values if they improved.
+     * update last_logged_at, and track bestReps even when no PR fires.
      */
     private void updateNonPrBests(UUID userId, String exerciseId, ExerciseType exerciseType,
-            UserExerciseBests currentBests) {
+            UserExerciseBests currentBests, LoggedSet set) {
         UserExerciseBests bests;
         if (currentBests == null) {
             // First time logging this exercise (non-PR case shouldn't happen but handle it)
@@ -214,6 +233,11 @@ public class PrWritePathService {
             bests = currentBests;
             bests.setTotalSessionsWithExercise((bests.getTotalSessionsWithExercise() != null ?
                     bests.getTotalSessionsWithExercise() : 0) + 1);
+        }
+        // Track bestReps on every set so the baseline stays current for future REP_PR comparisons
+        if (set.reps() != null) {
+            int current = bests.getBestReps() != null ? bests.getBestReps() : 0;
+            bests.setBestReps(Math.max(current, set.reps()));
         }
         bests.setLastLoggedAt(Instant.now());
         userExerciseBestsRepo.save(bests);
@@ -244,6 +268,10 @@ public class PrWritePathService {
             bests.setRepsAtBestWt(set.reps());
         } else if (category == PrCategory.REP_PR) {
             bests.setRepsAtBestWt(set.reps());
+        }
+        // bestReps: set on FIRST_EVER (establishes baseline) and REP_PR (records new max)
+        if ((category == PrCategory.FIRST_EVER || category == PrCategory.REP_PR) && set.reps() != null) {
+            bests.setBestReps(set.reps());
         }
 
         if (category == PrCategory.VOLUME_PR && set.weightKg() != null && set.reps() != null) {
