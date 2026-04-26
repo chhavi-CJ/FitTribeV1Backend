@@ -53,13 +53,14 @@ public class PlanService {
 
     private static final Logger log = LoggerFactory.getLogger(PlanService.class);
 
-    // ── Exercise-count tier constants ─────────────────────────────────────
-    private static final Map<String, Integer> TIER_MIN = Map.of(
-            "BEGINNER", 4, "INTERMEDIATE", 5, "ADVANCED", 6);
-    private static final Map<String, Integer> TIER_HARD_CAP = Map.of(
-            "BEGINNER", 6, "INTERMEDIATE", 8, "ADVANCED", 10);
-    private static final int PER_MUSCLE_MIN = 2;
-    private static final int PER_MUSCLE_MAX = 3;
+    // ── Exercise-count constants ─────────────────────────────────────────
+    private static final int PER_MUSCLE_FULL_BODY = 2;
+    private static final int PER_MUSCLE_OTHER     = 3;
+
+    private int perMuscleCount(String dayType) {
+        if (dayType == null) return PER_MUSCLE_OTHER;
+        return dayType.toLowerCase().contains("full") ? PER_MUSCLE_FULL_BODY : PER_MUSCLE_OTHER;
+    }
 
     /** Maps common AI-invented exerciseIds to the canonical DB id. */
     private static final Map<String, String> EXERCISE_ID_ALIASES = Map.ofEntries(
@@ -461,18 +462,11 @@ public class PlanService {
                 .distinct()
                 .toList();
 
-        // Compute dynamic exercise floor/ceiling based on muscle count and tier
-        String levelKey    = level.toUpperCase();
-        int tierMin        = TIER_MIN.getOrDefault(levelKey, 5);
-        int tierHardCap    = TIER_HARD_CAP.getOrDefault(levelKey, 8);
-        int muscleCount    = canonicalMuscles.size();
-        int exerciseMin    = Math.max(muscleCount * PER_MUSCLE_MIN, tierMin);
-        int exerciseMax    = Math.min(muscleCount * PER_MUSCLE_MAX, tierHardCap);
-        if (exerciseMin > exerciseMax) {
-            log.warn("[TIER_WARN] floor>ceiling: userId={} tier={} muscleCount={} floor={} ceiling={} — using floor as exact count",
-                    userId, levelKey, muscleCount, exerciseMin, exerciseMax);
-            exerciseMax = exerciseMin;
-        }
+        // Compute exercise count: each target muscle gets perMuscle exercises
+        String levelKey   = level.toUpperCase();
+        int muscleCount   = canonicalMuscles.size();
+        int perMuscle     = perMuscleCount(dayType);
+        int exerciseCount = muscleCount * perMuscle;
 
         String userPrompt = AiPrompts.DAILY_EXERCISE_USER
                 .replace("{name}",                 PromptSanitiser.sanitise(
@@ -488,8 +482,8 @@ public class PlanService {
                 .replace("{fitnessSummaryBlock}",  fitnessSummaryBlock)
                 .replace("{dayLabel}",             dayLabel)
                 .replace("{muscleGroups}",         String.join(", ", canonicalMuscles))
-                .replace("{exerciseMin}",          String.valueOf(exerciseMin))
-                .replace("{exerciseMax}",          String.valueOf(exerciseMax))
+                .replace("{exerciseCount}",        String.valueOf(exerciseCount))
+                .replace("{perMuscle}",            String.valueOf(perMuscle))
                 .replace("{includesCore}",         String.valueOf(includesCore))
                 .replace("{estimatedMins}",        String.valueOf(estimatedMins != null ? estimatedMins : 45))
                 .replace("{guidanceText}",         guidanceText != null ? guidanceText : "")
@@ -504,8 +498,8 @@ public class PlanService {
         String cardioSuggestion = null;
 
         if (openAiKey != null && !openAiKey.isBlank()) {
-            log.info("[PROMPT_DEBUG_META] userId={} tier={} muscleCount={} muscleGroupsRaw={} muscleGroupsCanonical={} exerciseMin={} exerciseMax={}",
-                    userId, levelKey, muscleCount, muscleGroups, canonicalMuscles, exerciseMin, exerciseMax);
+            log.info("[PROMPT_DEBUG_META] userId={} dayType={} muscleCount={} perMuscle={} exerciseCount={} muscleGroupsRaw={} muscleGroupsCanonical={}",
+                    userId, dayType, muscleCount, perMuscle, exerciseCount, muscleGroups, canonicalMuscles);
             log.info("[PROMPT_DEBUG_BODY] userId={} fullPrompt=\n{}", userId, userPrompt);
             String aiResponse = callDailyOpenAi(userPrompt);
             if (aiResponse != null) {
@@ -676,7 +670,9 @@ public class PlanService {
                 .collect(Collectors.toList());
         Set<String> trainedLastWeek = recentWeekLogs.stream()
                 .map(HistoricalSet::muscleGroup)
-                .filter(m -> !m.isEmpty()).collect(Collectors.toSet());
+                .filter(m -> !m.isEmpty())
+                .map(PlanService::broadGroupOf)
+                .collect(Collectors.toSet());
         List<String> muscleGaps = STANDARD_MUSCLES.stream()
                 .filter(m -> !trainedLastWeek.contains(m)).collect(Collectors.toList());
 
@@ -1684,6 +1680,19 @@ When you change a weight from last week, explain why in that exercise's whyThisE
             }
         }
         return EXERCISE_MUSCLE.getOrDefault(exerciseId, "");
+    }
+
+    /**
+     * Maps a canonical sub-muscle name back to its broad STANDARD_MUSCLES group.
+     * Used only for muscle-gap detection — never for exercise counting.
+     */
+    private static String broadGroupOf(String canonical) {
+        return switch (canonical) {
+            case "Quads", "Hamstrings", "Glutes", "Calves" -> "Legs";
+            case "Triceps", "Biceps"                         -> "Arms";
+            case "Front Delts", "Rear Delts"                 -> "Shoulders";
+            default -> canonical;
+        };
     }
 
     /** Delegates to {@link MuscleGroupUtil#canonicalize(String)}. */
