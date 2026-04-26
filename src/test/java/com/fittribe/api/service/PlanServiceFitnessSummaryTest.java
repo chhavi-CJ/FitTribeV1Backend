@@ -47,6 +47,7 @@ class PlanServiceFitnessSummaryTest {
     @Mock SplitTemplateDayRepository  splitTemplateDayRepo;
     @Mock DailyPlanGeneratedRepository dailyPlanRepo;
     @Mock UserDayStatusRepository     dayStatusRepo;
+    @Mock PlanHistoryService          planHistoryService;
 
     // FitnessSummaryService is a concrete class — not mockable on JDK 25.
     // Use a hand-rolled fake instead.
@@ -61,7 +62,7 @@ class PlanServiceFitnessSummaryTest {
         planService = new PlanService(
                 userRepo, planRepo, exerciseRepo, sessionRepo, setLogRepo,
                 insightRepo, feedbackRepo, splitTemplateDayRepo, dailyPlanRepo,
-                dayStatusRepo, fitnessSummaryService, mapper);
+                dayStatusRepo, fitnessSummaryService, planHistoryService, mapper);
     }
 
     // ═══════════════════════════════════════════════════════════════════

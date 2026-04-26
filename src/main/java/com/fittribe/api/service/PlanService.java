@@ -11,7 +11,6 @@ import static com.fittribe.api.util.Zones.APP_ZONE;
 import com.fittribe.api.util.Zones;
 import com.fittribe.api.entity.AiInsight;
 import com.fittribe.api.entity.Exercise;
-import com.fittribe.api.entity.SetLog;
 import com.fittribe.api.entity.User;
 import com.fittribe.api.entity.UserPlan;
 import com.fittribe.api.entity.WorkoutSession;
@@ -114,6 +113,7 @@ public class PlanService {
     private final DailyPlanGeneratedRepository dailyPlanRepo;
     private final UserDayStatusRepository      dayStatusRepo;
     private final FitnessSummaryService        fitnessSummaryService;
+    private final PlanHistoryService           planHistoryService;
     private final ObjectMapper                mapper;
     private final RestTemplate                restTemplate = new RestTemplate();
 
@@ -128,6 +128,7 @@ public class PlanService {
                        DailyPlanGeneratedRepository dailyPlanRepo,
                        UserDayStatusRepository dayStatusRepo,
                        FitnessSummaryService fitnessSummaryService,
+                       PlanHistoryService planHistoryService,
                        ObjectMapper mapper) {
         this.userRepo             = userRepo;
         this.planRepo             = planRepo;
@@ -140,6 +141,7 @@ public class PlanService {
         this.dailyPlanRepo        = dailyPlanRepo;
         this.dayStatusRepo        = dayStatusRepo;
         this.fitnessSummaryService = fitnessSummaryService;
+        this.planHistoryService   = planHistoryService;
         this.mapper               = mapper;
     }
 
@@ -428,26 +430,24 @@ public class PlanService {
         Instant since4Days  = today.minusDays(4).atStartOfDay(APP_ZONE).toInstant();
         Instant since14Days = today.minusDays(14).atStartOfDay(APP_ZONE).toInstant();
 
+        Map<String, Exercise> exMap = exerciseMap();
         List<WorkoutSession> recentSessions = sessionRepo
                 .findByUserIdAndStatusAndFinishedAtBetween(userId, "COMPLETED", since14Days, now);
-        List<UUID> sessionIds = recentSessions.stream()
-                .map(WorkoutSession::getId).collect(Collectors.toList());
-        List<SetLog> recentLogs = sessionIds.isEmpty()
-                ? List.of() : setLogRepo.findBySessionIdIn(sessionIds);
+        List<HistoricalSet> recentLogs = planHistoryService
+                .getRecentLoggedSets(userId, since14Days, exMap);
 
         List<SessionFeedback> recentFeedback = feedbackRepo
                 .findByUserIdOrderByCreatedAtDesc(user.getId())
                 .stream().limit(3).collect(Collectors.toList());
 
-        Map<String, Exercise> exMap = exerciseMap();
         HistoryAnalysis analysis = analyseHistory(
                 recentSessions, recentLogs, List.of(), bw, level, exMap);
 
         // Build daily context blocks
-        String recoveryBlock = buildRecoveryBlock(recentSessions, recentLogs, exMap);
+        String recoveryBlock = buildRecoveryBlock(recentLogs, exMap);
         String historyBlock  = buildDailyHistoryBlock(analysis, exMap);
         String feedbackBlock = buildDailyFeedbackBlock(recentFeedback);
-        String recentExBlock = buildRecentExercisesBlock(recentSessions, recentLogs, since4Days);
+        String recentExBlock = buildRecentExercisesBlock(recentLogs, since4Days);
 
         String aiContextBlock = (user.getAiContext() != null && !user.getAiContext().isBlank())
                 ? "PERSONAL CONTEXT: " + user.getAiContext() : "";
@@ -622,7 +622,7 @@ public class PlanService {
     // ── History analysis ──────────────────────────────────────────────
 
     private HistoryAnalysis analyseHistory(List<WorkoutSession> sessions,
-                                            List<SetLog> logs,
+                                            List<HistoricalSet> logs,
                                             List<UserPlan> pastPlans,
                                             double bw, String level,
                                             Map<String, Exercise> exMap) {
@@ -630,10 +630,10 @@ public class PlanService {
         Map<String, BigDecimal> recentBestWeight = new LinkedHashMap<>();
         Map<String, Integer>    sessionCountPerExercise = new LinkedHashMap<>();
 
-        for (SetLog sl : logs) {
-            String id = sl.getExerciseId();
-            if (id == null || sl.getWeightKg() == null) continue;
-            recentBestWeight.merge(id, sl.getWeightKg(), BigDecimal::max);
+        for (HistoricalSet hs : logs) {
+            String id = hs.exerciseId();
+            if (id == null || hs.weightKg() == null) continue;
+            recentBestWeight.merge(id, hs.weightKg(), BigDecimal::max);
             sessionCountPerExercise.merge(id, 1, Integer::sum);
         }
 
@@ -662,35 +662,34 @@ public class PlanService {
         // Muscle gap: which muscle groups had 0 sessions in the last 7 days
         Instant lastWeek = Instant.now().minus(7, ChronoUnit.DAYS);
         Set<String> trainedMuscles = new LinkedHashSet<>();
-        for (SetLog sl : logs) {
-            if (sl.getExerciseId() != null) {
-                String mg = resolveMuscleGroup(sl.getExerciseId(), exMap);
-                if (!mg.isEmpty()) trainedMuscles.add(mg);
+        for (HistoricalSet hs : logs) {
+            if (hs.exerciseId() != null && !hs.muscleGroup().isEmpty()) {
+                trainedMuscles.add(hs.muscleGroup());
             }
         }
         // We only check muscle gaps across recent logs in last 7 days
         List<UUID> recentSessionIds = sessions.stream()
                 .filter(s -> s.getFinishedAt() != null && s.getFinishedAt().isAfter(lastWeek))
                 .map(WorkoutSession::getId).collect(Collectors.toList());
-        List<SetLog> recentWeekLogs = logs.stream()
-                .filter(sl -> recentSessionIds.contains(sl.getSessionId()))
+        List<HistoricalSet> recentWeekLogs = logs.stream()
+                .filter(hs -> recentSessionIds.contains(hs.sessionId()))
                 .collect(Collectors.toList());
         Set<String> trainedLastWeek = recentWeekLogs.stream()
-                .map(sl -> resolveMuscleGroup(sl.getExerciseId(), exMap))
-                .filter(s -> !s.isEmpty()).collect(Collectors.toSet());
+                .map(HistoricalSet::muscleGroup)
+                .filter(m -> !m.isEmpty()).collect(Collectors.toSet());
         List<String> muscleGaps = STANDARD_MUSCLES.stream()
                 .filter(m -> !trainedLastWeek.contains(m)).collect(Collectors.toList());
 
         // Progression stalls: exercise not progressed in 3+ sessions
         // (simple heuristic: if sessionCount >= 3 but no is_pr in last 3 sessions)
         Set<String> stalledExercises = new LinkedHashSet<>();
-        Map<String, List<SetLog>> byExId = logs.stream()
-                .filter(sl -> sl.getExerciseId() != null)
-                .collect(Collectors.groupingBy(SetLog::getExerciseId));
-        for (Map.Entry<String, List<SetLog>> entry : byExId.entrySet()) {
-            List<SetLog> exLogs = entry.getValue();
+        Map<String, List<HistoricalSet>> byExId = logs.stream()
+                .filter(hs -> hs.exerciseId() != null)
+                .collect(Collectors.groupingBy(HistoricalSet::exerciseId));
+        for (Map.Entry<String, List<HistoricalSet>> entry : byExId.entrySet()) {
+            List<HistoricalSet> exLogs = entry.getValue();
             if (exLogs.size() >= 3) {
-                boolean anyPr = exLogs.stream().anyMatch(sl -> Boolean.TRUE.equals(sl.getIsPr()));
+                boolean anyPr = exLogs.stream().anyMatch(HistoricalSet::isPr);
                 if (!anyPr) stalledExercises.add(entry.getKey());
             }
         }
@@ -1187,18 +1186,15 @@ When you change a weight from last week, explain why in that exercise's whyThisE
         return sb.toString().trim();
     }
 
-    private String buildRecoveryBlock(List<WorkoutSession> sessions, List<SetLog> logs, Map<String, Exercise> exMap) {
-        if (sessions.isEmpty()) return "RECOVERY STATUS: No recent sessions — all muscle groups fully recovered.";
+    private String buildRecoveryBlock(List<HistoricalSet> logs, Map<String, Exercise> exMap) {
+        if (logs.isEmpty()) return "RECOVERY STATUS: No recent sessions — all muscle groups fully recovered.";
 
         Map<String, Instant> lastTrainedPerMuscle = new LinkedHashMap<>();
-        for (SetLog sl : logs) {
-            String muscle = resolveMuscleGroup(sl.getExerciseId(), exMap);
+        for (HistoricalSet hs : logs) {
+            String muscle = hs.muscleGroup();
             if (muscle.isEmpty()) continue;
-            WorkoutSession session = sessions.stream()
-                    .filter(s -> s.getId().equals(sl.getSessionId()))
-                    .findFirst().orElse(null);
-            if (session == null || session.getFinishedAt() == null) continue;
-            lastTrainedPerMuscle.merge(muscle, session.getFinishedAt(),
+            if (hs.finishedAt() == null) continue;
+            lastTrainedPerMuscle.merge(muscle, hs.finishedAt(),
                     (a, b) -> a.isAfter(b) ? a : b);
         }
 
@@ -1232,17 +1228,10 @@ When you change a weight from last week, explain why in that exercise's whyThisE
         return sb.toString().trim();
     }
 
-    private String buildRecentExercisesBlock(List<WorkoutSession> sessions,
-                                              List<SetLog> logs, Instant since) {
+    private String buildRecentExercisesBlock(List<HistoricalSet> logs, Instant since) {
         List<String> recentExercises = logs.stream()
-                .filter(sl -> {
-                    WorkoutSession s = sessions.stream()
-                            .filter(ws -> ws.getId().equals(sl.getSessionId()))
-                            .findFirst().orElse(null);
-                    return s != null && s.getFinishedAt() != null
-                            && s.getFinishedAt().isAfter(since);
-                })
-                .map(SetLog::getExerciseId)
+                .filter(hs -> hs.finishedAt() != null && hs.finishedAt().isAfter(since))
+                .map(HistoricalSet::exerciseId)
                 .filter(Objects::nonNull)
                 .distinct()
                 .collect(Collectors.toList());
@@ -1492,17 +1481,14 @@ When you change a weight from last week, explain why in that exercise's whyThisE
 
             // Gather recent history for AI context
             Instant since2Weeks = now.minus(14, java.time.temporal.ChronoUnit.DAYS);
+            Map<String, Exercise> exMap = exerciseMap();
             List<WorkoutSession> recentSessions = sessionRepo
                     .findByUserIdAndStatusAndFinishedAtBetween(
                             user.getId(), "COMPLETED", since2Weeks, now);
-            List<UUID> sessionIds = recentSessions.stream()
-                    .map(WorkoutSession::getId).collect(Collectors.toList());
-            List<SetLog> recentLogs = sessionIds.isEmpty()
-                    ? List.of()
-                    : setLogRepo.findBySessionIdIn(sessionIds);
+            List<HistoricalSet> recentLogs = planHistoryService
+                    .getRecentLoggedSets(user.getId(), since2Weeks, exMap);
 
             // Build history analysis for AI
-            Map<String, Exercise> exMap = exerciseMap();
             HistoryAnalysis analysis = analyseHistory(
                     recentSessions, recentLogs, List.of(), user.getWeightKg() != null
                             ? user.getWeightKg().doubleValue() : 70.0,
