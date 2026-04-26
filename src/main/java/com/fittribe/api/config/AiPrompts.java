@@ -297,9 +297,9 @@ public final class AiPrompts {
             "{feedbackBlock}\n\n" +
 
             "EXERCISE RULES:\n" +
-            "- REQUIRED exercise count — MUST generate between {exerciseMin} and {exerciseMax} working exercises.\n" +
-            "  This range has been computed for this specific session based on target muscles ({muscleGroups}) and fitness level ({fitnessLevel}).\n" +
-            "  Distribute exercises so each target muscle gets 2–3 exercises where possible.\n" +
+            "- REQUIRED exercise count — MUST generate exactly {exerciseCount} working exercises " +
+            "({perMuscle} per target muscle × {muscleGroups}).\n" +
+            "  Each target muscle MUST have exactly {perMuscle} exercises — no more, no less.\n" +
             "  If includesCore is TRUE, the core finisher is ADDITIONAL — do NOT count it in the working exercise total.\n" +
             "- Use ONLY exercise IDs from the catalog below\n" +
             "- Order: compound movements first, isolation last\n" +
