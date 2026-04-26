@@ -24,6 +24,7 @@ import com.fittribe.api.dto.request.UpdateSessionRequest;
 import com.fittribe.api.entity.CoinTransaction;
 import com.fittribe.api.entity.FeedItem;
 import com.fittribe.api.entity.GroupMember;
+import com.fittribe.api.entity.PrEvent;
 import com.fittribe.api.entity.SavedRoutine;
 import com.fittribe.api.entity.SessionFeedback;
 import com.fittribe.api.entity.SetLog;
@@ -37,7 +38,9 @@ import com.fittribe.api.prv2.detector.PRDetector;
 import com.fittribe.api.prv2.detector.PRResult;
 import com.fittribe.api.prv2.service.PrEditCascadeService;
 import com.fittribe.api.prv2.service.PrWritePathService;
+import com.fittribe.api.entity.Exercise;
 import com.fittribe.api.repository.CoinTransactionRepository;
+import com.fittribe.api.repository.ExerciseRepository;
 import com.fittribe.api.repository.FeedItemRepository;
 import com.fittribe.api.repository.GroupMemberRepository;
 import com.fittribe.api.repository.PrEventRepository;
@@ -67,7 +70,11 @@ import org.springframework.transaction.support.TransactionTemplate;
 import org.springframework.web.bind.annotation.*;
 
 import java.math.BigDecimal;
+import java.util.Collection;
 import java.util.Comparator;
+import java.util.LinkedHashSet;
+import java.util.Objects;
+import java.util.Set;
 import com.fittribe.api.util.Zones;
 import java.time.DayOfWeek;
 import java.time.Instant;
@@ -114,6 +121,7 @@ public class SessionController {
     private final PrEventRepository         prEventRepo;
     private final UserExerciseBestsRepository userExerciseBestsRepo;
     private final PRDetector                 prDetector;
+    private final ExerciseRepository         exerciseRepo;
 
     public SessionController(WorkoutSessionRepository sessionRepo,
                              SetLogRepository setLogRepo,
@@ -135,7 +143,8 @@ public class SessionController {
                              PrEditCascadeService prEditCascadeService,
                              PrEventRepository prEventRepo,
                              UserExerciseBestsRepository userExerciseBestsRepo,
-                             PRDetector prDetector) {
+                             PRDetector prDetector,
+                             ExerciseRepository exerciseRepo) {
         this.sessionRepo         = sessionRepo;
         this.setLogRepo          = setLogRepo;
         this.userRepo            = userRepo;
@@ -157,6 +166,7 @@ public class SessionController {
         this.prEventRepo = prEventRepo;
         this.userExerciseBestsRepo = userExerciseBestsRepo;
         this.prDetector = prDetector;
+        this.exerciseRepo = exerciseRepo;
     }
 
     // ── POST /sessions/start ──────────────────────────────────────────
@@ -1263,59 +1273,175 @@ public class SessionController {
         List<WorkoutSession> sessions = sessionRepo
                 .findTop20ByUserIdAndStatusOrderByStartedAtDesc(userId, "COMPLETED");
 
-        // Batch-load feedback for all sessions in one query
-        List<UUID> sessionIds = sessions.stream().map(WorkoutSession::getId).collect(Collectors.toList());
+        if (sessions.isEmpty()) {
+            return ResponseEntity.ok(ApiResponse.success(List.of()));
+        }
+
+        List<UUID> sessionIds = sessions.stream()
+                .map(WorkoutSession::getId).collect(Collectors.toList());
+
+        // Query 2: feedback — one batch for all sessions
         Map<UUID, SessionFeedback> feedbackBySession = feedbackRepo.findBySessionIdIn(sessionIds)
                 .stream()
                 .collect(Collectors.toMap(SessionFeedback::getSessionId, fb -> fb));
 
-        List<SessionHistoryItem> items = sessions.stream()
-                .map(session -> {
-                    List<SetLog> logs = setLogRepo.findBySessionId(session.getId());
+        // Query 3: exercise catalog — needed for muscleGroup lookup per exercise.
+        // Uses findAll() because the catalog is small (19 exercises) and stable.
+        // TODO: if the catalog grows significantly, switch to findAllById(distinctExerciseIds)
+        //   where distinctExerciseIds is collected from session.getExercises() JSONB in a
+        //   first pass — avoids fetching unused rows at the cost of parsing JSONB twice.
+        Map<String, String> muscleGroupById = exerciseRepo.findAll()
+                .stream()
+                .collect(Collectors.toMap(Exercise::getId,
+                        e -> e.getMuscleGroup() != null ? e.getMuscleGroup() : ""));
 
-                    // Group sets by exercise name, preserving first-seen order
-                    Map<String, List<SetLog>> grouped = logs.stream()
-                            .collect(Collectors.groupingBy(
-                                    sl -> sl.getExerciseName() != null
-                                            ? sl.getExerciseName() : sl.getExerciseId(),
-                                    LinkedHashMap::new,
-                                    Collectors.toList()));
+        // Query 4: pr_events — one batch for all sessions.
+        // week_start IN clause is required to hit the correct RANGE partitions.
+        // Uses UTC + Monday, matching PrWritePathService.weekStartFor() exactly:
+        //   LocalDate.ofInstant(instant, ZoneOffset.UTC).with(previousOrSame(DayOfWeek.MONDAY))
+        Set<LocalDate> weekStarts = sessions.stream()
+                .filter(s -> s.getStartedAt() != null)
+                .map(s -> LocalDate.ofInstant(s.getStartedAt(), ZoneOffset.UTC)
+                        .with(TemporalAdjusters.previousOrSame(DayOfWeek.MONDAY)))
+                .collect(Collectors.toSet());
+        Map<UUID, List<PrEvent>> prBySession = prEventRepo
+                .findActiveByUserIdAndSessionIdInAndWeekStartIn(userId, sessionIds, weekStarts)
+                .stream()
+                .collect(Collectors.groupingBy(PrEvent::getSessionId));
 
-                    List<SessionHistoryItem.ExerciseGroup> exercises = grouped.entrySet().stream()
-                            .map(e -> new SessionHistoryItem.ExerciseGroup(
-                                    e.getKey(),
-                                    e.getValue().stream()
-                                            .map(sl -> new SessionHistoryItem.SetSummary(
-                                                    sl.getWeightKg(), sl.getReps()))
-                                            .collect(Collectors.toList())))
-                            .collect(Collectors.toList());
+        // Build response items in memory — no further DB calls
+        List<SessionHistoryItem> items = new ArrayList<>();
+        for (WorkoutSession session : sessions) {
+            List<PrEvent> prs = prBySession.getOrDefault(session.getId(), List.of());
 
-                    String date = session.getStartedAt() != null
-                            ? LocalDate.ofInstant(session.getStartedAt(), ZoneOffset.UTC).toString()
-                            : null;
+            // Set-level PR lookup: non-FIRST_EVER events, keyed by set_id
+            Set<UUID> prSetIds = prs.stream()
+                    .filter(pe -> !"FIRST_EVER".equals(pe.getPrCategory()))
+                    .map(PrEvent::getSetId)
+                    .filter(Objects::nonNull)
+                    .collect(Collectors.toSet());
 
-                    SessionFeedback fb = feedbackBySession.get(session.getId());
-                    FeedbackInfo feedback = fb != null
-                            ? new FeedbackInfo(fb.getRating(), fb.getNotes(), fb.getCreatedAt())
-                            : null;
+            // Exercise-level first-ever lookup: FIRST_EVER events, keyed by exercise_id
+            Set<String> firstEverExerciseIds = prs.stream()
+                    .filter(pe -> "FIRST_EVER".equals(pe.getPrCategory()))
+                    .map(PrEvent::getExerciseId)
+                    .collect(Collectors.toSet());
 
-                    return new SessionHistoryItem(
-                            session.getId(),
-                            session.getName(),
-                            date,
-                            session.getTotalVolumeKg(),
-                            session.getTotalSets() != null ? session.getTotalSets() : 0,
-                            session.getDurationMins(),
-                            session.getStreak(),
-                            exercises,
-                            feedback);
-                })
-                .collect(Collectors.toList());
+            int firstEverCount = (int) prs.stream()
+                    .filter(pe -> "FIRST_EVER".equals(pe.getPrCategory())).count();
+            int prCount = (int) prs.stream()
+                    .filter(pe -> !"FIRST_EVER".equals(pe.getPrCategory())).count();
+
+            // Parse exercises from the JSONB snapshot written at finish time.
+            // This is the same durable source used by buildTodayResponse().
+            List<SessionHistoryItem.ExerciseGroup> exercises =
+                    parseSnapshotIntoExerciseGroups(
+                            session.getExercises(), prSetIds, firstEverExerciseIds, muscleGroupById);
+
+            LinkedHashSet<String> muscleGroupsSeen = new LinkedHashSet<>();
+            for (SessionHistoryItem.ExerciseGroup eg : exercises) {
+                if (eg.muscleGroup() != null && !eg.muscleGroup().isBlank()) {
+                    muscleGroupsSeen.add(eg.muscleGroup());
+                }
+            }
+
+            String date = session.getStartedAt() != null
+                    ? LocalDate.ofInstant(session.getStartedAt(), ZoneOffset.UTC).toString()
+                    : null;
+
+            SessionFeedback fb = feedbackBySession.get(session.getId());
+            FeedbackInfo feedback = fb != null
+                    ? new FeedbackInfo(fb.getRating(), fb.getNotes(), fb.getCreatedAt())
+                    : null;
+
+            items.add(new SessionHistoryItem(
+                    session.getId(),
+                    session.getName(),
+                    date,
+                    session.getTotalVolumeKg(),
+                    session.getTotalSets() != null ? session.getTotalSets() : 0,
+                    session.getDurationMins(),
+                    session.getStreak(),
+                    new ArrayList<>(muscleGroupsSeen),
+                    firstEverCount,
+                    prCount,
+                    exercises,
+                    feedback));
+        }
 
         return ResponseEntity.ok(ApiResponse.success(items));
     }
 
     // ── Helpers ───────────────────────────────────────────────────────
+
+    /**
+     * Parses the {@code workout_sessions.exercises} JSONB snapshot into typed
+     * {@link SessionHistoryItem.ExerciseGroup} objects, enriching each set with
+     * an {@code isPr} flag derived from the caller's pre-fetched PR set-ID set.
+     *
+     * <p>JSONB set shape: {@code {"setId":"<uuid>","weightKg":<n>,"reps":<n>,"setNumber":<n>}}
+     * JSONB exercise shape: {@code {"exerciseId":"<id>","exerciseName":"<name>","sets":[...]}}
+     */
+    @SuppressWarnings("unchecked")
+    private List<SessionHistoryItem.ExerciseGroup> parseSnapshotIntoExerciseGroups(
+            String rawJson,
+            Set<UUID> prSetIds,
+            Set<String> firstEverExerciseIds,
+            Map<String, String> muscleGroupById) {
+
+        if (rawJson == null || rawJson.isBlank()) return List.of();
+
+        try {
+            List<Map<String, Object>> parsed = objectMapper.readValue(
+                    rawJson, new TypeReference<List<Map<String, Object>>>() {});
+
+            List<SessionHistoryItem.ExerciseGroup> result = new ArrayList<>();
+            for (Map<String, Object> ex : parsed) {
+                String exerciseName = (String) ex.get("exerciseName");
+                String exerciseId   = (String) ex.get("exerciseId");
+                String muscleGroup  = muscleGroupById.getOrDefault(
+                        exerciseId != null ? exerciseId : "", "");
+                boolean firstEver   = exerciseId != null && firstEverExerciseIds.contains(exerciseId);
+
+                List<SessionHistoryItem.SetSummary> sets = new ArrayList<>();
+                Object setsRaw = ex.get("sets");
+                if (setsRaw instanceof List<?> setsList) {
+                    for (Object setObj : setsList) {
+                        if (!(setObj instanceof Map<?, ?> rawSet)) continue;
+                        Map<String, Object> setData = (Map<String, Object>) rawSet;
+
+                        UUID setId = null;
+                        Object setIdRaw = setData.get("setId");
+                        if (setIdRaw != null) {
+                            try { setId = UUID.fromString(setIdRaw.toString()); }
+                            catch (IllegalArgumentException ignored) {}
+                        }
+
+                        BigDecimal kg = null;
+                        Object kgRaw = setData.get("weightKg");
+                        if (kgRaw instanceof Number n) {
+                            kg = BigDecimal.valueOf(n.doubleValue());
+                        }
+
+                        int reps = 0;
+                        Object repsRaw = setData.get("reps");
+                        if (repsRaw instanceof Number n) reps = n.intValue();
+
+                        boolean isPr = setId != null && prSetIds.contains(setId);
+                        sets.add(new SessionHistoryItem.SetSummary(setId, kg, reps, isPr));
+                    }
+                }
+
+                result.add(new SessionHistoryItem.ExerciseGroup(
+                        exerciseName != null ? exerciseName : exerciseId,
+                        muscleGroup, firstEver, sets));
+            }
+            return result;
+        } catch (Exception e) {
+            log.warn("Failed to parse exercises JSONB snapshot: {}", e.getMessage());
+            return List.of();
+        }
+    }
 
     /**
      * Builds a {@link TodaySessionResponse} from a loaded session.
