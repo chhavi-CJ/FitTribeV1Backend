@@ -82,6 +82,12 @@ public interface PrEventRepository extends JpaRepository<PrEvent, UUID> {
      */
     List<PrEvent> findBySupersededByAndPrCategory(UUID supersededBy, String prCategory);
 
+    /** Count active (non-superseded) PR events for a set of session IDs.
+     *  Used by WeeklyStatsComputeJob to count PRs hit in an IST-bounded week
+     *  without timezone mismatch from the week_start partition column. */
+    @Query("SELECT COUNT(p) FROM PrEvent p WHERE p.sessionId IN :sessionIds AND p.supersededAt IS NULL")
+    int countActiveBySessionIdIn(@Param("sessionIds") Collection<UUID> sessionIds);
+
     /**
      * Bulk fetch of non-superseded PR events for a user across a set of sessions
      * and their corresponding week-start partition keys.

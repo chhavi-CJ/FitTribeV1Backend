@@ -1,12 +1,25 @@
 package com.fittribe.api.controller;
 
 import com.fittribe.api.dto.ApiResponse;
+import com.fittribe.api.dto.group.GroupCarouselDto;
+import com.fittribe.api.dto.group.GroupWeeklyCardDto;
+import com.fittribe.api.dto.group.GroupWeeklyProgressDto;
+import com.fittribe.api.dto.group.LeaderboardResponseDto;
+import com.fittribe.api.dto.group.TopPerformerDto;
+import com.fittribe.api.entity.GroupWeeklyTopPerformer;
+import com.fittribe.api.repository.GroupWeeklyTopPerformerRepository;
+import com.fittribe.api.service.LeaderboardService;
+import com.fittribe.api.service.TopPerformerService;
 import com.fittribe.api.dto.request.CreateGroupRequest;
 import com.fittribe.api.dto.request.JoinGroupRequest;
 import com.fittribe.api.dto.request.ReactRequest;
 import com.fittribe.api.dto.request.UpdateGroupRequest;
 import com.fittribe.api.entity.*;
 import com.fittribe.api.exception.ApiException;
+import com.fittribe.api.service.GroupProgressService;
+import com.fittribe.api.service.GroupWeeklyCardService;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import com.fittribe.api.repository.*;
 import jakarta.validation.Valid;
 import org.springframework.dao.DataIntegrityViolationException;
@@ -16,15 +29,19 @@ import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.bind.annotation.*;
 
 import com.fittribe.api.util.Zones;
+import java.time.DayOfWeek;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.time.ZoneOffset;
+import java.time.temporal.TemporalAdjusters;
 import java.util.*;
 import java.util.stream.Collectors;
 
 @RestController
 @RequestMapping("/api/v1/groups")
 public class GroupController {
+
+    private static final Logger log = LoggerFactory.getLogger(GroupController.class);
 
     private final GroupRepository         groupRepo;
     private final GroupMemberRepository   memberRepo;
@@ -34,6 +51,10 @@ public class GroupController {
     private final WorkoutSessionRepository sessionRepo;
     private final SetLogRepository        setLogRepo;
     private final ReactionRepository      reactionRepo;
+    private final GroupProgressService              groupProgressService;
+    private final GroupWeeklyCardService            groupWeeklyCardService;
+    private final GroupWeeklyTopPerformerRepository topPerformerRepo;
+    private final LeaderboardService                leaderboardService;
 
     public GroupController(GroupRepository groupRepo,
                            GroupMemberRepository memberRepo,
@@ -42,15 +63,23 @@ public class GroupController {
                            NotificationRepository notifRepo,
                            WorkoutSessionRepository sessionRepo,
                            SetLogRepository setLogRepo,
-                           ReactionRepository reactionRepo) {
-        this.groupRepo    = groupRepo;
-        this.memberRepo   = memberRepo;
-        this.feedRepo     = feedRepo;
-        this.userRepo     = userRepo;
-        this.notifRepo    = notifRepo;
-        this.sessionRepo  = sessionRepo;
-        this.setLogRepo   = setLogRepo;
-        this.reactionRepo = reactionRepo;
+                           ReactionRepository reactionRepo,
+                           GroupProgressService groupProgressService,
+                           GroupWeeklyCardService groupWeeklyCardService,
+                           GroupWeeklyTopPerformerRepository topPerformerRepo,
+                           LeaderboardService leaderboardService) {
+        this.groupRepo             = groupRepo;
+        this.memberRepo            = memberRepo;
+        this.feedRepo              = feedRepo;
+        this.userRepo              = userRepo;
+        this.notifRepo             = notifRepo;
+        this.sessionRepo           = sessionRepo;
+        this.setLogRepo            = setLogRepo;
+        this.reactionRepo          = reactionRepo;
+        this.groupProgressService  = groupProgressService;
+        this.groupWeeklyCardService = groupWeeklyCardService;
+        this.topPerformerRepo      = topPerformerRepo;
+        this.leaderboardService    = leaderboardService;
     }
 
     // ── POST /groups ──────────────────────────────────────────────────
@@ -111,6 +140,12 @@ public class GroupController {
         } catch (DataIntegrityViolationException e) {
             // Lost concurrent join race — the other request already inserted this membership
             throw ApiException.alreadyMember();
+        }
+
+        try {
+            groupProgressService.onMemberJoinedGroup(group.getId(), userId);
+        } catch (Exception e) {
+            log.error("Group progress join hook failed for group={} user={}", group.getId(), userId, e);
         }
 
         String displayName = userRepo.findById(userId)
@@ -211,6 +246,12 @@ public class GroupController {
             }
 
             memberRepo.delete(leaving);
+
+            try {
+                groupProgressService.onMemberLeftGroup(id, userId);
+            } catch (Exception e) {
+                log.error("Group progress leave hook failed for group={} user={}", id, userId, e);
+            }
         }
 
         return ResponseEntity.ok(ApiResponse.success(Map.of("success", true)));
@@ -500,6 +541,92 @@ public class GroupController {
         return ResponseEntity.ok(ApiResponse.success(Map.of("poked", true)));
     }
 
+    // ── GET /groups/{groupId}/weekly-progress ────────────────────────
+    @GetMapping("/{groupId}/weekly-progress")
+    public ResponseEntity<ApiResponse<?>> getWeeklyProgress(
+            @PathVariable UUID groupId, Authentication auth) {
+
+        UUID userId = userId(auth);
+        requireMembership(groupId, userId);
+        GroupWeeklyProgressDto dto = groupProgressService.getProgressForGroup(groupId, userId);
+        return ResponseEntity.ok(ApiResponse.success(dto));
+    }
+
+    // ── GET /groups/{groupId}/cards ──────────────────────────────────
+    @GetMapping("/{groupId}/cards")
+    public ResponseEntity<ApiResponse<?>> getWeeklyCards(
+            @PathVariable UUID groupId, Authentication auth) {
+
+        UUID userId = userId(auth);
+        requireMembership(groupId, userId);
+        List<GroupWeeklyCardDto> cards = groupWeeklyCardService.getCardsForGroup(groupId)
+                .stream().map(GroupWeeklyCardDto::from).toList();
+        return ResponseEntity.ok(ApiResponse.success(cards));
+    }
+
+    // ── GET /groups/me/all-progress ──────────────────────────────────
+    @GetMapping("/me/all-progress")
+    public ResponseEntity<ApiResponse<?>> getAllGroupsProgress(Authentication auth) {
+        UUID userId = userId(auth);
+        List<GroupCarouselDto> result = groupProgressService.getMyAllGroupsProgress(userId);
+        return ResponseEntity.ok(ApiResponse.success(result));
+    }
+
+    // ── GET /groups/{groupId}/top-performer ──────────────────────────
+    @GetMapping("/{groupId}/top-performer")
+    public ResponseEntity<ApiResponse<?>> getTopPerformer(
+            @PathVariable UUID groupId,
+            @RequestParam(required = false) Integer isoYear,
+            @RequestParam(required = false) Integer isoWeek,
+            Authentication auth) {
+
+        UUID userId = userId(auth);
+        requireMembership(groupId, userId);
+
+        GroupWeeklyTopPerformer tp;
+        if (isoYear != null && isoWeek != null) {
+            tp = topPerformerRepo.findByGroupIdAndIsoYearAndIsoWeekAndDimension(groupId, isoYear, isoWeek, "EFFORT")
+                    .orElse(null);
+        } else {
+            tp = topPerformerRepo.findTopByGroupIdAndDimensionOrderByIsoYearDescIsoWeekDesc(groupId, "EFFORT")
+                    .orElse(null);
+        }
+
+        if (tp == null) return ResponseEntity.ok(ApiResponse.success(null));
+
+        String displayName = userRepo.findById(tp.getWinnerUserId())
+                .map(User::getDisplayName)
+                .orElse("Unknown");
+
+        TopPerformerDto dto = new TopPerformerDto();
+        dto.setWinnerUserId(tp.getWinnerUserId());
+        dto.setWinnerDisplayName(displayName);
+        dto.setWinnerAvatarInitials(avatarInitials(displayName));
+        dto.setDimension(tp.getDimension());
+        dto.setScoreValue(tp.getScoreValue());
+        dto.setMetricLabel(tp.getMetricLabel());
+        dto.setIsoYear(tp.getIsoYear());
+        dto.setIsoWeek(tp.getIsoWeek());
+        dto.setCurrentUser(tp.getWinnerUserId().equals(userId));
+        return ResponseEntity.ok(ApiResponse.success(dto));
+    }
+
+    // ── GET /groups/{groupId}/leaderboard ───────────────────────────
+    @GetMapping("/{groupId}/leaderboard")
+    public ResponseEntity<ApiResponse<?>> getLeaderboard(
+            @PathVariable UUID groupId,
+            @RequestParam String type,
+            @RequestParam(required = false) String week,
+            Authentication auth) {
+
+        UUID userId = userId(auth);
+        requireMembership(groupId, userId);
+
+        LocalDate weekStart = parseWeekOrDefault(week);
+        LeaderboardResponseDto dto = leaderboardService.getLeaderboard(groupId, type, weekStart, userId);
+        return ResponseEntity.ok(ApiResponse.success(dto));
+    }
+
     // ── Helpers ───────────────────────────────────────────────────────
 
     private UUID userId(Authentication auth) {
@@ -523,6 +650,39 @@ public class GroupController {
         m.put("weeklyGoal",  g.getWeeklyGoal());
         m.put("memberCount", memberCount);
         return m;
+    }
+
+    /**
+     * Parses optional "YYYY-Www" week parameter (e.g. "2026-W18") into that week's Monday.
+     * Defaults to the current IST week's Monday when the parameter is absent or blank.
+     */
+    private static LocalDate parseWeekOrDefault(String week) {
+        if (week == null || week.isBlank()) {
+            return LocalDate.now(Zones.APP_ZONE)
+                    .with(TemporalAdjusters.previousOrSame(DayOfWeek.MONDAY));
+        }
+        String[] parts = week.split("-W");
+        if (parts.length != 2) {
+            throw new ApiException(
+                    org.springframework.http.HttpStatus.BAD_REQUEST, "VALIDATION_ERROR",
+                    "week must be in format YYYY-Www (e.g. 2026-W18)");
+        }
+        try {
+            int year    = Integer.parseInt(parts[0]);
+            int weekNum = Integer.parseInt(parts[1]);
+            return TopPerformerService.mondayOfIsoWeek(year, weekNum);
+        } catch (NumberFormatException e) {
+            throw new ApiException(
+                    org.springframework.http.HttpStatus.BAD_REQUEST, "VALIDATION_ERROR",
+                    "week must be in format YYYY-Www (e.g. 2026-W18)");
+        }
+    }
+
+    private static String avatarInitials(String displayName) {
+        if (displayName == null || displayName.isBlank()) return "?";
+        String[] parts = displayName.trim().split("\\s+");
+        if (parts.length == 1) return parts[0].substring(0, Math.min(2, parts[0].length())).toUpperCase();
+        return (parts[0].charAt(0) + "" + parts[parts.length - 1].charAt(0)).toUpperCase();
     }
 
     private String generateUniqueInviteCode() {
