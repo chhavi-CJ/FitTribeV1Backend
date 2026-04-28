@@ -60,6 +60,12 @@ public interface UserRepository extends JpaRepository<User, UUID> {
     @Query("SELECT u.id FROM User u WHERE u.isActive = true AND u.deletionRequestedAt IS NULL")
     List<UUID> findActiveUserIds();
 
+    /** IDs of users eligible for the leaderboard: active, not deleting, leaderboard_eligible=true,
+     *  and pause_until is null or in the past. */
+    @Query("SELECT u.id FROM User u WHERE u.isActive = true AND u.deletionRequestedAt IS NULL " +
+           "AND u.leaderboardEligible = true AND (u.pauseUntil IS NULL OR u.pauseUntil < :now)")
+    List<UUID> findLeaderboardEligibleUserIds(@Param("now") java.time.Instant now);
+
     /**
      * Atomically updates max_streak_ever only when the new streak beats the stored value.
      * Single conditional write — no read-modify-write race.

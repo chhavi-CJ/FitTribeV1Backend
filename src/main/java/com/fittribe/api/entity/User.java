@@ -89,6 +89,18 @@ public class User {
     @Column(name = "ai_context", length = 500)
     private String aiContext;
 
+    @Column(name = "last_baseline_computed_at")
+    private Instant lastBaselineComputedAt;
+
+    @Column(name = "leaderboard_eligible", nullable = false)
+    private Boolean leaderboardEligible = true;
+
+    @Column(name = "timezone", nullable = false, length = 64)
+    private String timezone = "Asia/Kolkata";
+
+    @Column(name = "pause_until")
+    private Instant pauseUntil;
+
     @Column(name = "created_at", insertable = false, updatable = false)
     private Instant createdAt;
 
@@ -167,6 +179,18 @@ public class User {
 
     public String getAiContext()               { return aiContext; }
     public void setAiContext(String aiContext) { this.aiContext = aiContext; }
+
+    public Instant getLastBaselineComputedAt()                               { return lastBaselineComputedAt; }
+    public void setLastBaselineComputedAt(Instant lastBaselineComputedAt)   { this.lastBaselineComputedAt = lastBaselineComputedAt; }
+
+    public Boolean getLeaderboardEligible()                                  { return leaderboardEligible; }
+    public void setLeaderboardEligible(Boolean leaderboardEligible)         { this.leaderboardEligible = leaderboardEligible; }
+
+    public String getTimezone()                                              { return timezone; }
+    public void setTimezone(String timezone)                                 { this.timezone = timezone; }
+
+    public Instant getPauseUntil()                                           { return pauseUntil; }
+    public void setPauseUntil(Instant pauseUntil)                           { this.pauseUntil = pauseUntil; }
 
     public Instant getCreatedAt()    { return createdAt; }
 }

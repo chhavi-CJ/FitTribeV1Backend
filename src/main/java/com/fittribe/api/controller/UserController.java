@@ -12,10 +12,13 @@ import com.fittribe.api.entity.User;
 import com.fittribe.api.entity.UserPlan;
 import com.fittribe.api.exception.ApiException;
 import com.fittribe.api.healthcondition.HealthConditionNormalizer;
+import com.fittribe.api.entity.GroupMember;
+import com.fittribe.api.repository.GroupMemberRepository;
 import com.fittribe.api.repository.UserExerciseBestsRepository;
 import com.fittribe.api.repository.UserPlanRepository;
 import com.fittribe.api.repository.UserRepository;
 import com.fittribe.api.repository.WorkoutSessionRepository;
+import com.fittribe.api.service.GroupProgressService;
 import com.fittribe.api.service.RankService;
 import com.fittribe.api.util.PromptSanitiser;
 import jakarta.validation.Valid;
@@ -48,22 +51,30 @@ public class UserController {
     private static final Set<String> VALID_LEVELS =
             Set.of("BEGINNER", "INTERMEDIATE", "ADVANCED");
 
-    private final UserRepository            userRepository;
-    private final WorkoutSessionRepository  sessionRepository;
-    private final UserPlanRepository        planRepository;
+    private static final org.slf4j.Logger log = org.slf4j.LoggerFactory.getLogger(UserController.class);
+
+    private final UserRepository              userRepository;
+    private final WorkoutSessionRepository    sessionRepository;
+    private final UserPlanRepository          planRepository;
     private final UserExerciseBestsRepository bestsRepository;
-    private final ObjectMapper              objectMapper;
+    private final ObjectMapper                objectMapper;
+    private final GroupMemberRepository       groupMemberRepository;
+    private final GroupProgressService        groupProgressService;
 
     public UserController(UserRepository userRepository,
                           WorkoutSessionRepository sessionRepository,
                           UserPlanRepository planRepository,
                           UserExerciseBestsRepository bestsRepository,
-                          ObjectMapper objectMapper) {
-        this.userRepository    = userRepository;
-        this.sessionRepository = sessionRepository;
-        this.planRepository    = planRepository;
-        this.bestsRepository   = bestsRepository;
-        this.objectMapper      = objectMapper;
+                          ObjectMapper objectMapper,
+                          GroupMemberRepository groupMemberRepository,
+                          GroupProgressService groupProgressService) {
+        this.userRepository       = userRepository;
+        this.sessionRepository    = sessionRepository;
+        this.planRepository       = planRepository;
+        this.bestsRepository      = bestsRepository;
+        this.objectMapper         = objectMapper;
+        this.groupMemberRepository = groupMemberRepository;
+        this.groupProgressService  = groupProgressService;
     }
 
     // ── GET /api/v1/users/me/exercise-bests ─────────────────────────────
@@ -217,6 +228,17 @@ public class UserController {
         user.setIsActive(false);
         user.setDeletionRequestedAt(Instant.now());
         userRepository.save(user);
+
+        // Adjust group weekly progress for every group this user was in
+        List<GroupMember> memberships = groupMemberRepository.findByUserId(user.getId());
+        for (GroupMember gm : memberships) {
+            try {
+                groupProgressService.onMemberLeftGroup(gm.getGroupId(), user.getId());
+            } catch (Exception e) {
+                log.error("Group progress leave hook failed on account deletion for group={} user={}",
+                        gm.getGroupId(), user.getId(), e);
+            }
+        }
 
         return ResponseEntity.ok(ApiResponse.success(Map.of("deleted", true)));
     }

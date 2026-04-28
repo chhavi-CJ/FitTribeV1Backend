@@ -8,6 +8,8 @@ import com.fittribe.api.jobs.JobType;
 import com.fittribe.api.jobs.JobWorker;
 import com.fittribe.api.jobs.WeeklyReportCron;
 import com.fittribe.api.repository.UserRepository;
+import com.fittribe.api.scheduler.WeeklyStatsComputeJob;
+import com.fittribe.api.service.TopPerformerService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
@@ -70,19 +72,25 @@ public class AdminJobTriggerController {
 
     private static final Logger log = LoggerFactory.getLogger(AdminJobTriggerController.class);
 
-    private final UserRepository userRepo;
-    private final JobEnqueuer jobEnqueuer;
-    private final WeeklyReportCron weeklyReportCron;
-    private final String configuredSecret;
+    private final UserRepository       userRepo;
+    private final JobEnqueuer          jobEnqueuer;
+    private final WeeklyReportCron     weeklyReportCron;
+    private final WeeklyStatsComputeJob weeklyStatsComputeJob;
+    private final TopPerformerService  topPerformerService;
+    private final String               configuredSecret;
 
     public AdminJobTriggerController(UserRepository userRepo,
                                      JobEnqueuer jobEnqueuer,
                                      WeeklyReportCron weeklyReportCron,
+                                     WeeklyStatsComputeJob weeklyStatsComputeJob,
+                                     TopPerformerService topPerformerService,
                                      @Value("${fittribe.admin.secret:}") String configuredSecret) {
-        this.userRepo = userRepo;
-        this.jobEnqueuer = jobEnqueuer;
-        this.weeklyReportCron = weeklyReportCron;
-        this.configuredSecret = configuredSecret;
+        this.userRepo              = userRepo;
+        this.jobEnqueuer           = jobEnqueuer;
+        this.weeklyReportCron      = weeklyReportCron;
+        this.weeklyStatsComputeJob = weeklyStatsComputeJob;
+        this.topPerformerService   = topPerformerService;
+        this.configuredSecret      = configuredSecret;
     }
 
     /**
@@ -162,6 +170,38 @@ public class AdminJobTriggerController {
         }
 
         return ResponseEntity.ok(ApiResponse.success(Map.of("enqueued", enqueued)));
+    }
+
+    /**
+     * Manually trigger WeeklyStatsComputeJob for the previous Monday's week.
+     * POST /api/v1/admin/jobs/trigger-weekly-stats
+     */
+    @PostMapping("/trigger-weekly-stats")
+    public ResponseEntity<ApiResponse<Map<String, Object>>> triggerWeeklyStats(
+            @RequestHeader(value = "X-Admin-Secret", required = false) String providedSecret) {
+
+        requireAdminSecret(providedSecret);
+        LocalDate weekStart = JobWorker.previousMondayIst();
+        log.info("AdminJobTrigger: WeeklyStatsComputeJob for weekStart={}", weekStart);
+        int computed = weeklyStatsComputeJob.runForWeek(weekStart);
+        return ResponseEntity.ok(ApiResponse.success(Map.of("weekStart", weekStart.toString(), "usersComputed", computed)));
+    }
+
+    /**
+     * Manually trigger TopPerformerService for all groups for the previous ISO week.
+     * POST /api/v1/admin/jobs/trigger-top-performer
+     */
+    @PostMapping("/trigger-top-performer")
+    public ResponseEntity<ApiResponse<Map<String, Object>>> triggerTopPerformer(
+            @RequestHeader(value = "X-Admin-Secret", required = false) String providedSecret) {
+
+        requireAdminSecret(providedSecret);
+        LocalDate weekStart = JobWorker.previousMondayIst();
+        int isoYear = weekStart.get(java.time.temporal.WeekFields.ISO.weekBasedYear());
+        int isoWeek = weekStart.get(java.time.temporal.WeekFields.ISO.weekOfWeekBasedYear());
+        log.info("AdminJobTrigger: TopPerformerService for week={}-W{}", isoYear, isoWeek);
+        topPerformerService.computeForAllGroups(isoYear, isoWeek);
+        return ResponseEntity.ok(ApiResponse.success(Map.of("isoYear", isoYear, "isoWeek", isoWeek)));
     }
 
     // ── Helpers ─────────────────────────────────────────────────────────

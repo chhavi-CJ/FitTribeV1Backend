@@ -9,6 +9,8 @@ import com.fittribe.api.jobs.JobType;
 import com.fittribe.api.jobs.JobWorker;
 import com.fittribe.api.jobs.WeeklyReportCron;
 import com.fittribe.api.repository.UserRepository;
+import com.fittribe.api.scheduler.WeeklyStatsComputeJob;
+import com.fittribe.api.service.TopPerformerService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.http.HttpStatus;
@@ -46,17 +48,22 @@ class AdminJobTriggerControllerTest {
 
     private static final String CONFIGURED_SECRET = "correct-horse-battery-staple";
 
-    private UserRepository userRepo;
-    private FakeJobEnqueuer enqueuer;
-    private FakeWeeklyReportCron cron;
+    private UserRepository        userRepo;
+    private FakeJobEnqueuer       enqueuer;
+    private FakeWeeklyReportCron  cron;
+    private WeeklyStatsComputeJob weeklyStatsComputeJob;
+    private TopPerformerService   topPerformerService;
     private AdminJobTriggerController controller;
 
     @BeforeEach
     void setUp() {
-        userRepo = mock(UserRepository.class);
-        enqueuer = new FakeJobEnqueuer();
-        cron = new FakeWeeklyReportCron();
-        controller = new AdminJobTriggerController(userRepo, enqueuer, cron, CONFIGURED_SECRET);
+        userRepo              = mock(UserRepository.class);
+        enqueuer              = new FakeJobEnqueuer();
+        cron                  = new FakeWeeklyReportCron();
+        weeklyStatsComputeJob = mock(WeeklyStatsComputeJob.class);
+        topPerformerService   = mock(TopPerformerService.class);
+        controller = new AdminJobTriggerController(userRepo, enqueuer, cron,
+                weeklyStatsComputeJob, topPerformerService, CONFIGURED_SECRET);
     }
 
     // ── Secret validation ──────────────────────────────────────────────
@@ -90,7 +97,8 @@ class AdminJobTriggerControllerTest {
     void emptyConfiguredSecretRejectsEverything() {
         // Controller constructed with empty secret — deny-by-default
         // even if the header matches exactly.
-        AdminJobTriggerController denyAll = new AdminJobTriggerController(userRepo, enqueuer, cron, "");
+        AdminJobTriggerController denyAll = new AdminJobTriggerController(
+                userRepo, enqueuer, cron, weeklyStatsComputeJob, topPerformerService, "");
 
         ApiException ex = assertThrows(ApiException.class,
                 () -> denyAll.triggerWeeklyReport("any-value", new AdminJobTriggerController.TriggerRequest()));
@@ -101,7 +109,8 @@ class AdminJobTriggerControllerTest {
 
     @Test
     void whitespaceConfiguredSecretRejectsEverything() {
-        AdminJobTriggerController denyAll = new AdminJobTriggerController(userRepo, enqueuer, cron, "   ");
+        AdminJobTriggerController denyAll = new AdminJobTriggerController(
+                userRepo, enqueuer, cron, weeklyStatsComputeJob, topPerformerService, "   ");
         assertThrows(ApiException.class,
                 () -> denyAll.triggerWeeklyReport("   ", new AdminJobTriggerController.TriggerRequest()));
     }

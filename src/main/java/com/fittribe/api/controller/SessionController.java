@@ -55,6 +55,7 @@ import com.fittribe.api.jobs.JobType;
 import com.fittribe.api.jobs.JobWorker;
 import com.fittribe.api.service.AiService;
 import com.fittribe.api.service.CoinService;
+import com.fittribe.api.service.GroupProgressService;
 import com.fittribe.api.service.PlanService;
 import com.fittribe.api.service.RankService;
 import com.fittribe.api.strengthscore.ProgressSnapshotService;
@@ -122,6 +123,7 @@ public class SessionController {
     private final UserExerciseBestsRepository userExerciseBestsRepo;
     private final PRDetector                 prDetector;
     private final ExerciseRepository         exerciseRepo;
+    private final GroupProgressService       groupProgressService;
 
     public SessionController(WorkoutSessionRepository sessionRepo,
                              SetLogRepository setLogRepo,
@@ -144,7 +146,8 @@ public class SessionController {
                              PrEventRepository prEventRepo,
                              UserExerciseBestsRepository userExerciseBestsRepo,
                              PRDetector prDetector,
-                             ExerciseRepository exerciseRepo) {
+                             ExerciseRepository exerciseRepo,
+                             GroupProgressService groupProgressService) {
         this.sessionRepo         = sessionRepo;
         this.setLogRepo          = setLogRepo;
         this.userRepo            = userRepo;
@@ -167,6 +170,7 @@ public class SessionController {
         this.userExerciseBestsRepo = userExerciseBestsRepo;
         this.prDetector = prDetector;
         this.exerciseRepo = exerciseRepo;
+        this.groupProgressService = groupProgressService;
     }
 
     // ── POST /sessions/start ──────────────────────────────────────────
@@ -1054,6 +1058,15 @@ public class SessionController {
             }
         } catch (Exception e) {
             log.error("Failed to post feed items for session={}", id, e);
+        }
+
+        // ── Group weekly progress ────────────────────────────────────────
+        try {
+            groupProgressService.recordSessionForUser(
+                    userId,
+                    session.getFinishedAt().atZone(Zones.APP_ZONE).toLocalDate());
+        } catch (Exception e) {
+            log.error("Group progress increment failed for session={} user={}", session.getId(), userId, e);
         }
 
         // ── Delete set_logs (Option Y cleanup) ──────────────────────────
