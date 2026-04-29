@@ -1,5 +1,7 @@
 package com.fittribe.api.controller;
 
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fittribe.api.dto.ApiResponse;
 import com.fittribe.api.dto.group.GroupCarouselDto;
 import com.fittribe.api.dto.group.GroupWeeklyCardDto;
@@ -55,6 +57,7 @@ public class GroupController {
     private final GroupWeeklyCardService            groupWeeklyCardService;
     private final GroupWeeklyTopPerformerRepository topPerformerRepo;
     private final LeaderboardService                leaderboardService;
+    private final ObjectMapper                      mapper;
 
     public GroupController(GroupRepository groupRepo,
                            GroupMemberRepository memberRepo,
@@ -67,7 +70,8 @@ public class GroupController {
                            GroupProgressService groupProgressService,
                            GroupWeeklyCardService groupWeeklyCardService,
                            GroupWeeklyTopPerformerRepository topPerformerRepo,
-                           LeaderboardService leaderboardService) {
+                           LeaderboardService leaderboardService,
+                           ObjectMapper mapper) {
         this.groupRepo             = groupRepo;
         this.memberRepo            = memberRepo;
         this.feedRepo              = feedRepo;
@@ -80,6 +84,7 @@ public class GroupController {
         this.groupWeeklyCardService = groupWeeklyCardService;
         this.topPerformerRepo      = topPerformerRepo;
         this.leaderboardService    = leaderboardService;
+        this.mapper                = mapper;
     }
 
     // ── POST /groups ──────────────────────────────────────────────────
@@ -358,6 +363,12 @@ public class GroupController {
                     m.put("displayName", fi.getUserId() != null
                             ? nameByUserId.get(fi.getUserId()) : null);
                     m.put("createdAt",   fi.getCreatedAt());
+                    try {
+                        m.put("eventData", mapper.readTree(
+                                fi.getEventData() != null ? fi.getEventData() : "{}"));
+                    } catch (Exception ex) {
+                        m.put("eventData", mapper.createObjectNode());
+                    }
 
                     // Reactions
                     List<Reaction> itemReactions = reactionsByItem.getOrDefault(fi.getId(), List.of());
