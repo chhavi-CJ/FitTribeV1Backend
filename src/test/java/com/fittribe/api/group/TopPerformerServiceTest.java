@@ -10,6 +10,7 @@ import com.fittribe.api.repository.GroupWeeklyTopPerformerRepository;
 import com.fittribe.api.repository.UserRepository;
 import com.fittribe.api.repository.UserWeeklyStatsRepository;
 import com.fittribe.api.service.EffortScoreCalculator;
+import com.fittribe.api.service.FeedEventWriter;
 import com.fittribe.api.service.TopPerformerService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -32,6 +33,7 @@ class TopPerformerServiceTest {
     private GroupWeeklyTopPerformerRepository topPerformerRepo;
     private EffortScoreCalculator             effortScoreCalculator;
     private UserRepository                    userRepo;
+    private FeedEventWriter                   feedEventWriter;
     private TopPerformerService               service;
 
     private static final UUID GROUP_ID  = UUID.randomUUID();
@@ -50,9 +52,10 @@ class TopPerformerServiceTest {
         topPerformerRepo    = mock(GroupWeeklyTopPerformerRepository.class);
         effortScoreCalculator = mock(EffortScoreCalculator.class);
         userRepo            = mock(UserRepository.class);
+        feedEventWriter     = mock(FeedEventWriter.class);
 
         service = new TopPerformerService(memberRepo, groupRepo, statsRepo,
-                topPerformerRepo, effortScoreCalculator, userRepo);
+                topPerformerRepo, effortScoreCalculator, userRepo, feedEventWriter);
 
         // Default: no existing top performer for this week
         when(topPerformerRepo.findByGroupIdAndIsoYearAndIsoWeekAndDimension(

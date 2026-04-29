@@ -63,9 +63,9 @@ class GroupWeeklyCardServiceTest {
         when(snapshotRepo.findByGroupIdAndIsoYearAndIsoWeek(eq(GROUP_ID), eq(ISO_YEAR), eq(ISO_WEEK)))
                 .thenReturn(List.of(activeSnapshot(USER_A, 4), activeSnapshot(USER_B, 3)));
 
-        int count = service.lockWeekForAllGroups(ISO_YEAR, ISO_WEEK);
+        List<GroupWeeklyCard> cards = service.lockWeekForAllGroups(ISO_YEAR, ISO_WEEK);
 
-        assertEquals(1, count);
+        assertEquals(1, cards.size());
         verify(cardRepo).save(argThat(c ->
                 "BRONZE".equals(c.getFinalTier()) && c.getSessionsLogged() == 7 && c.getTargetSessions() == 10));
     }
@@ -95,9 +95,9 @@ class GroupWeeklyCardServiceTest {
         when(snapshotRepo.findByGroupIdAndIsoYearAndIsoWeek(any(), anyInt(), anyInt()))
                 .thenReturn(List.of());
 
-        int count = service.lockWeekForAllGroups(ISO_YEAR, ISO_WEEK);
+        List<GroupWeeklyCard> cards = service.lockWeekForAllGroups(ISO_YEAR, ISO_WEEK);
 
-        assertEquals(0, count);
+        assertEquals(0, cards.size());
         verify(cardRepo, never()).save(any());
         verify(coinService, never()).awardCoins(any(), anyInt(), anyString(), anyString(), anyString());
     }

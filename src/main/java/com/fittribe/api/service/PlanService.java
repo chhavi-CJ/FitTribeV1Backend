@@ -116,6 +116,7 @@ public class PlanService {
     private final FitnessSummaryService        fitnessSummaryService;
     private final PlanHistoryService           planHistoryService;
     private final ObjectMapper                mapper;
+    private final FeedEventWriter             feedEventWriter;
     private final RestTemplate                restTemplate = new RestTemplate();
 
     public PlanService(UserRepository userRepo,
@@ -130,7 +131,8 @@ public class PlanService {
                        UserDayStatusRepository dayStatusRepo,
                        FitnessSummaryService fitnessSummaryService,
                        PlanHistoryService planHistoryService,
-                       ObjectMapper mapper) {
+                       ObjectMapper mapper,
+                       FeedEventWriter feedEventWriter) {
         this.userRepo             = userRepo;
         this.planRepo             = planRepo;
         this.exerciseRepo         = exerciseRepo;
@@ -144,6 +146,7 @@ public class PlanService {
         this.fitnessSummaryService = fitnessSummaryService;
         this.planHistoryService   = planHistoryService;
         this.mapper               = mapper;
+        this.feedEventWriter      = feedEventWriter;
     }
 
     // ── Public API ────────────────────────────────────────────────────
@@ -595,8 +598,20 @@ public class PlanService {
                     "Cannot set status — you have an active session in progress.");
         }
 
+        String previousStatus = dayStatusRepo.findByIdUserIdAndIdDate(userId, today)
+                .map(UserDayStatus::getStatus)
+                .orElse(null);
+
         UserDayStatus dayStatus = new UserDayStatus(userId, today, status);
         dayStatusRepo.save(dayStatus);
+
+        if (!status.equals(previousStatus)) {
+            try {
+                feedEventWriter.writeStatusChanged(userId, today, status, previousStatus);
+            } catch (Exception e) {
+                log.warn("Failed to write STATUS_CHANGED feed for user={}: {}", userId, e.getMessage());
+            }
+        }
 
         return Map.of(
                 "status",  status,

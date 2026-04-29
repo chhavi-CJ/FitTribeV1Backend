@@ -1,5 +1,7 @@
 package com.fittribe.api.controller;
 
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fittribe.api.dto.ApiResponse;
 import com.fittribe.api.dto.group.GroupCarouselDto;
 import com.fittribe.api.dto.group.GroupWeeklyCardDto;
@@ -23,6 +25,7 @@ import org.slf4j.LoggerFactory;
 import com.fittribe.api.repository.*;
 import jakarta.validation.Valid;
 import org.springframework.dao.DataIntegrityViolationException;
+import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.Authentication;
 import org.springframework.transaction.annotation.Transactional;
@@ -55,6 +58,8 @@ public class GroupController {
     private final GroupWeeklyCardService            groupWeeklyCardService;
     private final GroupWeeklyTopPerformerRepository topPerformerRepo;
     private final LeaderboardService                leaderboardService;
+    private final PokeLogRepository                 pokeLogRepo;
+    private final ObjectMapper                      mapper;
 
     public GroupController(GroupRepository groupRepo,
                            GroupMemberRepository memberRepo,
@@ -67,7 +72,9 @@ public class GroupController {
                            GroupProgressService groupProgressService,
                            GroupWeeklyCardService groupWeeklyCardService,
                            GroupWeeklyTopPerformerRepository topPerformerRepo,
-                           LeaderboardService leaderboardService) {
+                           LeaderboardService leaderboardService,
+                           PokeLogRepository pokeLogRepo,
+                           ObjectMapper mapper) {
         this.groupRepo             = groupRepo;
         this.memberRepo            = memberRepo;
         this.feedRepo              = feedRepo;
@@ -80,6 +87,8 @@ public class GroupController {
         this.groupWeeklyCardService = groupWeeklyCardService;
         this.topPerformerRepo      = topPerformerRepo;
         this.leaderboardService    = leaderboardService;
+        this.pokeLogRepo           = pokeLogRepo;
+        this.mapper                = mapper;
     }
 
     // ── POST /groups ──────────────────────────────────────────────────
@@ -300,6 +309,10 @@ public class GroupController {
 
         requireMembership(id, userId(auth));
 
+        // Batch-load which recipients have been poked today in this group (one query)
+        LocalDate today = LocalDate.now(Zones.APP_ZONE);
+        Set<UUID> pokedTodayIds = pokeLogRepo.findRecipientsPokdToday(id, today);
+
         List<Map<String, Object>> result = memberRepo.findByGroupId(id).stream()
                 .map(gm -> {
                     User user = userRepo.findById(gm.getUserId()).orElse(null);
@@ -307,12 +320,13 @@ public class GroupController {
                     if (user == null) return null;
                     Map<String, Object> m = new LinkedHashMap<>();
                     m.put("userId",      gm.getUserId());
-                    m.put("displayName", user != null ? user.getDisplayName() : null);
+                    m.put("displayName", user.getDisplayName());
                     m.put("role",        gm.getRole());
-                    m.put("streak",      user != null ? user.getStreak() : 0);
+                    m.put("streak",      user.getStreak());
                     m.put("joinedAt",    gm.getJoinedAt());
                     m.put("hasCrown",    gm.getCrownExpiresAt() != null
                             && gm.getCrownExpiresAt().isAfter(Instant.now()));
+                    m.put("pokedToday",  pokedTodayIds.contains(gm.getUserId()));
                     return m;
                 })
                 .filter(Objects::nonNull)
@@ -358,6 +372,12 @@ public class GroupController {
                     m.put("displayName", fi.getUserId() != null
                             ? nameByUserId.get(fi.getUserId()) : null);
                     m.put("createdAt",   fi.getCreatedAt());
+                    try {
+                        m.put("eventData", mapper.readTree(
+                                fi.getEventData() != null ? fi.getEventData() : "{}"));
+                    } catch (Exception ex) {
+                        m.put("eventData", mapper.createObjectNode());
+                    }
 
                     // Reactions
                     List<Reaction> itemReactions = reactionsByItem.getOrDefault(fi.getId(), List.of());
@@ -508,7 +528,7 @@ public class GroupController {
     // ── POST /groups/{id}/poke/{memberId} ─────────────────────────────
     @PostMapping("/{id}/poke/{memberId}")
     @Transactional
-    public ResponseEntity<ApiResponse<?>> poke(
+    public ResponseEntity<?> poke(
             @PathVariable UUID id,
             @PathVariable UUID memberId,
             Authentication auth) {
@@ -517,26 +537,50 @@ public class GroupController {
         requireMembership(id, pokerId);
         requireMembership(id, memberId);
 
+        LocalDate today = LocalDate.now(Zones.APP_ZONE);
+
+        // Rate-limit: one poke per recipient per group per IST day
+        if (pokeLogRepo.existsByGroupIdAndRecipientUserIdAndPokedDate(id, memberId, today)) {
+            LocalDate tomorrow = today.plusDays(1);
+            Instant retryAfter = tomorrow.atStartOfDay(Zones.APP_ZONE).toInstant();
+            return ResponseEntity.status(HttpStatus.TOO_MANY_REQUESTS)
+                    .body(Map.of("alreadyPokedToday", true, "retryAfter", retryAfter.toString()));
+        }
+
         String pokerName = userRepo.findById(pokerId)
                 .map(u -> u.getDisplayName() != null ? u.getDisplayName() : "Someone")
                 .orElse("Someone");
-        String targetName = userRepo.findById(memberId)
-                .map(u -> u.getDisplayName() != null ? u.getDisplayName() : "Someone")
-                .orElse("Someone");
+        String pokerFirstName = pokerName.trim().split("\\s+")[0];
 
+        Group group = groupRepo.findById(id).orElse(null);
+        String groupName = group != null ? group.getName() : "your group";
+        int weeklyGoal = group != null && group.getWeeklyGoal() != null ? group.getWeeklyGoal() : 4;
+
+        // Sessions completed this IST week by the recipient
+        LocalDate weekStart = today.with(DayOfWeek.MONDAY);
+        int completed = sessionRepo.countByUserIdAndStatusAndFinishedAtBetween(
+                memberId, "COMPLETED",
+                weekStart.atStartOfDay(Zones.APP_ZONE).toInstant(),
+                Instant.now());
+        int sessionsRemaining = Math.max(0, weeklyGoal - completed);
+
+        // Write notification — no feed item (pokes are private, not in feed)
         Notification notif = new Notification();
         notif.setUserId(memberId);
         notif.setType("POKE");
-        notif.setTitle(pokerName + " poked you \uD83D\uDC4B");
-        notif.setBody(pokerName + " has already logged today. You haven't.");
+        notif.setTitle(pokerFirstName + " poked you \uD83D\uDC4B");
+        notif.setBody(pokerFirstName + " poked you in " + groupName
+                + " \u2014 " + sessionsRemaining
+                + " session" + (sessionsRemaining != 1 ? "s" : "") + " to go \uD83D\uDCAA");
         notifRepo.save(notif);
 
-        FeedItem feed = new FeedItem();
-        feed.setGroupId(id);
-        feed.setUserId(pokerId);
-        feed.setType("POKE");
-        feed.setBody(pokerName + " poked " + targetName);
-        feedRepo.save(feed);
+        // Record the poke so rate-limit fires on subsequent attempts
+        PokeLog pl = new PokeLog();
+        pl.setGroupId(id);
+        pl.setRecipientUserId(memberId);
+        pl.setPokerUserId(pokerId);
+        pl.setPokedDate(today);
+        pokeLogRepo.save(pl);
 
         return ResponseEntity.ok(ApiResponse.success(Map.of("poked", true)));
     }

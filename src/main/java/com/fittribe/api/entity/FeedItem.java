@@ -1,6 +1,8 @@
 package com.fittribe.api.entity;
 
 import jakarta.persistence.*;
+import org.hibernate.annotations.JdbcTypeCode;
+import org.hibernate.type.SqlTypes;
 
 import java.time.Instant;
 import java.util.UUID;
@@ -29,6 +31,10 @@ public class FeedItem {
     @Column(name = "created_at", insertable = false, updatable = false)
     private Instant createdAt;
 
+    @Column(name = "event_data", columnDefinition = "jsonb", nullable = false)
+    @JdbcTypeCode(SqlTypes.JSON)
+    private String eventData = "{}";
+
     public FeedItem() {}
 
     public UUID getId()              { return id; }
@@ -46,4 +52,7 @@ public class FeedItem {
     public void setBody(String v)    { this.body = v; }
 
     public Instant getCreatedAt()    { return createdAt; }
+
+    public String getEventData()         { return eventData; }
+    public void   setEventData(String v) { this.eventData = v != null ? v : "{}"; }
 }

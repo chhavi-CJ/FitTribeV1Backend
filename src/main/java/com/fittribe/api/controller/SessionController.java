@@ -24,6 +24,7 @@ import com.fittribe.api.dto.request.UpdateSessionRequest;
 import com.fittribe.api.entity.CoinTransaction;
 import com.fittribe.api.entity.FeedItem;
 import com.fittribe.api.entity.GroupMember;
+import com.fittribe.api.service.FeedEventWriter;
 import com.fittribe.api.entity.PrEvent;
 import com.fittribe.api.entity.SavedRoutine;
 import com.fittribe.api.entity.SessionFeedback;
@@ -101,6 +102,9 @@ public class SessionController {
     private static final int COOLDOWN_HOURS    = 8;
     private static final int COINS_PER_SESSION = 10;
 
+    private static final Set<Integer> STREAK_MILESTONES          = Set.of(5, 10, 30, 50, 100, 365);
+    private static final int          STREAK_MILESTONE_COINS_FLAT = 10;
+
     private final WorkoutSessionRepository  sessionRepo;
     private final SetLogRepository          setLogRepo;
     private final UserRepository            userRepo;
@@ -124,6 +128,7 @@ public class SessionController {
     private final PRDetector                 prDetector;
     private final ExerciseRepository         exerciseRepo;
     private final GroupProgressService       groupProgressService;
+    private final FeedEventWriter            feedEventWriter;
 
     public SessionController(WorkoutSessionRepository sessionRepo,
                              SetLogRepository setLogRepo,
@@ -147,7 +152,8 @@ public class SessionController {
                              UserExerciseBestsRepository userExerciseBestsRepo,
                              PRDetector prDetector,
                              ExerciseRepository exerciseRepo,
-                             GroupProgressService groupProgressService) {
+                             GroupProgressService groupProgressService,
+                             FeedEventWriter feedEventWriter) {
         this.sessionRepo         = sessionRepo;
         this.setLogRepo          = setLogRepo;
         this.userRepo            = userRepo;
@@ -171,6 +177,7 @@ public class SessionController {
         this.prDetector = prDetector;
         this.exerciseRepo = exerciseRepo;
         this.groupProgressService = groupProgressService;
+        this.feedEventWriter = feedEventWriter;
     }
 
     // ── POST /sessions/start ──────────────────────────────────────────
@@ -923,6 +930,7 @@ public class SessionController {
         // Separate try/catch — failure here doesn't affect /finish 200 response or other blocks
         try {
             sessionRepo.updateStreak(session.getId(), newStreak);
+            session.setStreak(newStreak);
         } catch (Exception e) {
             log.error("Failed to write streak snapshot to session {}", session.getId(), e);
         }
@@ -994,17 +1002,22 @@ public class SessionController {
 
             // 4. Streak milestones
             int currentStreak = user.getStreak();
-            if (currentStreak > 0 && currentStreak % 7 == 0) {
-                coinService.awardCoins(userId, 35, "STREAK_MILESTONE",
+            if (STREAK_MILESTONES.contains(currentStreak)) {
+                coinService.awardCoins(userId, STREAK_MILESTONE_COINS_FLAT, "STREAK_MILESTONE",
                         currentStreak + "-day streak milestone",
-                        String.valueOf(currentStreak));
-            }
-            if (currentStreak == 30) {
-                coinService.awardCoins(userId, 100, "STREAK_30",
-                        "30-day streak milestone", "30");
+                        "streak-" + currentStreak + "-" + id);
             }
         } catch (Exception e) {
             log.error("Failed to award coins for session={}", id, e);
+        }
+
+        try {
+            int currentStreak = newStreak;
+            if (STREAK_MILESTONES.contains(currentStreak)) {
+                feedEventWriter.writeStreakMilestone(userId, currentStreak, STREAK_MILESTONE_COINS_FLAT);
+            }
+        } catch (Exception e) {
+            log.error("Failed to write STREAK_MILESTONE feed for session={}", id, e);
         }
 
         // ── PR System V2 write path ──────────────────────────────────────
@@ -1033,31 +1046,29 @@ public class SessionController {
             log.error("Failed to process PR detection for session={}", id, e);
         }
 
-        // ── Feed items — post to all user's groups ───────────────────────
+        // ── Feed items — WORKOUT_FINISHED ────────────────────────────────
         try {
-            List<GroupMember> memberships = groupMemberRepo.findByUserId(userId);
-            if (!memberships.isEmpty()) {
-                String displayName = user.getDisplayName() != null ? user.getDisplayName() : "Someone";
+            List<String> exerciseIds = exercises == null ? List.of()
+                    : exercises.stream().map(ExerciseLogRequest::exerciseId)
+                               .filter(java.util.Objects::nonNull).distinct()
+                               .collect(Collectors.toList());
+            List<String> muscleGroups = exerciseIds.isEmpty() ? List.of()
+                    : exerciseRepo.findAllById(exerciseIds).stream()
+                                  .map(ex -> ex.getMuscleGroup())
+                                  .filter(java.util.Objects::nonNull).distinct()
+                                  .collect(Collectors.toList());
+            BigDecimal topLiftKg = exercises == null ? null
+                    : exercises.stream()
+                               .filter(ex -> ex.sets() != null)
+                               .flatMap(ex -> ex.sets().stream())
+                               .map(s -> s.weightKg())
+                               .filter(java.util.Objects::nonNull)
+                               .max(BigDecimal::compareTo)
+                               .orElse(null);
 
-                // WORKOUT_LOGGED feed item
-                String workoutBody = displayName + " finished a workout · " + totalSets + " sets · "
-                        + totalVolumeKg.toBigInteger() + " kg volume";
-                for (GroupMember gm : memberships) {
-                    try {
-                        FeedItem fi = new FeedItem();
-                        fi.setGroupId(gm.getGroupId());
-                        fi.setUserId(userId);
-                        fi.setType("WORKOUT_LOGGED");
-                        fi.setBody(workoutBody);
-                        feedItemRepo.save(fi);
-                    } catch (Exception e) {
-                        log.error("Failed to post WORKOUT_LOGGED feed for group={}", gm.getGroupId(), e);
-                    }
-                }
-
-            }
+            feedEventWriter.writeWorkoutFinished(session, muscleGroups, topLiftKg);
         } catch (Exception e) {
-            log.error("Failed to post feed items for session={}", id, e);
+            log.error("Failed to post WORKOUT_FINISHED feed for session={}", id, e);
         }
 
         // ── Group weekly progress ────────────────────────────────────────
