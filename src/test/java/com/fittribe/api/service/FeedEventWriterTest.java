@@ -572,7 +572,7 @@ class FeedEventWriterTest {
         when(memberRepo.findByUserId(USER_ID))
                 .thenReturn(List.of(memberOf(GROUP_A), memberOf(GROUP_B)));
 
-        writer.writeStreakMilestone(USER_ID, 10, 50);
+        writer.writeStreakMilestone(USER_ID, 10, 10);
 
         verify(feedRepo, times(2)).save(any());
         List<FeedItem> saved = captureAllSaves();
@@ -583,7 +583,7 @@ class FeedEventWriterTest {
     void streak_milestone_body_format() {
         when(memberRepo.findByUserId(USER_ID)).thenReturn(List.of(memberOf(GROUP_A)));
 
-        writer.writeStreakMilestone(USER_ID, 5, 35);
+        writer.writeStreakMilestone(USER_ID, 5, 10);
 
         assertEquals("Alice hit a 5-day streak 🎉", captureAllSaves().get(0).getBody());
     }
@@ -592,18 +592,18 @@ class FeedEventWriterTest {
     void streak_milestone_event_data_has_streak_and_coins() {
         when(memberRepo.findByUserId(USER_ID)).thenReturn(List.of(memberOf(GROUP_A)));
 
-        writer.writeStreakMilestone(USER_ID, 30, 100);
+        writer.writeStreakMilestone(USER_ID, 30, 10);
 
         Map<String, Object> data = parseEventData(captureAllSaves().get(0));
-        assertEquals(30,  ((Number) data.get("streak")).intValue());
-        assertEquals(100, ((Number) data.get("coinsEarned")).intValue());
+        assertEquals(30, ((Number) data.get("streak")).intValue());
+        assertEquals(10, ((Number) data.get("coinsEarned")).intValue());
     }
 
     @Test
     void streak_milestone_zero_groups_no_save() {
         when(memberRepo.findByUserId(USER_ID)).thenReturn(List.of());
 
-        writer.writeStreakMilestone(USER_ID, 10, 50);
+        writer.writeStreakMilestone(USER_ID, 10, 10);
 
         verify(feedRepo, never()).save(any());
     }

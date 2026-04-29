@@ -102,14 +102,8 @@ public class SessionController {
     private static final int COOLDOWN_HOURS    = 8;
     private static final int COINS_PER_SESSION = 10;
 
-    private static final Map<Integer, Integer> STREAK_MILESTONE_COINS = Map.of(
-            5,   35,
-            10,  50,
-            30,  100,
-            50,  200,
-            100, 500,
-            365, 2000
-    );
+    private static final Set<Integer> STREAK_MILESTONES          = Set.of(5, 10, 30, 50, 100, 365);
+    private static final int          STREAK_MILESTONE_COINS_FLAT = 10;
 
     private final WorkoutSessionRepository  sessionRepo;
     private final SetLogRepository          setLogRepo;
@@ -1008,9 +1002,8 @@ public class SessionController {
 
             // 4. Streak milestones
             int currentStreak = user.getStreak();
-            Integer milestoneCoins = STREAK_MILESTONE_COINS.get(currentStreak);
-            if (milestoneCoins != null) {
-                coinService.awardCoins(userId, milestoneCoins, "STREAK_MILESTONE",
+            if (STREAK_MILESTONES.contains(currentStreak)) {
+                coinService.awardCoins(userId, STREAK_MILESTONE_COINS_FLAT, "STREAK_MILESTONE",
                         currentStreak + "-day streak milestone",
                         "streak-" + currentStreak + "-" + id);
             }
@@ -1020,9 +1013,8 @@ public class SessionController {
 
         try {
             int currentStreak = newStreak;
-            Integer milestoneCoins = STREAK_MILESTONE_COINS.get(currentStreak);
-            if (milestoneCoins != null) {
-                feedEventWriter.writeStreakMilestone(userId, currentStreak, milestoneCoins);
+            if (STREAK_MILESTONES.contains(currentStreak)) {
+                feedEventWriter.writeStreakMilestone(userId, currentStreak, STREAK_MILESTONE_COINS_FLAT);
             }
         } catch (Exception e) {
             log.error("Failed to write STREAK_MILESTONE feed for session={}", id, e);
