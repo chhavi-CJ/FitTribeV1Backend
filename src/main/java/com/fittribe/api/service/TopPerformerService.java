@@ -34,19 +34,22 @@ public class TopPerformerService {
     private final GroupWeeklyTopPerformerRepository topPerformerRepo;
     private final EffortScoreCalculator             effortScoreCalculator;
     private final UserRepository                    userRepo;
+    private final FeedEventWriter                   feedEventWriter;
 
     public TopPerformerService(GroupMemberRepository memberRepo,
                                GroupRepository groupRepo,
                                UserWeeklyStatsRepository statsRepo,
                                GroupWeeklyTopPerformerRepository topPerformerRepo,
                                EffortScoreCalculator effortScoreCalculator,
-                               UserRepository userRepo) {
-        this.memberRepo           = memberRepo;
-        this.groupRepo            = groupRepo;
-        this.statsRepo            = statsRepo;
-        this.topPerformerRepo     = topPerformerRepo;
+                               UserRepository userRepo,
+                               FeedEventWriter feedEventWriter) {
+        this.memberRepo            = memberRepo;
+        this.groupRepo             = groupRepo;
+        this.statsRepo             = statsRepo;
+        this.topPerformerRepo      = topPerformerRepo;
         this.effortScoreCalculator = effortScoreCalculator;
-        this.userRepo             = userRepo;
+        this.userRepo              = userRepo;
+        this.feedEventWriter       = feedEventWriter;
     }
 
     /**
@@ -131,11 +134,18 @@ public class TopPerformerService {
         tp.setDimension(EFFORT);
         tp.setScoreValue(winnerScore);
         tp.setMetricLabel(metricLabel);
-        topPerformerRepo.save(tp);
+        GroupWeeklyTopPerformer saved = topPerformerRepo.save(tp);
 
         String winnerName = userRepo.findById(winner).map(u -> u.getDisplayName()).orElse("?");
         log.info("TopPerformerService: group={} week={}-W{} winner={} ({}) score={}",
                 groupId, isoYear, isoWeek, winnerName, winner, winnerScore);
+
+        try {
+            feedEventWriter.writeTopPerformerCrowned(saved);
+        } catch (Exception e) {
+            log.warn("TopPerformerService: TOP_PERFORMER_CROWNED feed failed for group={}: {}",
+                    groupId, e.getMessage());
+        }
     }
 
     // ── Private helpers ───────────────────────────────────────────────────────

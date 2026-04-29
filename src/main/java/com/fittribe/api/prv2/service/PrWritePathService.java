@@ -14,6 +14,7 @@ import com.fittribe.api.repository.PrEventRepository;
 import com.fittribe.api.repository.UserExerciseBestsRepository;
 import com.fittribe.api.repository.WeeklyPrCountRepository;
 import com.fittribe.api.service.CoinService;
+import com.fittribe.api.service.FeedEventWriter;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
@@ -29,6 +30,7 @@ import java.time.temporal.TemporalAdjusters;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
+import java.util.stream.Collectors;
 
 /**
  * Service for writing PR detection results to the database.
@@ -56,6 +58,7 @@ public class PrWritePathService {
     private final CoinService coinService;
     private final TransactionTemplate transactionTemplate;
     private final ExerciseRepository exerciseRepo;
+    private final FeedEventWriter feedEventWriter;
 
     public PrWritePathService(
             PRDetector prDetector,
@@ -64,7 +67,8 @@ public class PrWritePathService {
             WeeklyPrCountRepository weeklyPrCountRepo,
             CoinService coinService,
             PlatformTransactionManager transactionManager,
-            ExerciseRepository exerciseRepo) {
+            ExerciseRepository exerciseRepo,
+            FeedEventWriter feedEventWriter) {
         this.prDetector = prDetector;
         this.userExerciseBestsRepo = userExerciseBestsRepo;
         this.prEventRepo = prEventRepo;
@@ -72,6 +76,7 @@ public class PrWritePathService {
         this.coinService = coinService;
         this.transactionTemplate = new TransactionTemplate(transactionManager);
         this.exerciseRepo = exerciseRepo;
+        this.feedEventWriter = feedEventWriter;
     }
 
     /**
@@ -99,6 +104,22 @@ public class PrWritePathService {
         }
 
         log.debug("Completed PR detection for session={}", sessionId);
+
+        // Write PR_DETECTED feed event once for the whole session (after all per-set writes commit)
+        try {
+            List<PrEvent> sessionPrs = prEventRepo.findBySessionIdAndSupersededAtIsNull(sessionId);
+            if (!sessionPrs.isEmpty()) {
+                List<String> exerciseIds = sessionPrs.stream()
+                        .map(PrEvent::getExerciseId).distinct().collect(Collectors.toList());
+                Map<String, String> exerciseNames = exerciseRepo.findAllById(exerciseIds).stream()
+                        .collect(Collectors.toMap(
+                                com.fittribe.api.entity.Exercise::getId,
+                                e -> e.getName() != null ? e.getName() : e.getId()));
+                feedEventWriter.writePrRoundup(userId, sessionId, sessionPrs, exerciseNames);
+            }
+        } catch (Exception e) {
+            log.warn("Failed to write PR_DETECTED feed for session={}: {}", sessionId, e.getMessage());
+        }
     }
 
     /**

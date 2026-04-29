@@ -24,6 +24,7 @@ import com.fittribe.api.dto.request.UpdateSessionRequest;
 import com.fittribe.api.entity.CoinTransaction;
 import com.fittribe.api.entity.FeedItem;
 import com.fittribe.api.entity.GroupMember;
+import com.fittribe.api.service.FeedEventWriter;
 import com.fittribe.api.entity.PrEvent;
 import com.fittribe.api.entity.SavedRoutine;
 import com.fittribe.api.entity.SessionFeedback;
@@ -124,6 +125,7 @@ public class SessionController {
     private final PRDetector                 prDetector;
     private final ExerciseRepository         exerciseRepo;
     private final GroupProgressService       groupProgressService;
+    private final FeedEventWriter            feedEventWriter;
 
     public SessionController(WorkoutSessionRepository sessionRepo,
                              SetLogRepository setLogRepo,
@@ -147,7 +149,8 @@ public class SessionController {
                              UserExerciseBestsRepository userExerciseBestsRepo,
                              PRDetector prDetector,
                              ExerciseRepository exerciseRepo,
-                             GroupProgressService groupProgressService) {
+                             GroupProgressService groupProgressService,
+                             FeedEventWriter feedEventWriter) {
         this.sessionRepo         = sessionRepo;
         this.setLogRepo          = setLogRepo;
         this.userRepo            = userRepo;
@@ -171,6 +174,7 @@ public class SessionController {
         this.prDetector = prDetector;
         this.exerciseRepo = exerciseRepo;
         this.groupProgressService = groupProgressService;
+        this.feedEventWriter = feedEventWriter;
     }
 
     // ── POST /sessions/start ──────────────────────────────────────────
@@ -1033,31 +1037,29 @@ public class SessionController {
             log.error("Failed to process PR detection for session={}", id, e);
         }
 
-        // ── Feed items — post to all user's groups ───────────────────────
+        // ── Feed items — WORKOUT_FINISHED ────────────────────────────────
         try {
-            List<GroupMember> memberships = groupMemberRepo.findByUserId(userId);
-            if (!memberships.isEmpty()) {
-                String displayName = user.getDisplayName() != null ? user.getDisplayName() : "Someone";
+            List<String> exerciseIds = exercises == null ? List.of()
+                    : exercises.stream().map(ExerciseLogRequest::exerciseId)
+                               .filter(java.util.Objects::nonNull).distinct()
+                               .collect(Collectors.toList());
+            List<String> muscleGroups = exerciseIds.isEmpty() ? List.of()
+                    : exerciseRepo.findAllById(exerciseIds).stream()
+                                  .map(ex -> ex.getMuscleGroup())
+                                  .filter(java.util.Objects::nonNull).distinct()
+                                  .collect(Collectors.toList());
+            BigDecimal topLiftKg = exercises == null ? null
+                    : exercises.stream()
+                               .filter(ex -> ex.sets() != null)
+                               .flatMap(ex -> ex.sets().stream())
+                               .map(s -> s.weightKg())
+                               .filter(java.util.Objects::nonNull)
+                               .max(BigDecimal::compareTo)
+                               .orElse(null);
 
-                // WORKOUT_LOGGED feed item
-                String workoutBody = displayName + " finished a workout · " + totalSets + " sets · "
-                        + totalVolumeKg.toBigInteger() + " kg volume";
-                for (GroupMember gm : memberships) {
-                    try {
-                        FeedItem fi = new FeedItem();
-                        fi.setGroupId(gm.getGroupId());
-                        fi.setUserId(userId);
-                        fi.setType("WORKOUT_LOGGED");
-                        fi.setBody(workoutBody);
-                        feedItemRepo.save(fi);
-                    } catch (Exception e) {
-                        log.error("Failed to post WORKOUT_LOGGED feed for group={}", gm.getGroupId(), e);
-                    }
-                }
-
-            }
+            feedEventWriter.writeWorkoutFinished(session, muscleGroups, topLiftKg);
         } catch (Exception e) {
-            log.error("Failed to post feed items for session={}", id, e);
+            log.error("Failed to post WORKOUT_FINISHED feed for session={}", id, e);
         }
 
         // ── Group weekly progress ────────────────────────────────────────

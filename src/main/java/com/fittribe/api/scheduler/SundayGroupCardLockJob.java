@@ -1,5 +1,7 @@
 package com.fittribe.api.scheduler;
 
+import com.fittribe.api.entity.GroupWeeklyCard;
+import com.fittribe.api.service.FeedEventWriter;
 import com.fittribe.api.service.GroupWeeklyCardService;
 import com.fittribe.api.service.TopPerformerService;
 import org.slf4j.Logger;
@@ -9,6 +11,7 @@ import org.springframework.stereotype.Component;
 
 import java.time.LocalDate;
 import java.time.temporal.WeekFields;
+import java.util.List;
 
 import com.fittribe.api.util.Zones;
 
@@ -25,11 +28,14 @@ public class SundayGroupCardLockJob {
 
     private final GroupWeeklyCardService cardService;
     private final TopPerformerService    topPerformerService;
+    private final FeedEventWriter        feedEventWriter;
 
     public SundayGroupCardLockJob(GroupWeeklyCardService cardService,
-                                  TopPerformerService topPerformerService) {
+                                  TopPerformerService topPerformerService,
+                                  FeedEventWriter feedEventWriter) {
         this.cardService         = cardService;
         this.topPerformerService = topPerformerService;
+        this.feedEventWriter     = feedEventWriter;
     }
 
     @Scheduled(cron = "0 59 23 * * SUN", zone = "Asia/Kolkata")
@@ -40,11 +46,21 @@ public class SundayGroupCardLockJob {
 
         log.info("SundayGroupCardLockJob: starting for week={}-W{}", isoYear, isoWeek);
 
+        List<GroupWeeklyCard> createdCards = List.of();
         try {
-            int cardsCreated = cardService.lockWeekForAllGroups(isoYear, isoWeek);
-            log.info("SundayGroupCardLockJob: cards created={}", cardsCreated);
+            createdCards = cardService.lockWeekForAllGroups(isoYear, isoWeek);
+            log.info("SundayGroupCardLockJob: cards created={}", createdCards.size());
         } catch (Exception e) {
             log.error("SundayGroupCardLockJob: card lock failed for week={}-W{}", isoYear, isoWeek, e);
+        }
+
+        for (GroupWeeklyCard card : createdCards) {
+            try {
+                feedEventWriter.writeTierLocked(card);
+            } catch (Exception e) {
+                log.warn("SundayGroupCardLockJob: TIER_LOCKED feed failed for group={}: {}",
+                        card.getGroupId(), e.getMessage());
+            }
         }
 
         try {

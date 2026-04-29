@@ -19,6 +19,7 @@ import java.time.Instant;
 import java.time.LocalDate;
 import java.time.temporal.TemporalAdjusters;
 import java.time.temporal.WeekFields;
+import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Optional;
@@ -60,22 +61,22 @@ public class GroupWeeklyCardService {
      * and resets the streak for groups that did not earn a card.
      * Idempotent: calling twice for the same week is safe.
      *
-     * @return count of cards created (BRONZE+ groups only)
+     * @return list of cards created this run (BRONZE+ groups only); empty if none qualified
      */
     @Transactional
-    public int lockWeekForAllGroups(int isoYear, int isoWeek) {
+    public List<GroupWeeklyCard> lockWeekForAllGroups(int isoYear, int isoWeek) {
         List<GroupWeeklyProgress> unlocked =
                 progressRepo.findByIsoYearAndIsoWeekAndLockedAtIsNull(isoYear, isoWeek);
 
         Set<UUID> groupsWithCard = new HashSet<>();
-        int lockedCount = 0;
+        List<GroupWeeklyCard> createdCards = new ArrayList<>();
 
         for (GroupWeeklyProgress progress : unlocked) {
             try {
-                boolean cardCreated = lockWeekForGroup(progress, isoYear, isoWeek);
-                if (cardCreated) {
+                GroupWeeklyCard card = lockWeekForGroup(progress, isoYear, isoWeek);
+                if (card != null) {
                     groupsWithCard.add(progress.getGroupId());
-                    lockedCount++;
+                    createdCards.add(card);
                 }
             } catch (Exception e) {
                 log.error("Failed to lock week for group={}", progress.getGroupId(), e);
@@ -85,7 +86,7 @@ public class GroupWeeklyCardService {
         // Reset streak for every group that did NOT earn a card this week
         resetStreakForNonEarners(isoYear, isoWeek, groupsWithCard);
 
-        return lockedCount;
+        return createdCards;
     }
 
     /** Returns the last 10 earned cards for a group, most recent first. */
@@ -97,16 +98,17 @@ public class GroupWeeklyCardService {
     // ── Private helpers ───────────────────────────────────────────────────────
 
     /**
-     * @return true if a card was created (i.e., tier was BRONZE+)
+     * @return the saved GroupWeeklyCard if one was created, null if the group did not earn a card
      */
-    private boolean lockWeekForGroup(GroupWeeklyProgress progress, int isoYear, int isoWeek) {
+    private GroupWeeklyCard lockWeekForGroup(GroupWeeklyProgress progress, int isoYear, int isoWeek) {
         UUID groupId = progress.getGroupId();
 
-        // Idempotency: card already exists — just mark progress locked and return
-        if (cardRepo.findByGroupIdAndIsoYearAndIsoWeek(groupId, isoYear, isoWeek).isPresent()) {
+        // Idempotency: card already exists — just mark progress locked and return it
+        Optional<GroupWeeklyCard> existing = cardRepo.findByGroupIdAndIsoYearAndIsoWeek(groupId, isoYear, isoWeek);
+        if (existing.isPresent()) {
             log.debug("Card already exists for group={} week={}-W{}", groupId, isoYear, isoWeek);
             ensureProgressLocked(progress);
-            return true; // treat as created — group DID earn a card
+            return existing.get();
         }
 
         String tier = progress.getCurrentTier();
@@ -114,7 +116,7 @@ public class GroupWeeklyCardService {
         // No tier earned — mark locked, no card, streak will reset in caller
         if ("NONE".equals(tier)) {
             ensureProgressLocked(progress);
-            return false;
+            return null;
         }
 
         // Compute final percentage
@@ -173,7 +175,7 @@ public class GroupWeeklyCardService {
 
         log.info("Locked group={} week={}-W{} tier={} streak={} contributors={}",
                 groupId, isoYear, isoWeek, tier, streakAtLock, contributorIds.length);
-        return true;
+        return card;
     }
 
     private void resetStreakForNonEarners(int isoYear, int isoWeek, Set<UUID> groupsWithCard) {
