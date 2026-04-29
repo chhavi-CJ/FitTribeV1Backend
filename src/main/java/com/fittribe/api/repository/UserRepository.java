@@ -43,6 +43,11 @@ public interface UserRepository extends JpaRepository<User, UUID> {
     /** Batch load: fetch multiple users by ID in one query. */
     List<User> findByIdIn(Collection<UUID> ids);
 
+    /** Batch load only active (non-deleted) users — used in feed reads so deleted accounts
+     *  don't surface their real display name. */
+    @Query("SELECT u FROM User u WHERE u.id IN :ids AND u.isActive = true")
+    List<User> findActiveByIdIn(@Param("ids") Collection<UUID> ids);
+
     /** All users with an active streak — used by the daily streak reset job. */
     List<User> findAllByStreakGreaterThan(int streak);
 

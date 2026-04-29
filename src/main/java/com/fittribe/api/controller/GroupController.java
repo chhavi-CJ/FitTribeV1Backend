@@ -35,6 +35,7 @@ import com.fittribe.api.util.Zones;
 import java.time.DayOfWeek;
 import java.time.Instant;
 import java.time.LocalDate;
+import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
 import java.time.temporal.TemporalAdjusters;
 import java.util.*;
@@ -346,12 +347,13 @@ public class GroupController {
         // 1 query: top 30 feed items
         List<FeedItem> feedItems = feedRepo.findTop30ByGroupIdOrderByCreatedAtDesc(id);
 
-        // 1 query: batch load all distinct authors referenced by the feed
+        // 1 query: batch load active authors only — deleted accounts are excluded so they
+        // fall through to the "Deleted user" fallback below.
         Set<UUID> authorIds = feedItems.stream()
                 .map(FeedItem::getUserId).filter(Objects::nonNull).collect(Collectors.toSet());
         Map<UUID, String> nameByUserId = authorIds.isEmpty()
                 ? Map.of()
-                : userRepo.findByIdIn(authorIds).stream()
+                : userRepo.findActiveByIdIn(authorIds).stream()
                         .collect(Collectors.toMap(User::getId, u -> u.getDisplayName() != null
                                 ? u.getDisplayName() : "Someone"));
 
@@ -369,8 +371,9 @@ public class GroupController {
                     m.put("type",        fi.getType());
                     m.put("body",        fi.getBody());
                     m.put("userId",      fi.getUserId());
-                    m.put("displayName", fi.getUserId() != null
-                            ? nameByUserId.get(fi.getUserId()) : null);
+                    m.put("displayName", fi.getUserId() == null
+                            ? "Deleted user"
+                            : nameByUserId.getOrDefault(fi.getUserId(), "Deleted user"));
                     m.put("createdAt",   fi.getCreatedAt());
                     try {
                         m.put("eventData", mapper.readTree(
@@ -414,20 +417,42 @@ public class GroupController {
         requireMembership(fi.getGroupId(), userId);
 
         // Toggle logic: same type → remove, different type → update, none → insert
-        Optional<Reaction> existing = reactionRepo.findByFeedItemIdAndUserId(feedItemId, userId);
-        if (existing.isPresent()) {
-            if (existing.get().getKind().equals(request.type())) {
-                reactionRepo.delete(existing.get());
+        boolean wasUnreact = false;
+        try {
+            Optional<Reaction> existing = reactionRepo.findByFeedItemIdAndUserId(feedItemId, userId);
+            if (existing.isPresent()) {
+                if (existing.get().getKind().equals(request.type())) {
+                    reactionRepo.delete(existing.get());
+                    wasUnreact = true;
+                } else {
+                    existing.get().setKind(request.type());
+                    existing.get().setCreatedAt(OffsetDateTime.now());
+                    reactionRepo.save(existing.get());
+                }
             } else {
-                existing.get().setKind(request.type());
-                reactionRepo.save(existing.get());
+                Reaction r = new Reaction();
+                r.setFeedItemId(feedItemId);
+                r.setUserId(userId);
+                r.setKind(request.type());
+                r.setCreatedAt(OffsetDateTime.now());
+                reactionRepo.save(r);
             }
-        } else {
-            Reaction r = new Reaction();
-            r.setFeedItemId(feedItemId);
-            r.setUserId(userId);
-            r.setKind(request.type());
-            reactionRepo.save(r);
+        } catch (DataIntegrityViolationException e) {
+            // Feed item was deleted (cascade from group deletion) in the race window
+            // between the findById check above and the save.
+            throw ApiException.notFound("FeedItem");
+        }
+
+        // Notify the feed item author on react/change — not on unreact, not on self-react.
+        // Same @Transactional scope: notification failure rolls back the reaction write.
+        if (!wasUnreact && fi.getUserId() != null && !fi.getUserId().equals(userId)) {
+            try {
+                String metadataJson = mapper.writeValueAsString(Map.of("kind", request.type()));
+                notifRepo.upsertReactionNotification(
+                        fi.getUserId(), userId, feedItemId, fi.getGroupId(), metadataJson);
+            } catch (com.fasterxml.jackson.core.JsonProcessingException e) {
+                throw new RuntimeException("Failed to serialize reaction notification metadata", e);
+            }
         }
 
         // Build response with counts + myReaction
@@ -566,12 +591,16 @@ public class GroupController {
 
         // Write notification — no feed item (pokes are private, not in feed)
         Notification notif = new Notification();
-        notif.setUserId(memberId);
+        notif.setRecipientId(memberId);
+        notif.setActorId(pokerId);
+        notif.setGroupId(id);
         notif.setType("POKE");
-        notif.setTitle(pokerFirstName + " poked you \uD83D\uDC4B");
-        notif.setBody(pokerFirstName + " poked you in " + groupName
-                + " \u2014 " + sessionsRemaining
-                + " session" + (sessionsRemaining != 1 ? "s" : "") + " to go \uD83D\uDCAA");
+        notif.setMetadata(Map.of(
+            "title", pokerFirstName + " poked you \uD83D\uDC4B",
+            "body",  pokerFirstName + " poked you in " + groupName
+                    + " \u2014 " + sessionsRemaining
+                    + " session" + (sessionsRemaining != 1 ? "s" : "") + " to go \uD83D\uDCAA"
+        ));
         notifRepo.save(notif);
 
         // Record the poke so rate-limit fires on subsequent attempts

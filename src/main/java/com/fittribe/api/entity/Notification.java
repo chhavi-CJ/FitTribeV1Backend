@@ -1,8 +1,12 @@
 package com.fittribe.api.entity;
 
 import jakarta.persistence.*;
+import org.hibernate.annotations.JdbcTypeCode;
+import org.hibernate.type.SqlTypes;
 
-import java.time.Instant;
+import java.time.OffsetDateTime;
+import java.util.HashMap;
+import java.util.Map;
 import java.util.UUID;
 
 @Entity
@@ -14,42 +18,55 @@ public class Notification {
     @Column(name = "id", updatable = false, nullable = false)
     private UUID id;
 
-    @Column(name = "user_id", nullable = false)
-    private UUID userId;
+    @Column(name = "recipient_id", nullable = false)
+    private UUID recipientId;
 
-    @Column(name = "type")
+    @Column(name = "actor_id")
+    private UUID actorId;
+
+    @Column(name = "type", length = 40, nullable = false)
     private String type;
 
-    @Column(name = "title")
-    private String title;
+    @Column(name = "feed_item_id")
+    private UUID feedItemId;
 
-    @Column(name = "body")
-    private String body;
+    @Column(name = "group_id")
+    private UUID groupId;
 
-    @Column(name = "is_read")
-    private Boolean isRead = false;
+    @Column(name = "metadata", columnDefinition = "jsonb", nullable = false)
+    @JdbcTypeCode(SqlTypes.JSON)
+    private Map<String, Object> metadata = new HashMap<>();
+
+    @Column(name = "read_at")
+    private OffsetDateTime readAt;
 
     @Column(name = "created_at", insertable = false, updatable = false)
-    private Instant createdAt;
+    private OffsetDateTime createdAt;
 
     public Notification() {}
 
-    public UUID getId()              { return id; }
+    public UUID getId()                            { return id; }
 
-    public UUID getUserId()          { return userId; }
-    public void setUserId(UUID v)    { this.userId = v; }
+    public UUID getRecipientId()                   { return recipientId; }
+    public void setRecipientId(UUID v)             { this.recipientId = v; }
 
-    public String getType()          { return type; }
-    public void setType(String v)    { this.type = v; }
+    public UUID getActorId()                       { return actorId; }
+    public void setActorId(UUID v)                 { this.actorId = v; }
 
-    public String getTitle()         { return title; }
-    public void setTitle(String v)   { this.title = v; }
+    public String getType()                        { return type; }
+    public void setType(String v)                  { this.type = v; }
 
-    public String getBody()          { return body; }
-    public void setBody(String v)    { this.body = v; }
+    public UUID getFeedItemId()                    { return feedItemId; }
+    public void setFeedItemId(UUID v)              { this.feedItemId = v; }
 
-    public Boolean getIsRead()       { return isRead; }
-    public void setIsRead(Boolean v) { this.isRead = v; }
+    public UUID getGroupId()                       { return groupId; }
+    public void setGroupId(UUID v)                 { this.groupId = v; }
 
-    public Instant getCreatedAt()    { return createdAt; }
+    public Map<String, Object> getMetadata()       { return metadata; }
+    public void setMetadata(Map<String, Object> v) { this.metadata = v; }
+
+    public OffsetDateTime getReadAt()              { return readAt; }
+    public void setReadAt(OffsetDateTime v)        { this.readAt = v; }
+
+    public OffsetDateTime getCreatedAt()           { return createdAt; }
 }
