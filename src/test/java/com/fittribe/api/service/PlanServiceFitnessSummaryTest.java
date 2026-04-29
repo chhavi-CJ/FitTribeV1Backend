@@ -5,6 +5,7 @@ import com.fittribe.api.config.AiPrompts;
 import com.fittribe.api.fitnesssummary.FitnessSummary;
 import com.fittribe.api.fitnesssummary.FitnessSummaryService;
 import com.fittribe.api.repository.*;
+import com.fittribe.api.service.FeedEventWriter;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
@@ -48,6 +49,7 @@ class PlanServiceFitnessSummaryTest {
     @Mock DailyPlanGeneratedRepository dailyPlanRepo;
     @Mock UserDayStatusRepository     dayStatusRepo;
     @Mock PlanHistoryService          planHistoryService;
+    @Mock FeedEventWriter             feedEventWriter;
 
     // FitnessSummaryService is a concrete class — not mockable on JDK 25.
     // Use a hand-rolled fake instead.
@@ -62,7 +64,8 @@ class PlanServiceFitnessSummaryTest {
         planService = new PlanService(
                 userRepo, planRepo, exerciseRepo, sessionRepo, setLogRepo,
                 insightRepo, feedbackRepo, splitTemplateDayRepo, dailyPlanRepo,
-                dayStatusRepo, fitnessSummaryService, planHistoryService, mapper);
+                dayStatusRepo, fitnessSummaryService, planHistoryService, mapper,
+                feedEventWriter);
     }
 
     // ═══════════════════════════════════════════════════════════════════

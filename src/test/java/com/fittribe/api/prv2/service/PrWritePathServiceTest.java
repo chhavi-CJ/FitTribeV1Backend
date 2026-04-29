@@ -13,6 +13,7 @@ import com.fittribe.api.repository.PrEventRepository;
 import com.fittribe.api.repository.UserExerciseBestsRepository;
 import com.fittribe.api.repository.WeeklyPrCountRepository;
 import com.fittribe.api.service.CoinService;
+import com.fittribe.api.service.FeedEventWriter;
 
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Disabled;
@@ -55,6 +56,7 @@ class PrWritePathServiceTest {
     @Mock private CoinService coinService;
     @Mock private PlatformTransactionManager transactionManager;
     @Mock private ExerciseRepository exerciseRepo;
+    @Mock private FeedEventWriter feedEventWriter;
 
     private TransactionTemplate transactionTemplate;
     private PrWritePathService service;
@@ -75,7 +77,8 @@ class PrWritePathServiceTest {
                 weeklyPrCountRepo,
                 coinService,
                 transactionManager,
-                exerciseRepo);
+                exerciseRepo,
+                feedEventWriter);
 
         userId = UUID.randomUUID();
         sessionId = UUID.randomUUID();
