@@ -67,6 +67,8 @@ public class FeedEventWriter {
             data.put("muscleGroups",  muscleGroups != null ? muscleGroups : List.of());
             data.put("topLiftKg",     topLiftKg);
             data.put("sets",          session.getTotalSets());
+            data.put("streak",        session.getStreak());
+            data.put("workoutType",   session.getName());
 
             writeFeedToAllGroups(session.getUserId(), "WORKOUT_FINISHED", body, data);
         } catch (Exception e) {
@@ -184,6 +186,24 @@ public class FeedEventWriter {
             feedRepo.save(fi);
         } catch (Exception e) {
             log.warn("writeTopPerformerCrowned failed for group={}: {}", tp.getGroupId(), e.getMessage());
+        }
+    }
+
+    // ── STREAK_MILESTONE ─────────────────────────────────────────────────────
+
+    @Transactional(propagation = Propagation.REQUIRES_NEW)
+    public void writeStreakMilestone(UUID userId, int streakDays, int coinsEarned) {
+        try {
+            String name = firstName(userId);
+            String body = name + " hit a " + streakDays + "-day streak 🎉";
+
+            Map<String, Object> data = new LinkedHashMap<>();
+            data.put("streak",      streakDays);
+            data.put("coinsEarned", coinsEarned);
+
+            writeFeedToAllGroups(userId, "STREAK_MILESTONE", body, data);
+        } catch (Exception e) {
+            log.warn("writeStreakMilestone failed for user={}: {}", userId, e.getMessage());
         }
     }
 

@@ -162,6 +162,8 @@ class FeedEventWriterTest {
         when(memberRepo.findByUserId(USER_ID)).thenReturn(List.of(memberOf(GROUP_A)));
 
         WorkoutSession s = session(45, new BigDecimal("847"), 12);
+        s.setStreak(7);
+        s.setName("Push Day");
         writer.writeWorkoutFinished(s, List.of("CHEST"), new BigDecimal("100"));
 
         Map<String, Object> data = parseEventData(captureAllSaves().get(0));
@@ -170,6 +172,35 @@ class FeedEventWriterTest {
         assertTrue(data.containsKey("muscleGroups"));
         assertTrue(data.containsKey("topLiftKg"));
         assertTrue(data.containsKey("sets"));
+        assertTrue(data.containsKey("streak"));
+        assertTrue(data.containsKey("workoutType"));
+        assertEquals(7,          ((Number) data.get("streak")).intValue());
+        assertEquals("Push Day", data.get("workoutType"));
+    }
+
+    @Test
+    void workout_finished_streak_null_when_not_set() {
+        when(memberRepo.findByUserId(USER_ID)).thenReturn(List.of(memberOf(GROUP_A)));
+
+        // session with no streak set — simulates CUSTOM session before streak snapshot
+        writer.writeWorkoutFinished(session(30, new BigDecimal("500"), 10),
+                List.of(), null);
+
+        Map<String, Object> data = parseEventData(captureAllSaves().get(0));
+        assertTrue(data.containsKey("streak"));
+        assertNull(data.get("streak"));
+    }
+
+    @Test
+    void workout_finished_workout_type_null_for_custom_session() {
+        when(memberRepo.findByUserId(USER_ID)).thenReturn(List.of(memberOf(GROUP_A)));
+
+        writer.writeWorkoutFinished(session(30, new BigDecimal("500"), 10),
+                List.of(), null);
+
+        Map<String, Object> data = parseEventData(captureAllSaves().get(0));
+        assertTrue(data.containsKey("workoutType"));
+        assertNull(data.get("workoutType"));
     }
 
     @Test
@@ -530,6 +561,51 @@ class FeedEventWriterTest {
 
         FeedItem fi = captureAllSaves().get(0);
         assertEquals("Alice updated their status", fi.getBody());
+    }
+
+    // ═══════════════════════════════════════════════════════════════════
+    // G. writeStreakMilestone
+    // ═══════════════════════════════════════════════════════════════════
+
+    @Test
+    void streak_milestone_writes_one_row_per_group() {
+        when(memberRepo.findByUserId(USER_ID))
+                .thenReturn(List.of(memberOf(GROUP_A), memberOf(GROUP_B)));
+
+        writer.writeStreakMilestone(USER_ID, 10, 50);
+
+        verify(feedRepo, times(2)).save(any());
+        List<FeedItem> saved = captureAllSaves();
+        saved.forEach(f -> assertEquals("STREAK_MILESTONE", f.getType()));
+    }
+
+    @Test
+    void streak_milestone_body_format() {
+        when(memberRepo.findByUserId(USER_ID)).thenReturn(List.of(memberOf(GROUP_A)));
+
+        writer.writeStreakMilestone(USER_ID, 5, 35);
+
+        assertEquals("Alice hit a 5-day streak 🎉", captureAllSaves().get(0).getBody());
+    }
+
+    @Test
+    void streak_milestone_event_data_has_streak_and_coins() {
+        when(memberRepo.findByUserId(USER_ID)).thenReturn(List.of(memberOf(GROUP_A)));
+
+        writer.writeStreakMilestone(USER_ID, 30, 100);
+
+        Map<String, Object> data = parseEventData(captureAllSaves().get(0));
+        assertEquals(30,  ((Number) data.get("streak")).intValue());
+        assertEquals(100, ((Number) data.get("coinsEarned")).intValue());
+    }
+
+    @Test
+    void streak_milestone_zero_groups_no_save() {
+        when(memberRepo.findByUserId(USER_ID)).thenReturn(List.of());
+
+        writer.writeStreakMilestone(USER_ID, 10, 50);
+
+        verify(feedRepo, never()).save(any());
     }
 
     // ── private helpers ────────────────────────────────────────────────

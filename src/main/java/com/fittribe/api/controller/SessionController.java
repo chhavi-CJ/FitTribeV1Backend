@@ -102,6 +102,15 @@ public class SessionController {
     private static final int COOLDOWN_HOURS    = 8;
     private static final int COINS_PER_SESSION = 10;
 
+    private static final Map<Integer, Integer> STREAK_MILESTONE_COINS = Map.of(
+            5,   35,
+            10,  50,
+            30,  100,
+            50,  200,
+            100, 500,
+            365, 2000
+    );
+
     private final WorkoutSessionRepository  sessionRepo;
     private final SetLogRepository          setLogRepo;
     private final UserRepository            userRepo;
@@ -927,6 +936,7 @@ public class SessionController {
         // Separate try/catch — failure here doesn't affect /finish 200 response or other blocks
         try {
             sessionRepo.updateStreak(session.getId(), newStreak);
+            session.setStreak(newStreak);
         } catch (Exception e) {
             log.error("Failed to write streak snapshot to session {}", session.getId(), e);
         }
@@ -998,17 +1008,24 @@ public class SessionController {
 
             // 4. Streak milestones
             int currentStreak = user.getStreak();
-            if (currentStreak > 0 && currentStreak % 7 == 0) {
-                coinService.awardCoins(userId, 35, "STREAK_MILESTONE",
+            Integer milestoneCoins = STREAK_MILESTONE_COINS.get(currentStreak);
+            if (milestoneCoins != null) {
+                coinService.awardCoins(userId, milestoneCoins, "STREAK_MILESTONE",
                         currentStreak + "-day streak milestone",
-                        String.valueOf(currentStreak));
-            }
-            if (currentStreak == 30) {
-                coinService.awardCoins(userId, 100, "STREAK_30",
-                        "30-day streak milestone", "30");
+                        "streak-" + currentStreak + "-" + id);
             }
         } catch (Exception e) {
             log.error("Failed to award coins for session={}", id, e);
+        }
+
+        try {
+            int currentStreak = newStreak;
+            Integer milestoneCoins = STREAK_MILESTONE_COINS.get(currentStreak);
+            if (milestoneCoins != null) {
+                feedEventWriter.writeStreakMilestone(userId, currentStreak, milestoneCoins);
+            }
+        } catch (Exception e) {
+            log.error("Failed to write STREAK_MILESTONE feed for session={}", id, e);
         }
 
         // ── PR System V2 write path ──────────────────────────────────────
