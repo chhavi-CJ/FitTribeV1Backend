@@ -68,8 +68,14 @@ public class User {
     @JdbcTypeCode(SqlTypes.ARRAY)
     private String[] healthConditions = new String[0];
 
-    @Column(name = "streak_freeze_balance", nullable = false)
-    private Integer streakFreezeBalance = 0;
+    /**
+     * Count of freeze tokens the user has purchased with coins.
+     * Persistent — never expires, no cap, never auto-zeroed.
+     * Bonus freezes (earned by hitting weekly goal) live separately
+     * in the bonus_freeze_grants table and have a 28-day expiry.
+     */
+    @Column(name = "purchased_freeze_balance", nullable = false)
+    private Integer purchasedFreezeBalance = 0;
 
     @Column(name = "auto_freeze_enabled", nullable = false)
     private Boolean autoFreezeEnabled = true;
@@ -159,8 +165,8 @@ public class User {
     public String[] getHealthConditions()                        { return healthConditions; }
     public void setHealthConditions(String[] healthConditions)   { this.healthConditions = healthConditions; }
 
-    public Integer getStreakFreezeBalance()                          { return streakFreezeBalance; }
-    public void setStreakFreezeBalance(Integer streakFreezeBalance)  { this.streakFreezeBalance = streakFreezeBalance; }
+    public Integer getPurchasedFreezeBalance()                             { return purchasedFreezeBalance; }
+    public void setPurchasedFreezeBalance(Integer purchasedFreezeBalance)  { this.purchasedFreezeBalance = purchasedFreezeBalance; }
 
     public Boolean getAutoFreezeEnabled()                              { return autoFreezeEnabled; }
     public void setAutoFreezeEnabled(Boolean autoFreezeEnabled)      { this.autoFreezeEnabled = autoFreezeEnabled; }

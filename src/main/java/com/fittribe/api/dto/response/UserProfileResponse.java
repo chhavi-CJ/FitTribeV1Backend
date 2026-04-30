@@ -17,7 +17,7 @@ public record UserProfileResponse(
         int sessionsTotal,
         int prsTotal,
         int fitcoinsBalance,
-        int streakFreezeBalance,
+        int purchasedFreezeBalance,
         boolean autoFreezeEnabled,
         String rank,
         boolean notificationsEnabled,

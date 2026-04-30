@@ -80,16 +80,16 @@ public class RedeemController {
 
         // Bank the freeze day
         jdbcTemplate.update(
-                "UPDATE users SET streak_freeze_balance = streak_freeze_balance + 1 WHERE id = ?",
+                "UPDATE users SET purchased_freeze_balance = purchased_freeze_balance + 1 WHERE id = ?",
                 userId);
 
         int newBalance    = currentCoins(userId);
         int freezeBalance = jdbcTemplate.queryForObject(
-                "SELECT streak_freeze_balance FROM users WHERE id = ?", Integer.class, userId);
+                "SELECT purchased_freeze_balance FROM users WHERE id = ?", Integer.class, userId);
 
         Map<String, Object> result = new LinkedHashMap<>();
         result.put("newBalance",          newBalance);
-        result.put("streakFreezeBalance", freezeBalance);
+        result.put("purchasedFreezeBalance", freezeBalance);
         return ResponseEntity.ok(ApiResponse.success(result));
     }
 
