@@ -218,15 +218,9 @@ public class PlanService {
         int weeklyGoal = user.getWeeklyGoal() != null ? user.getWeeklyGoal() : 4;
         int completedThisWeek = sessionRepo.countCompletedThisWeekByStartedAt(userId);
 
-        // Check user day status
+        // Collect user day status — included in response but never gates the plan
         Optional<UserDayStatus> statusOpt = dayStatusRepo
                 .findByIdUserIdAndIdDate(userId, today);
-        if (statusOpt.isPresent()) {
-            Map<String, Object> response = new LinkedHashMap<>();
-            response.put("status",  statusOpt.get().getStatus());
-            response.put("message", statusMessage(statusOpt.get().getStatus()));
-            return response;
-        }
 
         // Check for IN_PROGRESS session today
         Instant startOfDay = Zones.fitnessDayStart(today);
@@ -290,7 +284,8 @@ public class PlanService {
         response.put("cardioDurationMin", templateDay.get("cardioDurationMin"));
         response.put("estimatedMins",     templateDay.get("estimatedMins"));
         response.put("fitnessLevel",      user.getFitnessLevel());
-        response.put("status",            "PENDING");
+        response.put("status",  statusOpt.map(UserDayStatus::getStatus).orElse("PENDING"));
+        statusOpt.ifPresent(s -> response.put("message", statusMessage(s.getStatus())));
         return response;
     }
 
