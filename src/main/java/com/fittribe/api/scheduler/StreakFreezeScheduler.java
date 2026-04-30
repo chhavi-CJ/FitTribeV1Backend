@@ -42,7 +42,7 @@ public class StreakFreezeScheduler {
         List<UUID> eligible = jdbcTemplate.queryForList(
                 "SELECT u.id FROM users u " +
                 "WHERE u.streak > 0 " +
-                "  AND u.streak_freeze_balance > 0 " +
+                "  AND u.purchased_freeze_balance > 0 " +
                 "  AND u.auto_freeze_enabled = TRUE " +
                 "  AND NOT EXISTS (" +
                 "    SELECT 1 FROM workout_sessions ws " +
@@ -69,7 +69,7 @@ public class StreakFreezeScheduler {
         for (UUID userId : eligible) {
             try {
                 jdbcTemplate.update(
-                        "UPDATE users SET streak_freeze_balance = streak_freeze_balance - 1 WHERE id = ?",
+                        "UPDATE users SET purchased_freeze_balance = purchased_freeze_balance - 1 WHERE id = ?",
                         userId);
 
                 jdbcTemplate.update(

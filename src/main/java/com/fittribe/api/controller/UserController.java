@@ -335,7 +335,7 @@ public class UserController {
                 sessionsTotal,
                 prsTotal,
                 user.getCoins() != null ? user.getCoins() : 0,
-                user.getStreakFreezeBalance() != null ? user.getStreakFreezeBalance() : 0,
+                user.getPurchasedFreezeBalance() != null ? user.getPurchasedFreezeBalance() : 0,
                 Boolean.TRUE.equals(user.getAutoFreezeEnabled()),
                 currentRank,
                 Boolean.TRUE.equals(user.getNotificationsEnabled()),
