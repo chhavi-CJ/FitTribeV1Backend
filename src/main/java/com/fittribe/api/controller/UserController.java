@@ -145,6 +145,11 @@ public class UserController {
         if (request.weightKg() != null)    user.setWeightKg(request.weightKg());
         if (request.heightCm() != null)    user.setHeightCm(request.heightCm());
         if (request.weeklyGoal() != null) {
+            int wg = request.weeklyGoal();
+            if (wg < 1 || wg > 6) {
+                throw new ApiException(HttpStatus.BAD_REQUEST, "VALIDATION_ERROR",
+                        "weekly_goal must be between 1 and 6");
+            }
             // Invalidate current week's plan if goal changed — forces regeneration with correct split
             if (!request.weeklyGoal().equals(user.getWeeklyGoal())) {
                 invalidateCurrentWeekPlan(user.getId());
@@ -282,7 +287,14 @@ public class UserController {
             user.setFitnessLevel(request.fitnessLevel());
         }
         // Weekly goal always goes to pending — promoted to live on Monday by scheduler
-        if (request.weeklyGoal() != null) user.setPendingWeeklyGoal(request.weeklyGoal());
+        if (request.weeklyGoal() != null) {
+            int wg = request.weeklyGoal();
+            if (wg < 1 || wg > 6) {
+                throw new ApiException(HttpStatus.BAD_REQUEST, "VALIDATION_ERROR",
+                        "weekly_goal must be between 1 and 6");
+            }
+            user.setPendingWeeklyGoal(request.weeklyGoal());
+        }
 
         userRepository.save(user);
         return ResponseEntity.ok(ApiResponse.success(buildProfileResponse(userId, user)));

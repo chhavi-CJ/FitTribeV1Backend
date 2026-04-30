@@ -55,6 +55,7 @@ import com.fittribe.api.jobs.JobEnqueuer;
 import com.fittribe.api.jobs.JobType;
 import com.fittribe.api.jobs.JobWorker;
 import com.fittribe.api.service.AiService;
+import com.fittribe.api.service.BonusFreezeGrantService;
 import com.fittribe.api.service.CoinService;
 import com.fittribe.api.service.GroupProgressService;
 import com.fittribe.api.service.PlanService;
@@ -129,6 +130,7 @@ public class SessionController {
     private final ExerciseRepository         exerciseRepo;
     private final GroupProgressService       groupProgressService;
     private final FeedEventWriter            feedEventWriter;
+    private final BonusFreezeGrantService    bonusFreezeGrantService;
 
     public SessionController(WorkoutSessionRepository sessionRepo,
                              SetLogRepository setLogRepo,
@@ -153,7 +155,8 @@ public class SessionController {
                              PRDetector prDetector,
                              ExerciseRepository exerciseRepo,
                              GroupProgressService groupProgressService,
-                             FeedEventWriter feedEventWriter) {
+                             FeedEventWriter feedEventWriter,
+                             BonusFreezeGrantService bonusFreezeGrantService) {
         this.sessionRepo         = sessionRepo;
         this.setLogRepo          = setLogRepo;
         this.userRepo            = userRepo;
@@ -178,6 +181,7 @@ public class SessionController {
         this.exerciseRepo = exerciseRepo;
         this.groupProgressService = groupProgressService;
         this.feedEventWriter = feedEventWriter;
+        this.bonusFreezeGrantService = bonusFreezeGrantService;
     }
 
     // ── POST /sessions/start ──────────────────────────────────────────
@@ -918,10 +922,19 @@ public class SessionController {
         // Coin balance is managed entirely by CoinService via atomic SQL updates.
         int newStreak = 0;
         try {
-            newStreak = Math.max(0, user.getStreak() + 1);
-            userRepo.updateStreak(userId, newStreak);
-            userRepo.updateMaxStreakIfHigher(userId, newStreak);
-            user.setStreak(newStreak); // keep in-memory value in sync for the response
+            LocalDate finishDateIst = session.getFinishedAt()
+                    .atZone(ZoneId.of("Asia/Kolkata")).toLocalDate();
+            long otherSessionsToday = sessionRepo.countOtherCompletedOnSameDay(
+                    userId, session.getId(), finishDateIst);
+            if (otherSessionsToday == 0) {
+                newStreak = Math.max(0, user.getStreak() + 1);
+                userRepo.updateStreak(userId, newStreak);
+                userRepo.updateMaxStreakIfHigher(userId, newStreak);
+                user.setStreak(newStreak); // keep in-memory value in sync for the response
+            } else {
+                // Second session same IST day — streak already counted, preserve current value
+                newStreak = user.getStreak();
+            }
         } catch (Exception e) {
             log.error("Failed to update streak for user={}", userId, e);
         }
@@ -951,6 +964,17 @@ public class SessionController {
         if (weeklyGoalHit) {
             try {
                 planService.generatePlan(userId);
+
+                // Compute the Monday that starts this ISO week in IST
+                LocalDate weekMonday = LocalDate.now(ZoneId.of("Asia/Kolkata"))
+                        .with(TemporalAdjusters.previousOrSame(DayOfWeek.MONDAY));
+                int granted = bonusFreezeGrantService.grantIfEligible(
+                        userId, weeklyGoal, weekMonday);
+                if (granted > 0) {
+                    // TODO: notify user — "Goal hit. We're proud. " + granted +
+                    //       " freeze token(s) are now yours. Save them for the day you " +
+                    //       "can't make it — your streak stays alive, no questions asked."
+                }
             } catch (Exception e) {
                 log.error("Failed to trigger plan generation for user={}", userId, e);
             }

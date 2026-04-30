@@ -10,6 +10,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
 import java.time.Instant;
+import java.time.LocalDate;
 import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
@@ -171,4 +172,43 @@ public interface WorkoutSessionRepository extends JpaRepository<WorkoutSession, 
      */
     int countByUserIdAndStatusAndSourceNotAndFinishedAtBetween(
             UUID userId, String status, String source, Instant from, Instant to);
+
+    /**
+     * Idempotency guard for the streak increment: counts COMPLETED sessions
+     * for this user on the same IST calendar day, excluding the session that
+     * was just finished. If the count is > 0 the streak has already been
+     * incremented today and should not be incremented again.
+     */
+    @Query(value =
+        "SELECT COUNT(*) FROM workout_sessions " +
+        "WHERE user_id = :userId " +
+        "  AND status = 'COMPLETED' " +
+        "  AND id != :excludeId " +
+        "  AND (finished_at AT TIME ZONE 'Asia/Kolkata')::date = :date",
+        nativeQuery = true)
+    long countOtherCompletedOnSameDay(
+        @Param("userId")    UUID      userId,
+        @Param("excludeId") UUID      excludeId,
+        @Param("date")      LocalDate date);
+
+    /**
+     * Counts distinct IST calendar days on which the user completed at least one session
+     * within a given time window. Used by WeeklyStreakEvaluationScheduler to determine
+     * how many days the user actually worked out in an ISO week.
+     *
+     * Converting finished_at to IST before extracting the date ensures that a session
+     * finishing just after midnight UTC (but still "today" in IST) is counted correctly.
+     */
+    @Query(value =
+        "SELECT COUNT(DISTINCT (finished_at AT TIME ZONE 'Asia/Kolkata')::date) " +
+        "FROM workout_sessions " +
+        "WHERE user_id = :userId " +
+        "  AND status = 'COMPLETED' " +
+        "  AND finished_at >= :weekStart " +
+        "  AND finished_at < :weekEnd",
+        nativeQuery = true)
+    long countDistinctCompletedDaysInRange(
+        @Param("userId")    UUID    userId,
+        @Param("weekStart") Instant weekStart,
+        @Param("weekEnd")   Instant weekEnd);
 }
