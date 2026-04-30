@@ -5,6 +5,7 @@ import com.fittribe.api.entity.User;
 import com.fittribe.api.repository.UserRepository;
 import com.fittribe.api.repository.WorkoutSessionRepository;
 import com.fittribe.api.service.BonusFreezeGrantService;
+import com.fittribe.api.service.FreezeTransactionService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.scheduling.annotation.Scheduled;
@@ -17,6 +18,7 @@ import java.time.Instant;
 import java.time.LocalDate;
 import java.time.ZoneId;
 import java.util.List;
+import java.util.Map;
 
 /**
  * Sunday 23:59 IST — evaluates whether each user's streak survived the current week.
@@ -45,16 +47,19 @@ public class WeeklyStreakEvaluationScheduler {
     private static final ZoneId  IST        = ZoneId.of("Asia/Kolkata");
     private static final long    GRACE_DAYS = 7;
 
-    private final UserRepository          userRepo;
+    private final UserRepository           userRepo;
     private final WorkoutSessionRepository sessionRepo;
     private final BonusFreezeGrantService  bonusFreezeGrantService;
+    private final FreezeTransactionService freezeTransactionService;
 
     public WeeklyStreakEvaluationScheduler(UserRepository userRepo,
                                            WorkoutSessionRepository sessionRepo,
-                                           BonusFreezeGrantService bonusFreezeGrantService) {
-        this.userRepo               = userRepo;
-        this.sessionRepo            = sessionRepo;
-        this.bonusFreezeGrantService = bonusFreezeGrantService;
+                                           BonusFreezeGrantService bonusFreezeGrantService,
+                                           FreezeTransactionService freezeTransactionService) {
+        this.userRepo                = userRepo;
+        this.sessionRepo             = sessionRepo;
+        this.bonusFreezeGrantService  = bonusFreezeGrantService;
+        this.freezeTransactionService = freezeTransactionService;
     }
 
     /**
@@ -126,6 +131,13 @@ public class WeeklyStreakEvaluationScheduler {
                 for (BonusFreezeGrant grant : activeBonus) {
                     if (remaining <= 0) break;
                     bonusFreezeGrantService.consumeGrant(grant, "AUTO_APPLY");
+                    try {
+                        freezeTransactionService.record(user.getId(), "BONUS_USED", 1,
+                                Map.of("weekProtected", from.toString(),
+                                       "grantId", grant.getId()));
+                    } catch (Exception e) {
+                        log.warn("Failed to record BONUS_USED freeze tx for user={}", user.getId(), e);
+                    }
                     bonusSpent++;
                     remaining--;
                 }
@@ -151,6 +163,14 @@ public class WeeklyStreakEvaluationScheduler {
                     log.info("WeeklyStreakEval: userId={} previousStreak={} BROKEN " +
                             "(shortfall={}, bonusSpent={}, purchasedSpent={}, uncovered={})",
                             user.getId(), previousStreak, shortfall, bonusSpent, purchasedSpent, remaining);
+                    if (purchasedSpent > 0) {
+                        try {
+                            freezeTransactionService.record(user.getId(), "USED_AUTO_APPLY", purchasedSpent,
+                                    Map.of("weekProtected", from.toString(), "streakBroke", true));
+                        } catch (Exception e) {
+                            log.warn("Failed to record USED_AUTO_APPLY (break branch) freeze tx for user={}", user.getId(), e);
+                        }
+                    }
                     // TODO: notify user — "Your streak ended at " + previousStreak +
                     //       " days. But your lifetime workouts never reset. " +
                     //       "Comeback starts whenever you're ready."
@@ -158,6 +178,12 @@ public class WeeklyStreakEvaluationScheduler {
                     // Streak survives via freeze(s)
                     if (purchasedSpent > 0) {
                         userRepo.save(user); // persist purchasedFreezeBalance decrement
+                        try {
+                            freezeTransactionService.record(user.getId(), "USED_AUTO_APPLY", purchasedSpent,
+                                    Map.of("weekProtected", from.toString()));
+                        } catch (Exception e) {
+                            log.warn("Failed to record USED_AUTO_APPLY freeze tx for user={}", user.getId(), e);
+                        }
                     }
                     if (bonusSpent > 0) savedByBonus++;
                     if (purchasedSpent > 0) savedByPurchased++;

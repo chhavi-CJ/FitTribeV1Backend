@@ -580,11 +580,11 @@ public class PlanService {
         }
     }
 
-    public Map<String, Object> setTodayStatus(UUID userId, String status) {
-        LocalDate today = LocalDate.now(APP_ZONE);
+    public Map<String, Object> setTodayStatus(UUID userId, String status, LocalDate targetDate) {
+        LocalDate today = targetDate;
 
         // Block if IN_PROGRESS session exists
-        Instant startOfDay = today.atStartOfDay(APP_ZONE).toInstant();
+        Instant startOfDay = Zones.fitnessDayStart(today);
         boolean hasActiveSession = sessionRepo
                 .findFirstByUserIdAndStatusAndFinishedAtAfter(userId, "IN_PROGRESS", startOfDay)
                 .isPresent();

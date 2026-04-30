@@ -4,10 +4,14 @@ import com.fittribe.api.bonus.BonusSessionService;
 import com.fittribe.api.dto.ApiResponse;
 import com.fittribe.api.entity.UserPlan;
 import com.fittribe.api.service.PlanService;
+import com.fittribe.api.util.Zones;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.*;
 
+import java.time.LocalDate;
+import java.time.format.DateTimeParseException;
+import java.time.temporal.ChronoUnit;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
@@ -69,14 +73,27 @@ public class PlanController {
         UUID userId = (UUID) auth.getPrincipal();
         String status = body.get("status");
         if (status == null || !List.of("REST","TRAVELLING","BUSY","SICK").contains(status)) {
-            @SuppressWarnings("unchecked")
-            ApiResponse<Map<String, Object>> err = (ApiResponse<Map<String, Object>>)
-                    (ApiResponse<?>) ApiResponse.error(
-                            "status must be REST, TRAVELLING, BUSY or SICK",
-                            "VALIDATION_ERROR");
-            return ResponseEntity.badRequest().body(err);
+            return validationError("status must be REST, TRAVELLING, BUSY or SICK");
         }
-        Map<String, Object> result = planService.setTodayStatus(userId, status);
+
+        // Resolve date — optional field, defaults to today (IST fitness day)
+        LocalDate today = Zones.fitnessDayNow();
+        LocalDate targetDate = today;
+        String dateStr = body.get("date");
+        if (dateStr != null) {
+            try {
+                targetDate = LocalDate.parse(dateStr);
+            } catch (DateTimeParseException e) {
+                return validationError("date must be in YYYY-MM-DD format");
+            }
+            // ±7 days: past dates let users backfill, future dates let them pre-plan rest days
+            long daysDiff = Math.abs(ChronoUnit.DAYS.between(today, targetDate));
+            if (daysDiff > 7) {
+                return validationError("date must be within 7 days of today");
+            }
+        }
+
+        Map<String, Object> result = planService.setTodayStatus(userId, status, targetDate);
         return ResponseEntity.ok(ApiResponse.success(result));
     }
 
@@ -86,5 +103,12 @@ public class PlanController {
         UUID userId = (UUID) auth.getPrincipal();
         Map<String, Object> result = bonusService.generate(userId);
         return ResponseEntity.ok(ApiResponse.success(result));
+    }
+
+    private ResponseEntity<ApiResponse<Map<String, Object>>> validationError(String message) {
+        @SuppressWarnings("unchecked")
+        ApiResponse<Map<String, Object>> err =
+                (ApiResponse<Map<String, Object>>) (ApiResponse<?>) ApiResponse.error(message, "VALIDATION_ERROR");
+        return ResponseEntity.badRequest().body(err);
     }
 }
