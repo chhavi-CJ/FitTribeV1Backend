@@ -2,6 +2,8 @@ package com.fittribe.api.service;
 
 import com.fittribe.api.entity.BonusFreezeGrant;
 import com.fittribe.api.repository.BonusFreezeGrantRepository;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 
 import java.time.Instant;
@@ -9,17 +11,22 @@ import java.time.LocalDate;
 import java.time.ZoneId;
 import java.time.temporal.ChronoUnit;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 
 @Service
 public class BonusFreezeGrantService {
 
-    private static final ZoneId IST = ZoneId.of("Asia/Kolkata");
+    private static final Logger  log = LoggerFactory.getLogger(BonusFreezeGrantService.class);
+    private static final ZoneId  IST = ZoneId.of("Asia/Kolkata");
 
     private final BonusFreezeGrantRepository repo;
+    private final FreezeTransactionService   freezeTransactionService;
 
-    public BonusFreezeGrantService(BonusFreezeGrantRepository repo) {
-        this.repo = repo;
+    public BonusFreezeGrantService(BonusFreezeGrantRepository repo,
+                                   FreezeTransactionService freezeTransactionService) {
+        this.repo                    = repo;
+        this.freezeTransactionService = freezeTransactionService;
     }
 
     /**
@@ -65,6 +72,15 @@ public class BonusFreezeGrantService {
             grant.setExpiresAt(expiresAt);
             // consumedAt and consumptionReason left null (unconsumed)
             repo.save(grant);
+        }
+
+        try {
+            freezeTransactionService.record(userId, "BONUS_EARNED", amount,
+                    Map.of("validFrom", validFrom.toString(),
+                           "expiresAt", expiresAt.toString(),
+                           "weekStart", weekStart.toString()));
+        } catch (Exception e) {
+            log.warn("Failed to record freeze tx for user={}", userId, e);
         }
 
         return amount;
