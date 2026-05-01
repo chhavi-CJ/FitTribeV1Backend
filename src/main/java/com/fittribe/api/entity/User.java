@@ -7,7 +7,11 @@ import org.hibernate.type.SqlTypes;
 
 import java.math.BigDecimal;
 import java.time.Instant;
+import java.util.Arrays;
+import java.util.EnumSet;
+import java.util.Set;
 import java.util.UUID;
+import java.util.stream.Collectors;
 
 @Entity
 @Table(name = "users")
@@ -22,8 +26,18 @@ public class User {
     @Column(name = "firebase_uid", unique = true)
     private String firebaseUid;
 
-    @Column(name = "phone", unique = true, nullable = false)
+    @Column(name = "phone", unique = true)
     private String phone;
+
+    @Column(name = "email", length = 320)
+    private String email;
+
+    @Column(name = "auth_provider", length = 20)
+    @Enumerated(EnumType.STRING)
+    private AuthProvider authProvider;
+
+    @Column(name = "auth_providers", length = 80)
+    private String authProviders;
 
     @Column(name = "display_name")
     private String displayName;
@@ -123,6 +137,15 @@ public class User {
     public String getPhone()                   { return phone; }
     public void setPhone(String phone)         { this.phone = phone; }
 
+    public String getEmail()               { return email; }
+    public void setEmail(String email)     { this.email = email; }
+
+    public AuthProvider getAuthProvider()                    { return authProvider; }
+    public void setAuthProvider(AuthProvider authProvider)   { this.authProvider = authProvider; }
+
+    public String getAuthProviders()                       { return authProviders; }
+    public void setAuthProviders(String authProviders)     { this.authProviders = authProviders; }
+
     public String getDisplayName()                     { return displayName; }
     public void setDisplayName(String displayName)     { this.displayName = displayName; }
 
@@ -199,4 +222,28 @@ public class User {
     public void setPauseUntil(Instant pauseUntil)                           { this.pauseUntil = pauseUntil; }
 
     public Instant getCreatedAt()    { return createdAt; }
+
+    public Set<AuthProvider> getLinkedProviders() {
+        if (authProviders == null || authProviders.isBlank()) return EnumSet.noneOf(AuthProvider.class);
+        return Arrays.stream(authProviders.split(","))
+                .map(String::trim)
+                .filter(s -> !s.isEmpty())
+                .flatMap(s -> {
+                    try {
+                        return java.util.stream.Stream.of(AuthProvider.valueOf(s));
+                    } catch (IllegalArgumentException ignored) {
+                        return java.util.stream.Stream.empty();
+                    }
+                })
+                .collect(Collectors.toCollection(() -> EnumSet.noneOf(AuthProvider.class)));
+    }
+
+    public void linkProvider(AuthProvider provider) {
+        Set<AuthProvider> current = getLinkedProviders();
+        current.add(provider);
+        this.authProviders = current.stream()
+                .map(AuthProvider::name)
+                .sorted()
+                .collect(Collectors.joining(","));
+    }
 }
