@@ -72,8 +72,8 @@ public class PlanController {
             Authentication auth) {
         UUID userId = (UUID) auth.getPrincipal();
         String status = body.get("status");
-        if (status == null || !List.of("REST","TRAVELLING","BUSY","SICK").contains(status)) {
-            return validationError("status must be REST, TRAVELLING, BUSY or SICK");
+        if (status == null || !List.of("READY","REST","TRAVELLING","BUSY","SICK").contains(status)) {
+            return validationError("status must be READY, REST, TRAVELLING, BUSY or SICK");
         }
 
         // Resolve date — optional field, defaults to today (IST fitness day)

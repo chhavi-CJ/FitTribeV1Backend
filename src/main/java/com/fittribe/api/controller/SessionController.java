@@ -48,6 +48,7 @@ import com.fittribe.api.repository.PrEventRepository;
 import com.fittribe.api.repository.SavedRoutineRepository;
 import com.fittribe.api.repository.SessionFeedbackRepository;
 import com.fittribe.api.repository.SetLogRepository;
+import com.fittribe.api.repository.UserDayStatusRepository;
 import com.fittribe.api.repository.UserExerciseBestsRepository;
 import com.fittribe.api.repository.UserRepository;
 import com.fittribe.api.repository.WorkoutSessionRepository;
@@ -130,6 +131,7 @@ public class SessionController {
     private final ExerciseRepository         exerciseRepo;
     private final GroupProgressService       groupProgressService;
     private final FeedEventWriter            feedEventWriter;
+    private final UserDayStatusRepository   dayStatusRepo;
     private final BonusFreezeGrantService    bonusFreezeGrantService;
 
     public SessionController(WorkoutSessionRepository sessionRepo,
@@ -156,7 +158,8 @@ public class SessionController {
                              ExerciseRepository exerciseRepo,
                              GroupProgressService groupProgressService,
                              FeedEventWriter feedEventWriter,
-                             BonusFreezeGrantService bonusFreezeGrantService) {
+                             BonusFreezeGrantService bonusFreezeGrantService,
+                             UserDayStatusRepository dayStatusRepo) {
         this.sessionRepo         = sessionRepo;
         this.setLogRepo          = setLogRepo;
         this.userRepo            = userRepo;
@@ -182,6 +185,7 @@ public class SessionController {
         this.groupProgressService = groupProgressService;
         this.feedEventWriter = feedEventWriter;
         this.bonusFreezeGrantService = bonusFreezeGrantService;
+        this.dayStatusRepo = dayStatusRepo;
     }
 
     // ── POST /sessions/start ──────────────────────────────────────────
@@ -916,6 +920,16 @@ public class SessionController {
         // so a failure in one block cannot mark the others rollback-only.
         // Every failure is logged at error level; nothing is swallowed.
         // ────────────────────────────────────────────────────────────────
+
+        // Clear any REST/SICK/BUSY/TRAVELLING status the user set earlier today —
+        // completing a workout auto-flips their day status back to READY (no status).
+        try {
+            LocalDate finishFitnessDay = Zones.fitnessDay(session.getFinishedAt());
+            dayStatusRepo.findByIdUserIdAndIdDate(userId, finishFitnessDay)
+                    .ifPresent(dayStatusRepo::delete);
+        } catch (Exception e) {
+            log.warn("Failed to clear day status after session finish for user={}", userId, e);
+        }
 
         // Streak update — atomic SQL to avoid detached-entity merge races
         // with RankService.checkAndPromote (which also writes to users).
