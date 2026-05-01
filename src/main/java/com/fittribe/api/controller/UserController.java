@@ -101,12 +101,19 @@ public class UserController {
         int completedThisWeek          = sessionRepository.countCompletedThisWeekByStartedAt(userId);
         List<String> workoutDatesThisWeek = sessionRepository.findWorkoutDatesThisWeekByStartedAt(userId);
 
+        LocalDate today       = Zones.fitnessDayNow();
+        Instant startOfDay    = Zones.fitnessDayStart(today);
+        Instant endOfDay      = Zones.fitnessDayStart(today.plusDays(1));
+        boolean workoutCompletedToday = sessionRepository.existsByUserIdAndStatusAndFinishedAtBetween(
+                userId, "COMPLETED", startOfDay, endOfDay);
+
         int trainingDaysTotal = sessionRepository.countDistinctTrainingDays(userId);
         String currentRank    = RankService.rankFor(trainingDaysTotal);
 
         Map<String, Object> response = objectMapper.convertValue(user, Map.class);
         response.put("completedThisWeek",    completedThisWeek);
         response.put("workoutDatesThisWeek", workoutDatesThisWeek);
+        response.put("workoutCompletedToday", workoutCompletedToday);
         response.put("trainingDaysTotal",    trainingDaysTotal);
         response.put("currentRank",          currentRank);
         response.put("nextRankName",         RankService.nextRank(currentRank));

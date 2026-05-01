@@ -224,24 +224,30 @@ public class PlanService {
 
         // Check for IN_PROGRESS session today
         Instant startOfDay = Zones.fitnessDayStart(today);
+        Instant endOfDay   = Zones.fitnessDayStart(today.plusDays(1));
         Optional<WorkoutSession> inProgress = sessionRepo
                 .findFirstByUserIdAndStatusAndFinishedAtAfter(
                         userId, "IN_PROGRESS", startOfDay);
+        boolean workoutCompletedToday = sessionRepo.existsByUserIdAndStatusAndFinishedAtBetween(
+                userId, "COMPLETED", startOfDay, endOfDay);
+
         if (inProgress.isPresent()) {
             Map<String, Object> response = new LinkedHashMap<>();
-            response.put("status",    "IN_PROGRESS");
-            response.put("sessionId", inProgress.get().getId());
+            response.put("status",               "IN_PROGRESS");
+            response.put("sessionId",             inProgress.get().getId());
+            response.put("workoutCompletedToday", workoutCompletedToday);
             return response;
         }
 
         // Weekly goal hit check
         if (completedThisWeek >= weeklyGoal) {
             Map<String, Object> response = new LinkedHashMap<>();
-            response.put("status",           "GOAL_HIT");
-            response.put("isGoalHit",         true);
-            response.put("completedThisWeek", completedThisWeek);
-            response.put("weeklyGoal",        weeklyGoal);
-            response.put("message",           "Weekly goal hit! Rest or go for a bonus session.");
+            response.put("status",               "GOAL_HIT");
+            response.put("isGoalHit",             true);
+            response.put("completedThisWeek",     completedThisWeek);
+            response.put("weeklyGoal",            weeklyGoal);
+            response.put("message",               "Weekly goal hit! Rest or go for a bonus session.");
+            response.put("workoutCompletedToday", workoutCompletedToday);
             return response;
         }
 
@@ -284,7 +290,8 @@ public class PlanService {
         response.put("cardioDurationMin", templateDay.get("cardioDurationMin"));
         response.put("estimatedMins",     templateDay.get("estimatedMins"));
         response.put("fitnessLevel",      user.getFitnessLevel());
-        response.put("status",  statusOpt.map(UserDayStatus::getStatus).orElse("PENDING"));
+        response.put("status",               statusOpt.map(UserDayStatus::getStatus).orElse("PENDING"));
+        response.put("workoutCompletedToday", workoutCompletedToday);
         statusOpt.ifPresent(s -> response.put("message", statusMessage(s.getStatus())));
         return response;
     }
@@ -583,6 +590,16 @@ public class PlanService {
     public Map<String, Object> setTodayStatus(UUID userId, String status, LocalDate targetDate) {
         LocalDate today = targetDate;
 
+        // READY = cancel any active freeze-triggering status; treated as null/default.
+        // No guards apply — a user can always return to READY regardless of session state.
+        if ("READY".equals(status)) {
+            dayStatusRepo.findByIdUserIdAndIdDate(userId, today)
+                    .ifPresent(dayStatusRepo::delete);
+            return Map.of(
+                    "status",  "READY",
+                    "message", statusMessage("READY"));
+        }
+
         // Block if IN_PROGRESS session exists
         Instant startOfDay = Zones.fitnessDayStart(today);
         boolean hasActiveSession = sessionRepo
@@ -591,6 +608,15 @@ public class PlanService {
         if (hasActiveSession) {
             throw new ApiException(HttpStatus.CONFLICT, "SESSION_IN_PROGRESS",
                     "Cannot set status — you have an active session in progress.");
+        }
+
+        // Block if workout already completed today — status is locked to READY
+        Instant endOfDay = Zones.fitnessDayStart(today.plusDays(1));
+        boolean workoutDoneToday = sessionRepo.existsByUserIdAndStatusAndFinishedAtBetween(
+                userId, "COMPLETED", startOfDay, endOfDay);
+        if (workoutDoneToday) {
+            throw new ApiException(HttpStatus.CONFLICT, "WORKOUT_COMPLETED_TODAY",
+                    "Cannot set status — you already completed a workout today.");
         }
 
         String previousStatus = dayStatusRepo.findByIdUserIdAndIdDate(userId, today)
@@ -615,6 +641,7 @@ public class PlanService {
 
     private String statusMessage(String status) {
         return switch (status) {
+            case "READY"      -> "Let's go. Today's plan is waiting for you.";
             case "REST"       -> "Recovery is part of the plan. Your muscles are growing right now. See you tomorrow 💪";
             case "TRAVELLING" -> "Staying consistent while travelling is hard. We'll pick up tomorrow — your progress is safe.";
             case "BUSY"       -> "Life happens. One missed day won't break your progress. Come back when you're ready.";
