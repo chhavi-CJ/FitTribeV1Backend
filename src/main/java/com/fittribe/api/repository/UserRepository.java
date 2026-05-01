@@ -22,6 +22,14 @@ public interface UserRepository extends JpaRepository<User, UUID> {
 
     Optional<User> findByPhone(String phone);
 
+    Optional<User> findByEmailIgnoreCase(String email);
+
+    @Query("SELECT u FROM User u WHERE " +
+           "(:email IS NOT NULL AND LOWER(u.email) = LOWER(:email)) OR " +
+           "(:phone IS NOT NULL AND u.phone = :phone)")
+    Optional<User> findByEmailOrPhone(@Param("email") String email,
+                                      @Param("phone") String phone);
+
     /**
      * Fetches the user row with a PESSIMISTIC_WRITE lock (SELECT ... FOR UPDATE).
      *
