@@ -10,61 +10,53 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Configuration;
 
 import java.io.ByteArrayInputStream;
-import java.io.File;
 import java.io.FileInputStream;
-import java.io.IOException;
-import java.nio.charset.StandardCharsets;
+import java.io.InputStream;
 
 @Configuration
 public class FirebaseConfig {
 
     private static final Logger log = LoggerFactory.getLogger(FirebaseConfig.class);
 
-    @Value("${firebase.project-id:placeholder}")
-    private String projectId;
-
-    @Value("${firebase.service-account-path:firebase-service-account.json}")
+    @Value("${firebase.service-account-path:}")
     private String serviceAccountPath;
 
+    @Value("${firebase.service-account-json:}")
+    private String serviceAccountJson;
+
     @PostConstruct
-    public void initialize() {
-        if ("placeholder".equals(projectId)) {
-            log.warn("Firebase project-id is 'placeholder' — Firebase auth is DISABLED. " +
-                     "Set FIREBASE_PROJECT_ID and FIREBASE_SA_PATH in production.");
-            return;
-        }
-
-        if (!FirebaseApp.getApps().isEmpty()) {
-            return; // already initialised (e.g. hot-reload)
-        }
-
+    public void init() {
         try {
+            if (!FirebaseApp.getApps().isEmpty()) {
+                log.info("FirebaseApp already initialized; skipping");
+                return;
+            }
+
             GoogleCredentials credentials;
-            String saJson = System.getenv("FIREBASE_SERVICE_ACCOUNT_JSON");
-            File saFile = new File(serviceAccountPath);
-            if (saJson != null && !saJson.isBlank()) {
-                credentials = GoogleCredentials.fromStream(
-                        new ByteArrayInputStream(saJson.getBytes(StandardCharsets.UTF_8)));
-                log.info("Firebase: using service account from FIREBASE_SERVICE_ACCOUNT_JSON env var");
-            } else if (saFile.exists()) {
-                credentials = GoogleCredentials.fromStream(new FileInputStream(saFile));
-                log.info("Firebase: using service account at {}", serviceAccountPath);
+
+            if (serviceAccountJson != null && !serviceAccountJson.isBlank()) {
+                log.info("Initializing Firebase Admin SDK from FIREBASE_SERVICE_ACCOUNT_JSON env var");
+                InputStream stream = new ByteArrayInputStream(serviceAccountJson.getBytes());
+                credentials = GoogleCredentials.fromStream(stream);
+            } else if (serviceAccountPath != null && !serviceAccountPath.isBlank()) {
+                log.info("Initializing Firebase Admin SDK from file: {}", serviceAccountPath);
+                credentials = GoogleCredentials.fromStream(new FileInputStream(serviceAccountPath));
             } else {
-                credentials = GoogleCredentials.getApplicationDefault();
-                log.info("Firebase: using application default credentials");
+                log.warn("Firebase Admin SDK NOT initialized — neither FIREBASE_SERVICE_ACCOUNT_PATH " +
+                         "nor FIREBASE_SERVICE_ACCOUNT_JSON is set.");
+                log.warn("Phone OTP mock auth still works. Google/Apple/email verification will return 503.");
+                return;
             }
 
             FirebaseOptions options = FirebaseOptions.builder()
                     .setCredentials(credentials)
-                    .setProjectId(projectId)
                     .build();
-            FirebaseApp.initializeApp(options);
-            log.info("Firebase initialised for project: {}", projectId);
 
-        } catch (IOException e) {
-            throw new IllegalStateException(
-                "Firebase initialisation failed — check FIREBASE_SA_PATH or GOOGLE_APPLICATION_CREDENTIALS: "
-                + e.getMessage(), e);
+            FirebaseApp.initializeApp(options);
+            log.info("Firebase Admin SDK initialized successfully");
+
+        } catch (Exception e) {
+            log.error("Failed to initialize Firebase Admin SDK", e);
         }
     }
 }
