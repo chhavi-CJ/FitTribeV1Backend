@@ -36,6 +36,10 @@ build/
 .env
 serviceAccountKey.json
 firebase-service-account.json
+firebase-service-account*.json
+*-firebase-adminsdk-*.json
+secrets/
+.config/
 application-local.yml
 
 # Local dev notes — not part of the codebase
