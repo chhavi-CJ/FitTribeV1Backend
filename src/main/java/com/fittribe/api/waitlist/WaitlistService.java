@@ -93,10 +93,9 @@ public class WaitlistService {
         WaitlistEntry referrer = opt.get();
         int newRefCount = referrer.getReferralCount() + 1;
         int jump = switch (newRefCount) {
-            case 1 -> 70;
-            case 2 -> 20;
-            case 3, 4 -> 10;
-            default -> 5;
+            case 1, 2 -> 3;
+            case 3, 4, 5 -> 2;
+            default -> 1;
         };
         int newPosition = Math.max(1, referrer.getPosition() - jump);
 
