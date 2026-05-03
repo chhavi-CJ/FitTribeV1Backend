@@ -22,13 +22,15 @@ public class WaitlistService {
         "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";  // no confusing chars (0/O, 1/I, etc.)
 
     private final WaitlistRepository repo;
+    private final ReferralService    referralService;
     private final SecureRandom random = new SecureRandom();
 
     @PersistenceContext
     private EntityManager entityManager;
 
-    public WaitlistService(WaitlistRepository repo) {
-        this.repo = repo;
+    public WaitlistService(WaitlistRepository repo, ReferralService referralService) {
+        this.repo            = repo;
+        this.referralService = referralService;
     }
 
     @Transactional
@@ -55,12 +57,14 @@ public class WaitlistService {
         // flush forces the INSERT so DEFAULT-assigned position becomes readable via refresh()
         entityManager.refresh(saved);
 
-        // Credit referrer (non-blocking if fails)
+        // Credit referrer — runs in its own transaction (REQUIRES_NEW) so a failure
+        // here never rolls back the new user's INSERT above.
         if (req.getReferredByCode() != null && !req.getReferredByCode().isBlank()) {
             try {
-                applyReferralJump(req.getReferredByCode());
+                referralService.applyReferralJump(req.getReferredByCode());
             } catch (Exception e) {
-                // Log and continue — referral credit failing shouldn't block signup
+                log.error("Referral jump failed for code={} — signup unaffected: {}",
+                        req.getReferredByCode(), e.getMessage(), e);
             }
         }
 
@@ -75,52 +79,6 @@ public class WaitlistService {
     @Transactional(readOnly = true)
     public long count() {
         return repo.count();
-    }
-
-    /**
-     * Referral jump curve — matches the copy on the waitlist dashboard.
-     * Each successful referral bumps the referrer UP the queue by this many spots:
-     *
-     *   1st referral → 15 spots
-     *   2nd          → 12 spots
-     *   3rd          → 10 spots
-     *   4th          →  8 spots
-     *   5th          →  7 spots
-     *   6th+         →  3 spots each
-     */
-    @Transactional
-    protected void applyReferralJump(String referrerCode) {
-        try {
-            Optional<WaitlistEntry> opt = repo.findByReferralCode(referrerCode);
-            if (opt.isEmpty()) return;
-
-            WaitlistEntry referrer = opt.get();
-            int newRefCount = referrer.getReferralCount() + 1;
-            int jump = switch (newRefCount) {
-                case 1 -> 15;
-                case 2 -> 12;
-                case 3 -> 10;
-                case 4 -> 8;
-                case 5 -> 7;
-                default -> 3;
-            };
-            int oldPosition = referrer.getPosition();
-            int newPosition = Math.max(50, oldPosition - jump);
-
-            referrer.setReferralCount(newRefCount);
-
-            if (newPosition < oldPosition) {
-                // Shift everyone between newPosition and oldPosition down by 1
-                // to vacate the target slot before moving the referrer into it.
-                repo.shiftPositionsDown(newPosition, oldPosition);
-                referrer.setPosition(newPosition);
-            }
-
-            repo.save(referrer);
-        } catch (Exception e) {
-            log.warn("Position recalculation failed for referrer {} — referral_count may not be saved: {}",
-                    referrerCode, e.getMessage());
-        }
     }
 
     private String generateUniqueReferralCode() {
