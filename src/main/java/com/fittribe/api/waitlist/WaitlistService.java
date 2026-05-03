@@ -5,6 +5,8 @@ import com.fittribe.api.waitlist.dto.WaitlistResponse;
 import com.fittribe.api.waitlist.dto.WaitlistSubmitRequest;
 import jakarta.persistence.EntityManager;
 import jakarta.persistence.PersistenceContext;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -14,6 +16,7 @@ import java.util.Optional;
 @Service
 public class WaitlistService {
 
+    private static final Logger log = LoggerFactory.getLogger(WaitlistService.class);
     private static final int REFERRAL_CODE_LENGTH = 6;
     private static final String REFERRAL_CODE_ALPHABET =
         "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";  // no confusing chars (0/O, 1/I, etc.)
@@ -75,33 +78,49 @@ public class WaitlistService {
     }
 
     /**
-     * Referral jump curve — matches the copy on the landing page.
-     * Each successful referral (by phone-verified install eventually; for now, by signup)
-     * bumps the referrer UP the queue.
+     * Referral jump curve — matches the copy on the waitlist dashboard.
+     * Each successful referral bumps the referrer UP the queue by this many spots:
      *
-     *   1st referral → jump ~70 spots
-     *   2nd          → jump ~20 spots
-     *   3rd          → jump ~10 spots
-     *   4th          → jump ~10 spots
-     *   5th+         → jump ~5 spots each
+     *   1st referral → 15 spots
+     *   2nd          → 12 spots
+     *   3rd          → 10 spots
+     *   4th          →  8 spots
+     *   5th          →  7 spots
+     *   6th+         →  3 spots each
      */
     @Transactional
     protected void applyReferralJump(String referrerCode) {
-        Optional<WaitlistEntry> opt = repo.findByReferralCode(referrerCode);
-        if (opt.isEmpty()) return;
+        try {
+            Optional<WaitlistEntry> opt = repo.findByReferralCode(referrerCode);
+            if (opt.isEmpty()) return;
 
-        WaitlistEntry referrer = opt.get();
-        int newRefCount = referrer.getReferralCount() + 1;
-        int jump = switch (newRefCount) {
-            case 1, 2 -> 3;
-            case 3, 4, 5 -> 2;
-            default -> 1;
-        };
-        int newPosition = Math.max(1, referrer.getPosition() - jump);
+            WaitlistEntry referrer = opt.get();
+            int newRefCount = referrer.getReferralCount() + 1;
+            int jump = switch (newRefCount) {
+                case 1 -> 15;
+                case 2 -> 12;
+                case 3 -> 10;
+                case 4 -> 8;
+                case 5 -> 7;
+                default -> 3;
+            };
+            int oldPosition = referrer.getPosition();
+            int newPosition = Math.max(50, oldPosition - jump);
 
-        referrer.setReferralCount(newRefCount);
-        referrer.setPosition(newPosition);
-        repo.save(referrer);
+            referrer.setReferralCount(newRefCount);
+
+            if (newPosition < oldPosition) {
+                // Shift everyone between newPosition and oldPosition down by 1
+                // to vacate the target slot before moving the referrer into it.
+                repo.shiftPositionsDown(newPosition, oldPosition);
+                referrer.setPosition(newPosition);
+            }
+
+            repo.save(referrer);
+        } catch (Exception e) {
+            log.warn("Position recalculation failed for referrer {} — referral_count may not be saved: {}",
+                    referrerCode, e.getMessage());
+        }
     }
 
     private String generateUniqueReferralCode() {
