@@ -66,6 +66,32 @@ public interface WorkoutSessionRepository extends JpaRepository<WorkoutSession, 
     /** Total completed sessions ever for a user — used in profile response. */
     int countByUserIdAndStatus(UUID userId, String status);
 
+    /** Projection for consolidated profile counts — fetched in a single query. */
+    interface ProfileCounts {
+        int getCompletedThisWeek();
+        int getSessionsTotal();
+        int getTrainingDaysTotal();
+    }
+
+    /**
+     * Returns 3 counts in a single round-trip:
+     *  - completedThisWeek: COMPLETED sessions with finished_at in the given week range
+     *  - sessionsTotal:     all-time COMPLETED sessions
+     *  - trainingDaysTotal: distinct calendar days with COMPLETED sessions
+     */
+    @Query(value =
+        "SELECT " +
+        "  COUNT(*) FILTER (WHERE status = 'COMPLETED' AND finished_at >= :weekFrom AND finished_at < :weekTo) AS completedThisWeek, " +
+        "  COUNT(*) FILTER (WHERE status = 'COMPLETED') AS sessionsTotal, " +
+        "  COUNT(DISTINCT DATE(finished_at)) FILTER (WHERE status = 'COMPLETED' AND finished_at IS NOT NULL) AS trainingDaysTotal " +
+        "FROM workout_sessions " +
+        "WHERE user_id = :userId",
+        nativeQuery = true)
+    ProfileCounts getProfileCounts(
+        @Param("userId") UUID userId,
+        @Param("weekFrom") java.time.Instant weekFrom,
+        @Param("weekTo") java.time.Instant weekTo);
+
     /** Distinct calendar dates on which the user completed any session — drives rank system. */
     @Query(value = "SELECT COUNT(DISTINCT DATE(finished_at)) FROM workout_sessions " +
                    "WHERE user_id = :userId AND status = 'COMPLETED' AND finished_at IS NOT NULL",

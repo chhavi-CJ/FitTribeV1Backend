@@ -330,12 +330,12 @@ public class UserController {
         Instant weekFrom         = monday.atStartOfDay(Zones.APP_ZONE).toInstant();
         Instant weekTo           = monday.plusDays(7).atStartOfDay(Zones.APP_ZONE).toInstant();
 
-        int completedThisWeek = sessionRepository.countByUserIdAndStatusAndFinishedAtBetween(
-                userId, "COMPLETED", weekFrom, weekTo);
-        int sessionsTotal = sessionRepository.countByUserIdAndStatus(userId, "COMPLETED");
-        int prsTotal      = bestsRepository.countByUserId(userId);
-
-        int trainingDaysTotal = sessionRepository.countDistinctTrainingDays(userId);
+        // Single round-trip for the 3 workout_sessions counts (was 3 separate queries)
+        var counts = sessionRepository.getProfileCounts(userId, weekFrom, weekTo);
+        int completedThisWeek = counts.getCompletedThisWeek();
+        int sessionsTotal     = counts.getSessionsTotal();
+        int trainingDaysTotal = counts.getTrainingDaysTotal();
+        int prsTotal          = bestsRepository.countByUserId(userId);
         String currentRank    = RankService.rankFor(trainingDaysTotal);
         String nextRankName   = RankService.nextRank(currentRank);
         int daysToNextRank    = RankService.daysToNext(trainingDaysTotal);
