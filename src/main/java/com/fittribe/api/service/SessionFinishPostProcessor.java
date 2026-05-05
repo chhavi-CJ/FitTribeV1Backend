@@ -176,6 +176,6 @@ public class SessionFinishPostProcessor {
     }
 
     private void deleteSetLogs(SessionFinishContext ctx) {
-        // TODO: relocate from SessionController lines 1144-1148
+        setLogRepo.deleteBySessionId(ctx.sessionId());
     }
 }

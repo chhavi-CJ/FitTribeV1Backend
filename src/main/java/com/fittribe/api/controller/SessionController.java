@@ -25,6 +25,8 @@ import com.fittribe.api.entity.CoinTransaction;
 import com.fittribe.api.entity.FeedItem;
 import com.fittribe.api.entity.GroupMember;
 import com.fittribe.api.service.FeedEventWriter;
+import com.fittribe.api.service.SessionFinishContext;
+import com.fittribe.api.service.SessionFinishPostProcessor;
 import com.fittribe.api.entity.PrEvent;
 import com.fittribe.api.entity.SavedRoutine;
 import com.fittribe.api.entity.SessionFeedback;
@@ -132,6 +134,7 @@ public class SessionController {
     private final GroupProgressService       groupProgressService;
     private final FeedEventWriter            feedEventWriter;
     private final UserDayStatusRepository   dayStatusRepo;
+    private final SessionFinishPostProcessor postProcessor;
     private final BonusFreezeGrantService    bonusFreezeGrantService;
 
     public SessionController(WorkoutSessionRepository sessionRepo,
@@ -159,7 +162,8 @@ public class SessionController {
                              GroupProgressService groupProgressService,
                              FeedEventWriter feedEventWriter,
                              BonusFreezeGrantService bonusFreezeGrantService,
-                             UserDayStatusRepository dayStatusRepo) {
+                             UserDayStatusRepository dayStatusRepo,
+                             SessionFinishPostProcessor postProcessor) {
         this.sessionRepo         = sessionRepo;
         this.setLogRepo          = setLogRepo;
         this.userRepo            = userRepo;
@@ -186,6 +190,7 @@ public class SessionController {
         this.feedEventWriter = feedEventWriter;
         this.bonusFreezeGrantService = bonusFreezeGrantService;
         this.dayStatusRepo = dayStatusRepo;
+        this.postProcessor = postProcessor;
     }
 
     // ── POST /sessions/start ──────────────────────────────────────────
@@ -914,6 +919,7 @@ public class SessionController {
         // atomic SQL (updateStreak) or accept merge semantics.
 
         final User user              = core.user();
+        final int prevStreak         = user.getStreak();
         final int weekNumber         = core.weekNumber();
         final int weeklyGoal         = core.weeklyGoal();
         final boolean weeklyGoalHit  = core.weeklyGoalHit();
@@ -1141,16 +1147,49 @@ public class SessionController {
         log.info("finish T+{}ms group_progress_done sessionId={}",
                 (System.nanoTime() - startNanos) / 1_000_000, id);
 
-        // ── Delete set_logs (Option Y cleanup) ──────────────────────────
-        // set_logs was a mid-workout crash-recovery buffer. Under Option Y the
-        // exercises JSONB (with embedded setIds) written at finish is the single
-        // source of truth. set_logs rows are no longer needed; PATCH/DELETE during
-        // the edit window read setId from JSONB, not set_logs.
-        try {
-            setLogRepo.deleteBySessionId(id);
-        } catch (Exception e) {
-            log.error("Failed to delete set_logs for session={} — rows will persist but are not load-bearing", id, e);
+        // ── Build context + dispatch async post-finish pipeline ─────────
+        // First block to migrate: setLogCleanup (was here at lines 1144-1153).
+        // The pipeline runs on prDetectionExecutor; remaining 9 blocks
+        // (clearTodayStatus, streakSnapshot, strengthSnapshot, rankPromotion,
+        // baseCoinAwards, streakMilestoneFeed, prDetection, workoutFinishedFeed,
+        // groupProgress) still run synchronously above and will migrate one
+        // block per commit.
+        //
+        // loggedSets is built fresh here — duplicates the construction inside
+        // the PR detection block above for now. When that block migrates to
+        // the pipeline, this becomes the only construction site and the
+        // duplicate is removed.
+        List<LoggedSet> loggedSetsForCtx = new ArrayList<>();
+        if (exercises != null) {
+            for (ExerciseLogRequest ex : exercises) {
+                if (ex.sets() == null) continue;
+                for (SetLogRequest setReq : ex.sets()) {
+                    UUID setId = setIdByExerciseAndNumber.get(
+                            ex.exerciseId() + ":" + setReq.setNumber());
+                    loggedSetsForCtx.add(new LoggedSet(
+                            setId, ex.exerciseId(),
+                            setReq.weightKg(), setReq.reps(), null));
+                }
+            }
         }
+
+        SessionFinishContext postCtx = new SessionFinishContext(
+                userId,
+                id,
+                weekNumber,
+                weeklyGoalHit,
+                count,
+                newStreak,
+                prevStreak,
+                totalVolumeKg,
+                totalSets,
+                loggedSetsForCtx,
+                session.getFinishedAt());
+
+        // Fire-and-forget — runs on prDetectionExecutor.
+        // Called via the postProcessor bean (not this) so Spring's @Async
+        // proxy fires.
+        postProcessor.runPostFinishPipeline(postCtx);
 
         log.info("finish END T+{}ms response_built sessionId={}",
                 (System.nanoTime() - startNanos) / 1_000_000, id);
