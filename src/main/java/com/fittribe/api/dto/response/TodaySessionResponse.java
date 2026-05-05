@@ -22,5 +22,6 @@ public record TodaySessionResponse(
         String source,
         List<Map<String, Object>> plannedExercises,
         List<Map<String, Object>> exercises,
-        FeedbackInfo feedback
+        FeedbackInfo feedback,
+        boolean prDetectionComplete
 ) {}

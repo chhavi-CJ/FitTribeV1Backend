@@ -12,6 +12,7 @@ import com.fittribe.api.repository.ExerciseRepository;
 import com.fittribe.api.repository.PrEventRepository;
 import com.fittribe.api.repository.UserExerciseBestsRepository;
 import com.fittribe.api.repository.WeeklyPrCountRepository;
+import com.fittribe.api.repository.WorkoutSessionRepository;
 import com.fittribe.api.service.CoinService;
 import com.fittribe.api.service.FeedEventWriter;
 
@@ -57,6 +58,7 @@ class PrWritePathServiceTest {
     @Mock private PlatformTransactionManager transactionManager;
     @Mock private ExerciseRepository exerciseRepo;
     @Mock private FeedEventWriter feedEventWriter;
+    @Mock private WorkoutSessionRepository sessionRepo;
 
     private TransactionTemplate transactionTemplate;
     private PrWritePathService service;
@@ -78,7 +80,8 @@ class PrWritePathServiceTest {
                 coinService,
                 transactionManager,
                 exerciseRepo,
-                feedEventWriter);
+                feedEventWriter,
+                sessionRepo);
 
         userId = UUID.randomUUID();
         sessionId = UUID.randomUUID();

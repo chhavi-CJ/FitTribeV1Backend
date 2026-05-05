@@ -1486,6 +1486,8 @@ public class SessionController {
             exercises = List.of();
         }
 
+        boolean prDetectionComplete = session.getPrDetectionCompletedAt() != null;
+
         return new TodaySessionResponse(
                 session.getId(),
                 session.getName(),
@@ -1502,7 +1504,8 @@ public class SessionController {
                 session.getSource(),
                 plannedExercises,
                 exercises,
-                feedback);
+                feedback,
+                prDetectionComplete);
     }
 
     /**

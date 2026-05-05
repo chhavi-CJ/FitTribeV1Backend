@@ -13,6 +13,7 @@ import com.fittribe.api.repository.ExerciseRepository;
 import com.fittribe.api.repository.PrEventRepository;
 import com.fittribe.api.repository.UserExerciseBestsRepository;
 import com.fittribe.api.repository.WeeklyPrCountRepository;
+import com.fittribe.api.repository.WorkoutSessionRepository;
 import com.fittribe.api.service.CoinService;
 import com.fittribe.api.service.FeedEventWriter;
 import org.slf4j.Logger;
@@ -59,6 +60,7 @@ public class PrWritePathService {
     private final TransactionTemplate transactionTemplate;
     private final ExerciseRepository exerciseRepo;
     private final FeedEventWriter feedEventWriter;
+    private final WorkoutSessionRepository sessionRepo;
 
     public PrWritePathService(
             PRDetector prDetector,
@@ -68,7 +70,8 @@ public class PrWritePathService {
             CoinService coinService,
             PlatformTransactionManager transactionManager,
             ExerciseRepository exerciseRepo,
-            FeedEventWriter feedEventWriter) {
+            FeedEventWriter feedEventWriter,
+            WorkoutSessionRepository sessionRepo) {
         this.prDetector = prDetector;
         this.userExerciseBestsRepo = userExerciseBestsRepo;
         this.prEventRepo = prEventRepo;
@@ -77,6 +80,7 @@ public class PrWritePathService {
         this.transactionTemplate = new TransactionTemplate(transactionManager);
         this.exerciseRepo = exerciseRepo;
         this.feedEventWriter = feedEventWriter;
+        this.sessionRepo = sessionRepo;
     }
 
     /**
@@ -93,6 +97,10 @@ public class PrWritePathService {
     public void processSessionFinish(UUID userId, UUID sessionId, List<LoggedSet> sets) {
         if (sets == null || sets.isEmpty()) {
             log.debug("No sets to process for session={}", sessionId);
+            // Empty-sets path: PR detection ran and had nothing to detect.
+            // Mark complete so /today returns prDetectionComplete=true rather
+            // than misleading the frontend into waiting forever.
+            sessionRepo.markPrDetectionComplete(sessionId, Instant.now());
             return;
         }
 
@@ -120,6 +128,11 @@ public class PrWritePathService {
         } catch (Exception e) {
             log.warn("Failed to write PR_DETECTED feed for session={}: {}", sessionId, e.getMessage());
         }
+
+        // Marker for the frontend: backend isPr is now authoritative for this session.
+        // Runs whether or not any PRs were detected. The async pipeline's tryStep
+        // wraps this whole method, so a failure here doesn't cascade.
+        sessionRepo.markPrDetectionComplete(sessionId, Instant.now());
     }
 
     /**

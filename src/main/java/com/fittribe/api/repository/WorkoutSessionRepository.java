@@ -177,6 +177,16 @@ public interface WorkoutSessionRepository extends JpaRepository<WorkoutSession, 
     int updateStreak(@Param("id") UUID id, @Param("streak") int streak);
 
     /**
+     * Marker write at the end of PrWritePathService.processSessionFinish.
+     * Frontend reads back via GET /sessions/today as prDetectionComplete=true
+     * to know that backend isPr flags are now authoritative for this session.
+     */
+    @Modifying
+    @Transactional
+    @Query("UPDATE WorkoutSession ws SET ws.prDetectionCompletedAt = :ts WHERE ws.id = :sessionId")
+    void markPrDetectionComplete(@Param("sessionId") UUID sessionId, @Param("ts") Instant ts);
+
+    /**
      * Count COMPLETED sessions for a user in a time window, filtered by source.
      * Used by the bonus session flow to count how many BONUS-source sessions
      * exist in the current week (soft-cap logic) or to count non-BONUS planned

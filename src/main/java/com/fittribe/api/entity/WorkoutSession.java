@@ -55,6 +55,16 @@ public class WorkoutSession {
     @Column(name = "ai_insight_generated_at")
     private Instant aiInsightGeneratedAt;
 
+    /**
+     * Set when PrWritePathService.processSessionFinish completes (post-loop,
+     * after the PR_DETECTED feed roundup). NULL means PR detection has not
+     * run / has not completed for this session — frontend uses this to
+     * distinguish "still detecting" from "detected, no PR" while the async
+     * pipeline is in flight.
+     */
+    @Column(name = "pr_detection_completed_at")
+    private Instant prDetectionCompletedAt;
+
     // ── AI Phase 2 fields (V8 migration) ──────────────────────────────
     @Column(name = "ai_planned_weights", columnDefinition = "jsonb")
     @JdbcTypeCode(SqlTypes.JSON)
@@ -137,6 +147,9 @@ public class WorkoutSession {
 
     public Instant getAiInsightGeneratedAt()         { return aiInsightGeneratedAt; }
     public void setAiInsightGeneratedAt(Instant v)   { this.aiInsightGeneratedAt = v; }
+
+    public Instant getPrDetectionCompletedAt()       { return prDetectionCompletedAt; }
+    public void setPrDetectionCompletedAt(Instant v) { this.prDetectionCompletedAt = v; }
 
     public String getAiPlannedWeights()              { return aiPlannedWeights; }
     public void setAiPlannedWeights(String v)        { this.aiPlannedWeights = v; }
