@@ -106,9 +106,6 @@ public class SessionController {
     private static final int COOLDOWN_HOURS    = 8;
     private static final int COINS_PER_SESSION = 10;
 
-    private static final Set<Integer> STREAK_MILESTONES          = Set.of(5, 10, 30, 50, 100, 365);
-    private static final int          STREAK_MILESTONE_COINS_FLAT = 10;
-
     private final WorkoutSessionRepository  sessionRepo;
     private final SetLogRepository          setLogRepo;
     private final UserRepository            userRepo;
@@ -928,25 +925,13 @@ public class SessionController {
         final Instant weekTo         = core.weekTo();
 
         // ────────────────────────────────────────────────────────────────
-        // DERIVED DATA — runs OUTSIDE any enclosing transaction. Each
-        // inner @Transactional service/repo call opens its own short tx,
-        // so a failure in one block cannot mark the others rollback-only.
-        // Every failure is logged at error level; nothing is swallowed.
+        // SYNC FLOOR — only what the response strictly depends on:
+        //   1. Streak update + max-streak update (response carries `streak`)
+        // Everything else moves to SessionFinishPostProcessor.
         // ────────────────────────────────────────────────────────────────
 
-        // Clear any REST/SICK/BUSY/TRAVELLING status the user set earlier today —
-        // completing a workout auto-flips their day status back to READY (no status).
-        try {
-            LocalDate finishFitnessDay = Zones.fitnessDay(session.getFinishedAt());
-            dayStatusRepo.findByIdUserIdAndIdDate(userId, finishFitnessDay)
-                    .ifPresent(dayStatusRepo::delete);
-        } catch (Exception e) {
-            log.warn("Failed to clear day status after session finish for user={}", userId, e);
-        }
-
         // Streak update — atomic SQL to avoid detached-entity merge races
-        // with RankService.checkAndPromote (which also writes to users).
-        // Coin balance is managed entirely by CoinService via atomic SQL updates.
+        // with RankService.checkAndPromote (which runs in the pipeline).
         int newStreak = 0;
         try {
             LocalDate finishDateIst = session.getFinishedAt()
@@ -965,21 +950,12 @@ public class SessionController {
         } catch (Exception e) {
             log.error("Failed to update streak for user={}", userId, e);
         }
-
-        // Snapshot streak to session for history view ("what was the streak when you finished")
-        // Separate try/catch — failure here doesn't affect /finish 200 response or other blocks
-        try {
-            sessionRepo.updateStreak(session.getId(), newStreak);
-            session.setStreak(newStreak);
-        } catch (Exception e) {
-            log.error("Failed to write streak snapshot to session {}", session.getId(), e);
-        }
         log.info("finish T+{}ms streak_done sessionId={}",
                 (System.nanoTime() - startNanos) / 1_000_000, id);
 
-        // Generate AI insight asynchronously — finish response returns immediately;
-        // frontend polls /ai/insight/{sessionId} for the result. Called via the
-        // aiService bean (not this) so Spring's @Async proxy applies.
+        // AI insight runs on its own pool (aiInsightExecutor) — fire-and-forget.
+        // The dispatch itself is ~1ms; the slow OpenAI call runs on the pool.
+        // Frontend polls /ai/insight/{sessionId} for the result.
         try {
             aiService.generateInsightAsync(userId, session.getId());
         } catch (Exception e) {
@@ -987,178 +963,11 @@ public class SessionController {
         }
         String aiCoachInsight = null; // populated async; client polls /ai/insight/{sessionId}
 
-        // Generate next-week AI plan when weekly goal is hit so user has it ready on Monday.
-        // This is independent of weekly report generation, which is deferred to the Sunday cron
-        // to ensure it captures the complete Mon–Sun week.
-        if (weeklyGoalHit) {
-            try {
-                planService.generatePlan(userId);
-
-                // Compute the Monday that starts this ISO week in IST
-                LocalDate weekMonday = LocalDate.now(ZoneId.of("Asia/Kolkata"))
-                        .with(TemporalAdjusters.previousOrSame(DayOfWeek.MONDAY));
-                int granted = bonusFreezeGrantService.grantIfEligible(
-                        userId, weeklyGoal, weekMonday);
-                if (granted > 0) {
-                    // TODO: notify user — "Goal hit. We're proud. " + granted +
-                    //       " freeze token(s) are now yours. Save them for the day you " +
-                    //       "can't make it — your streak stays alive, no questions asked."
-                }
-            } catch (Exception e) {
-                log.error("Failed to trigger plan generation for user={}", userId, e);
-            }
-        }
-        log.info("finish T+{}ms next_week_plan_done weeklyGoalHit={} sessionId={}",
-                (System.nanoTime() - startNanos) / 1_000_000, weeklyGoalHit, id);
-
-        // Strength score snapshot — fire on every session finish, not just weekly goal hit,
-        // so the Trends tab can show mid-week progression. Isolated try/catch — failure
-        // here must not affect /finish 200 or any sibling derived-data blocks.
-        try {
-            LocalDate snapshotWeekStart = LocalDate.ofInstant(session.getFinishedAt(), Zones.APP_ZONE)
-                    .with(TemporalAdjusters.previousOrSame(DayOfWeek.MONDAY));
-            progressSnapshotService.computeForUserWeek(userId, snapshotWeekStart);
-        } catch (Exception e) {
-            log.error("Failed to compute strength snapshot for user {} session {}",
-                    userId, session.getId(), e);
-        }
-        log.info("finish T+{}ms progress_snapshot_done sessionId={}",
-                (System.nanoTime() - startNanos) / 1_000_000, id);
-
-        // Rank promotion check.
-        try {
-            rankService.checkAndPromote(userId);
-        } catch (Exception e) {
-            log.error("Failed to check rank promotion for user={}", userId, e);
-        }
-        log.info("finish T+{}ms rank_done sessionId={}",
-                (System.nanoTime() - startNanos) / 1_000_000, id);
-
-        // ── Coin awards (idempotent via CoinService) ──────────────────
-        try {
-            // weekEpoch = start of current ISO week as epoch string (idempotency key for week events)
-            String weekEpoch = String.valueOf(weekFrom.getEpochSecond());
-
-            // 1. Log workout +10
-            coinService.awardCoins(userId, COINS_PER_SESSION, "LOG_WORKOUT",
-                    "Logged " + session.getName(), id.toString());
-
-            // 2. Weekly goal +50 — only on the exact session that hits the goal
-            if (count == weeklyGoal) {
-                coinService.awardCoins(userId, 50, "WEEKLY_GOAL",
-                        "Weekly goal hit", weekEpoch);
-            }
-
-            // 3. Volume improvement vs last week +30
-            Instant lastWeekFrom = weekFrom.minus(7, ChronoUnit.DAYS);
-            BigDecimal thisWeekVol = sessionRepo.sumVolumeByUserIdAndFinishedAtBetween(userId, weekFrom, weekTo);
-            BigDecimal lastWeekVol = sessionRepo.sumVolumeByUserIdAndFinishedAtBetween(userId, lastWeekFrom, weekFrom);
-            if (lastWeekVol != null && lastWeekVol.compareTo(BigDecimal.ZERO) > 0
-                    && thisWeekVol != null && thisWeekVol.compareTo(lastWeekVol) > 0) {
-                coinService.awardCoins(userId, 30, "IMPROVE_VOLUME",
-                        "Improved vs last week", weekEpoch);
-            }
-
-            // 4. Streak milestones
-            int currentStreak = user.getStreak();
-            if (STREAK_MILESTONES.contains(currentStreak)) {
-                coinService.awardCoins(userId, STREAK_MILESTONE_COINS_FLAT, "STREAK_MILESTONE",
-                        currentStreak + "-day streak milestone",
-                        "streak-" + currentStreak + "-" + id);
-            }
-        } catch (Exception e) {
-            log.error("Failed to award coins for session={}", id, e);
-        }
-        log.info("finish T+{}ms coins_done sessionId={}",
-                (System.nanoTime() - startNanos) / 1_000_000, id);
-
-        try {
-            int currentStreak = newStreak;
-            if (STREAK_MILESTONES.contains(currentStreak)) {
-                feedEventWriter.writeStreakMilestone(userId, currentStreak, STREAK_MILESTONE_COINS_FLAT);
-            }
-        } catch (Exception e) {
-            log.error("Failed to write STREAK_MILESTONE feed for session={}", id, e);
-        }
-
-        // ── PR System V2 write path ──────────────────────────────────────
-        // Build LoggedSets from request payload. setIds come from setIdByExerciseAndNumber
-        // (pre-fetched before CORE SAVE while set_logs still exist). set_logs is
-        // deleted as the final derived block below (Option Y — JSONB is source of truth).
-        int prCount = 0;
-        try {
-            List<LoggedSet> loggedSets = new ArrayList<>();
-            if (exercises != null) {
-                for (ExerciseLogRequest ex : exercises) {
-                    if (ex.sets() == null) continue;
-                    for (SetLogRequest setReq : ex.sets()) {
-                        UUID setId = setIdByExerciseAndNumber.get(
-                                ex.exerciseId() + ":" + setReq.setNumber());
-                        loggedSets.add(new LoggedSet(
-                                setId,
-                                ex.exerciseId(),
-                                setReq.weightKg(),
-                                setReq.reps(),
-                                null));  // holdSeconds not in SetLogRequest; TIMED support is future
-                    }
-                }
-            }
-            prWritePathService.processSessionFinish(userId, id, loggedSets);
-            prCount = prEventRepo.findBySessionIdAndSupersededAtIsNull(id).size();
-        } catch (Exception e) {
-            log.error("Failed to process PR detection for session={}", id, e);
-        }
-        log.info("finish T+{}ms pr_detection_done prCount={} sessionId={}",
-                (System.nanoTime() - startNanos) / 1_000_000, prCount, id);
-
-        // ── Feed items — WORKOUT_FINISHED ────────────────────────────────
-        try {
-            List<String> exerciseIds = exercises == null ? List.of()
-                    : exercises.stream().map(ExerciseLogRequest::exerciseId)
-                               .filter(java.util.Objects::nonNull).distinct()
-                               .collect(Collectors.toList());
-            List<String> muscleGroups = exerciseIds.isEmpty() ? List.of()
-                    : exerciseRepo.findAllById(exerciseIds).stream()
-                                  .map(ex -> ex.getMuscleGroup())
-                                  .filter(java.util.Objects::nonNull).distinct()
-                                  .collect(Collectors.toList());
-            BigDecimal topLiftKg = exercises == null ? null
-                    : exercises.stream()
-                               .filter(ex -> ex.sets() != null)
-                               .flatMap(ex -> ex.sets().stream())
-                               .map(s -> s.weightKg())
-                               .filter(java.util.Objects::nonNull)
-                               .max(BigDecimal::compareTo)
-                               .orElse(null);
-
-            feedEventWriter.writeWorkoutFinished(session, muscleGroups, topLiftKg);
-        } catch (Exception e) {
-            log.error("Failed to post WORKOUT_FINISHED feed for session={}", id, e);
-        }
-
-        // ── Group weekly progress ────────────────────────────────────────
-        try {
-            groupProgressService.recordSessionForUser(
-                    userId,
-                    session.getFinishedAt().atZone(Zones.APP_ZONE).toLocalDate());
-        } catch (Exception e) {
-            log.error("Group progress increment failed for session={} user={}", session.getId(), userId, e);
-        }
-        log.info("finish T+{}ms group_progress_done sessionId={}",
-                (System.nanoTime() - startNanos) / 1_000_000, id);
-
         // ── Build context + dispatch async post-finish pipeline ─────────
-        // First block to migrate: setLogCleanup (was here at lines 1144-1153).
-        // The pipeline runs on prDetectionExecutor; remaining 9 blocks
-        // (clearTodayStatus, streakSnapshot, strengthSnapshot, rankPromotion,
-        // baseCoinAwards, streakMilestoneFeed, prDetection, workoutFinishedFeed,
-        // groupProgress) still run synchronously above and will migrate one
-        // block per commit.
-        //
-        // loggedSets is built fresh here — duplicates the construction inside
-        // the PR detection block above for now. When that block migrates to
-        // the pipeline, this becomes the only construction site and the
-        // duplicate is removed.
+        // Everything else (clearTodayStatus, streakSnapshot, strengthSnapshot,
+        // rankPromotion, baseCoinAwards, streakMilestoneFeed, prDetection,
+        // workoutFinishedFeed, groupProgress, nextWeekPlan, setLogCleanup)
+        // runs on prDetectionExecutor.
         List<LoggedSet> loggedSetsForCtx = new ArrayList<>();
         if (exercises != null) {
             for (ExerciseLogRequest ex : exercises) {
@@ -1184,7 +993,10 @@ public class SessionController {
                 totalVolumeKg,
                 totalSets,
                 loggedSetsForCtx,
-                session.getFinishedAt());
+                session.getFinishedAt(),
+                weeklyGoal,
+                weekFrom,
+                weekTo);
 
         // Fire-and-forget — runs on prDetectionExecutor.
         // Called via the postProcessor bean (not this) so Spring's @Async

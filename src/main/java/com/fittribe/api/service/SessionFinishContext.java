@@ -33,5 +33,8 @@ public record SessionFinishContext(
         BigDecimal totalVolumeKg,
         int totalSets,
         List<LoggedSet> loggedSets,
-        Instant finishedAt
+        Instant finishedAt,
+        int weeklyGoal,
+        Instant weekFrom,
+        Instant weekTo
 ) {}
