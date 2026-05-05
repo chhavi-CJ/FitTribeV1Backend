@@ -962,15 +962,15 @@ public class SessionController {
             log.error("Failed to write streak snapshot to session {}", session.getId(), e);
         }
 
-        // Generate AI insight synchronously so it's included in the finish response.
-        // generateInsightSync already returns null on failure per CLAUDE.md, but we
-        // wrap defensively in case it ever throws an unchecked exception.
-        String aiCoachInsight = null;
+        // Generate AI insight asynchronously — finish response returns immediately;
+        // frontend polls /ai/insight/{sessionId} for the result. Called via the
+        // aiService bean (not this) so Spring's @Async proxy applies.
         try {
-            aiCoachInsight = aiService.generateInsightSync(userId, session.getId());
+            aiService.generateInsightAsync(userId, session.getId());
         } catch (Exception e) {
-            log.error("Failed to generate AI insight for session={}", id, e);
+            log.error("Failed to enqueue async AI insight for session={}", id, e);
         }
+        String aiCoachInsight = null; // populated async; client polls /ai/insight/{sessionId}
 
         // Generate next-week AI plan when weekly goal is hit so user has it ready on Monday.
         // This is independent of weekly report generation, which is deferred to the Sunday cron

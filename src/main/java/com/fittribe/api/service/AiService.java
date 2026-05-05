@@ -100,6 +100,23 @@ public class AiService {
         generateInsightSync(userId, sessionId);
     }
 
+    /**
+     * Async fire-and-forget insight generation. Finish response returns immediately;
+     * the insight is written to ai_coach_insight by generateInsightSync below, and
+     * the frontend polls /ai/insight/{sessionId} to pick it up. Runs on the
+     * aiInsightExecutor pool (see AsyncConfig). Never throws — failures leave
+     * ai_coach_insight as null.
+     */
+    @Async("aiInsightExecutor")
+    public void generateInsightAsync(UUID userId, UUID sessionId) {
+        log.info("generateInsightAsync running on thread: {}", Thread.currentThread().getName()); // TEMP — remove after pool verification
+        try {
+            generateInsightSync(userId, sessionId);
+        } catch (Exception e) {
+            log.error("Async AI insight failed for session={} — ai_coach_insight stays null", sessionId, e);
+        }
+    }
+
     // ── Prompt builder ────────────────────────────────────────────────
 
     private String buildPrompt(User user, WorkoutSession session, List<SetLog> logs) {
