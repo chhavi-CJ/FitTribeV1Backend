@@ -760,8 +760,11 @@ public class SessionController {
             @RequestBody FinishSessionRequest request,
             Authentication auth) {
 
+        long startNanos = System.nanoTime();
         UUID userId = userId(auth);
         WorkoutSession session = requireOwned(id, userId);
+
+        log.info("finish START sessionId={} userId={}", id, userId);
 
         // Idempotency: already finished — return saved data without reprocessing
         if ("COMPLETED".equals(session.getStatus())) {
@@ -772,6 +775,8 @@ public class SessionController {
             throw new ApiException(HttpStatus.CONFLICT, "SESSION_NOT_IN_PROGRESS",
                     "This session is already " + session.getStatus() + ".");
         }
+        log.info("finish T+{}ms idempotency_check_done sessionId={}",
+                (System.nanoTime() - startNanos) / 1_000_000, id);
 
         // ── Compute totals and build exercises JSONB from request ─────
         int totalSets;
@@ -902,6 +907,8 @@ public class SessionController {
 
             return new CoreFinishData(u, weekNum, wkGoal, hit, cnt, from, to);
         });
+        log.info("finish T+{}ms core_save_done sessionId={}",
+                (System.nanoTime() - startNanos) / 1_000_000, id);
         // Core tx has committed. `session` and `core.user()` are detached.
         // Reading their scalar fields still works; writes must go via
         // atomic SQL (updateStreak) or accept merge semantics.
@@ -961,6 +968,8 @@ public class SessionController {
         } catch (Exception e) {
             log.error("Failed to write streak snapshot to session {}", session.getId(), e);
         }
+        log.info("finish T+{}ms streak_done sessionId={}",
+                (System.nanoTime() - startNanos) / 1_000_000, id);
 
         // Generate AI insight asynchronously — finish response returns immediately;
         // frontend polls /ai/insight/{sessionId} for the result. Called via the
@@ -993,6 +1002,8 @@ public class SessionController {
                 log.error("Failed to trigger plan generation for user={}", userId, e);
             }
         }
+        log.info("finish T+{}ms next_week_plan_done weeklyGoalHit={} sessionId={}",
+                (System.nanoTime() - startNanos) / 1_000_000, weeklyGoalHit, id);
 
         // Strength score snapshot — fire on every session finish, not just weekly goal hit,
         // so the Trends tab can show mid-week progression. Isolated try/catch — failure
@@ -1005,6 +1016,8 @@ public class SessionController {
             log.error("Failed to compute strength snapshot for user {} session {}",
                     userId, session.getId(), e);
         }
+        log.info("finish T+{}ms progress_snapshot_done sessionId={}",
+                (System.nanoTime() - startNanos) / 1_000_000, id);
 
         // Rank promotion check.
         try {
@@ -1012,6 +1025,8 @@ public class SessionController {
         } catch (Exception e) {
             log.error("Failed to check rank promotion for user={}", userId, e);
         }
+        log.info("finish T+{}ms rank_done sessionId={}",
+                (System.nanoTime() - startNanos) / 1_000_000, id);
 
         // ── Coin awards (idempotent via CoinService) ──────────────────
         try {
@@ -1048,6 +1063,8 @@ public class SessionController {
         } catch (Exception e) {
             log.error("Failed to award coins for session={}", id, e);
         }
+        log.info("finish T+{}ms coins_done sessionId={}",
+                (System.nanoTime() - startNanos) / 1_000_000, id);
 
         try {
             int currentStreak = newStreak;
@@ -1062,6 +1079,7 @@ public class SessionController {
         // Build LoggedSets from request payload. setIds come from setIdByExerciseAndNumber
         // (pre-fetched before CORE SAVE while set_logs still exist). set_logs is
         // deleted as the final derived block below (Option Y — JSONB is source of truth).
+        int prCount = 0;
         try {
             List<LoggedSet> loggedSets = new ArrayList<>();
             if (exercises != null) {
@@ -1080,9 +1098,12 @@ public class SessionController {
                 }
             }
             prWritePathService.processSessionFinish(userId, id, loggedSets);
+            prCount = prEventRepo.findBySessionIdAndSupersededAtIsNull(id).size();
         } catch (Exception e) {
             log.error("Failed to process PR detection for session={}", id, e);
         }
+        log.info("finish T+{}ms pr_detection_done prCount={} sessionId={}",
+                (System.nanoTime() - startNanos) / 1_000_000, prCount, id);
 
         // ── Feed items — WORKOUT_FINISHED ────────────────────────────────
         try {
@@ -1117,6 +1138,8 @@ public class SessionController {
         } catch (Exception e) {
             log.error("Group progress increment failed for session={} user={}", session.getId(), userId, e);
         }
+        log.info("finish T+{}ms group_progress_done sessionId={}",
+                (System.nanoTime() - startNanos) / 1_000_000, id);
 
         // ── Delete set_logs (Option Y cleanup) ──────────────────────────
         // set_logs was a mid-workout crash-recovery buffer. Under Option Y the
@@ -1129,6 +1152,8 @@ public class SessionController {
             log.error("Failed to delete set_logs for session={} — rows will persist but are not load-bearing", id, e);
         }
 
+        log.info("finish END T+{}ms response_built sessionId={}",
+                (System.nanoTime() - startNanos) / 1_000_000, id);
         return ResponseEntity.ok(ApiResponse.success(new FinishSessionResponse(
                 session.getId(),
                 session.getName(),
