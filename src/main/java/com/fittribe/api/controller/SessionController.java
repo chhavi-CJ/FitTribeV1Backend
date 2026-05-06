@@ -846,6 +846,11 @@ public class SessionController {
                             m.put("weightKg",  s.weightKg());
                             m.put("setId",     setIdByExerciseAndNumber.get(
                                     ex.exerciseId() + ":" + s.setNumber()));
+                            // Frontend-supplied display-only optimistic flag.
+                            // Persisted as-is; never read by coin or PR-write logic.
+                            // /today enrichment trusts this until pr_detection_completed_at
+                            // is set, then prefers pr_events as authoritative.
+                            m.put("isPr",      s.isPr() != null && s.isPr());
                             return m;
                         })
                         .collect(Collectors.toList());
@@ -1447,6 +1452,12 @@ public class SessionController {
                         .map(pe -> pe.getSetId())
                         .collect(java.util.stream.Collectors.toSet());
 
+                // Authoritative source switches based on whether the async PR
+                // pipeline has finished:
+                //   - prDetectionCompletedAt == null  → trust JSONB isPr (frontend optimistic)
+                //   - prDetectionCompletedAt != null  → prefer pr_events (server authoritative)
+                boolean prDetectionDone = session.getPrDetectionCompletedAt() != null;
+
                 exercises = new ArrayList<>();
                 for (Map<String, Object> ex : parsed) {
                     Map<String, Object> enrichedEx = new LinkedHashMap<>(ex);
@@ -1467,7 +1478,9 @@ public class SessionController {
                                     setId = UUID.fromString(setIdRaw.toString());
                                 } catch (IllegalArgumentException ignored) {}
                             }
-                            boolean isPr = setId != null && prSetIds.contains(setId);
+                            boolean fromBackend = setId != null && prSetIds.contains(setId);
+                            boolean fromJsonb   = Boolean.TRUE.equals(enrichedSet.get("isPr"));
+                            boolean isPr = prDetectionDone ? fromBackend : fromJsonb;
                             enrichedSet.put("isPr", isPr);
                             if (isPr) anySetIsPr = true;
                             enrichedSets.add(enrichedSet);
