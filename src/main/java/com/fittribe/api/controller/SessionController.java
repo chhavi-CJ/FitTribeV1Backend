@@ -492,27 +492,26 @@ public class SessionController {
         LoggedSet oldValue = new LoggedSet(setId, exerciseId, oldWeightKg, oldReps, null);
         LoggedSet newValue = new LoggedSet(setId, exerciseId, request.weightKg(), request.reps(), request.holdSeconds());
 
-        // Call cascade (if PR system enabled, this will handle supersession and re-detection)
+        // Call cascade (handles supersession + re-detection). The returned boolean
+        // is the post-cascade isPr for this setId, computed inside the cascade from
+        // the live activeEvents/restored/newPrFired tracking — eliminates the
+        // post-cascade prEventRepo round-trip that this code used to do.
+        boolean isPr = false;
         try {
-            prEditCascadeService.processSetEdit(userId, session.getId(), setId, oldValue, newValue);
+            isPr = prEditCascadeService.processSetEdit(userId, session.getId(), setId, oldValue, newValue);
         } catch (Exception e) {
             log.warn("Failed to process PR cascade for session={} exercise={} set={}",
                     session.getId(), exerciseId, setNumber, e);
-            // Cascade failures are non-fatal — the edit itself succeeded
+            // Cascade failures are non-fatal — the edit itself succeeded.
+            // isPr stays false: safer default than guessing; frontend's next /today
+            // refetch will show the truth.
         }
 
-        // Query pr_events to determine isPr after cascade
-        boolean isPr = false;
-        if (setId != null) {
-            List<com.fittribe.api.entity.PrEvent> events = prEventRepo
-                    .findByUserIdAndSessionIdAndSetIdAndSupersededAtNull(userId, session.getId(), setId);
-            isPr = !events.isEmpty();
-        }
-
-        // Re-read session from DB (cascade may have mutated derived fields)
-        // and build the full today DTO so frontend can replace state atomically.
-        WorkoutSession updated = sessionRepo.findById(session.getId()).orElse(session);
-        TodaySessionResponse todayDto = buildTodayResponse(updated, userId);
+        // Reuse the in-scope session reference. The cascade does not write to
+        // workout_sessions (only to pr_events, user_exercise_bests, weekly_pr_counts,
+        // coin_transactions, and users.coins via jdbcTemplate), so the entity we
+        // already loaded + mutated is the canonical post-cascade state.
+        TodaySessionResponse todayDto = buildTodayResponse(session, userId);
 
         return ResponseEntity.ok(ApiResponse.success(
                 new EditSetResponse(setId, isPr, todayDto)));
@@ -1393,7 +1392,14 @@ public class SessionController {
      * its state atomically.
      */
     private TodaySessionResponse buildTodayResponse(WorkoutSession session, UUID userId) {
-        List<SetLog> logs = setLogRepo.findBySessionId(session.getId());
+        // For COMPLETED sessions, set_logs is wiped by the post-finish pipeline
+        // (Option Y cleanup) and totalSets is always non-null in the entity, so
+        // the logs.size() fallback below is unreachable — skip the round-trip.
+        // For IN_PROGRESS sessions, totalSets may still be null mid-workout, so
+        // we keep the query.
+        List<SetLog> logs = "COMPLETED".equals(session.getStatus())
+                ? List.of()
+                : setLogRepo.findBySessionId(session.getId());
 
         User user = userRepo.findById(userId).orElseThrow(() -> ApiException.notFound("User"));
 

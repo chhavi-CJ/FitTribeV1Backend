@@ -175,7 +175,10 @@ class PrEditCascadeServiceTest {
             LoggedSet oldValue = new LoggedSet(setId, "bench-press", BigDecimal.valueOf(15), 10, null);
             LoggedSet newValue = new LoggedSet(setId, "bench-press", BigDecimal.valueOf(8), 10, null);
 
-            service.processSetEdit(userId, sessionId, setId, oldValue, newValue);
+            boolean isPr = service.processSetEdit(userId, sessionId, setId, oldValue, newValue);
+
+            // FIRST_EVER stays active for this set → cascade should report isPr=true
+            assertTrue(isPr, "isPr must be true: FIRST_EVER survived Step 3 supersession");
 
             // FIRST_EVER should NOT be superseded
             assertNull(e1FirstEver.getSupersededAt(), "FIRST_EVER must not be superseded");
@@ -222,7 +225,9 @@ class PrEditCascadeServiceTest {
             LoggedSet oldValue = new LoggedSet(setId, "bench-press", BigDecimal.valueOf(60), 10, null);
             LoggedSet newValue = new LoggedSet(setId, "bench-press", BigDecimal.valueOf(55), 10, null);
 
-            service.processSetEdit(userId, sessionId, setId, oldValue, newValue);
+            boolean isPr = service.processSetEdit(userId, sessionId, setId, oldValue, newValue);
+
+            assertTrue(isPr, "isPr must be true: FIRST_EVER stays active for this set");
 
             // FIRST_EVER stays active
             assertNull(e1.getSupersededAt());
@@ -257,7 +262,9 @@ class PrEditCascadeServiceTest {
 
             LoggedSet oldValue = new LoggedSet(setId, "bench-press", BigDecimal.valueOf(60), 10, null);
 
-            service.processSetDelete(userId, sessionId, setId, oldValue);
+            boolean isPr = service.processSetDelete(userId, sessionId, setId, oldValue);
+
+            assertTrue(isPr, "isPr must be true: FIRST_EVER survives delete");
 
             // FIRST_EVER stays active
             assertNull(e1.getSupersededAt());
@@ -321,7 +328,12 @@ class PrEditCascadeServiceTest {
             LoggedSet oldValue = new LoggedSet(setId, "bench-press", BigDecimal.valueOf(80), 10, null);
             LoggedSet newValue = new LoggedSet(setId, "bench-press", BigDecimal.valueOf(65), 10, null);
 
-            service.processSetEdit(userId, sessionId, setId, oldValue, newValue);
+            boolean isPr = service.processSetEdit(userId, sessionId, setId, oldValue, newValue);
+
+            // Critical: hasRestored must contribute to isPr. The restored E1 (WEIGHT_PR
+            // for the same setId) is now active. The naive `hasFirstEver || newPrFired`
+            // formula would return false here; the correct answer is true.
+            assertTrue(isPr, "isPr must be true: Step 4 restored a WEIGHT_PR for this set");
 
             // E2 superseded
             assertNotNull(e2.getSupersededAt());
@@ -372,7 +384,11 @@ class PrEditCascadeServiceTest {
             LoggedSet oldValue = new LoggedSet(setId, "bench-press", BigDecimal.valueOf(60), 10, null);
             LoggedSet newValue = new LoggedSet(setId, "bench-press", BigDecimal.valueOf(50), 10, null);
 
-            service.processSetEdit(userId, sessionId, setId, oldValue, newValue);
+            boolean isPr = service.processSetEdit(userId, sessionId, setId, oldValue, newValue);
+
+            // No FIRST_EVER, no Step 4 restoration (toRestore is empty), no new PR fires.
+            // Active events for this set after cascade = nothing → isPr=false.
+            assertFalse(isPr, "isPr must be false: nothing left active for this set");
 
             // Capture the referenceId used for revocation
             ArgumentCaptor<String> refCaptor = ArgumentCaptor.forClass(String.class);
@@ -416,9 +432,10 @@ class PrEditCascadeServiceTest {
             LoggedSet oldValue = new LoggedSet(setId, "push-ups", null, 15, null);
             LoggedSet newValue = new LoggedSet(setId, "push-ups", null, 20, null);
 
-            // Must not throw
-            assertDoesNotThrow(() ->
+            // Must not throw, and must report isPr=true (FIRST_EVER active for this set)
+            boolean isPr = assertDoesNotThrow(() ->
                     service.processSetEdit(userId, sessionId, setId, oldValue, newValue));
+            assertTrue(isPr, "isPr must be true: bodyweight FIRST_EVER stays active");
 
             // FIRST_EVER stays active
             assertNull(e1.getSupersededAt());
@@ -500,7 +517,10 @@ class PrEditCascadeServiceTest {
             LoggedSet oldValue = new LoggedSet(setId, "bench-press", BigDecimal.valueOf(15), 10, null);
             LoggedSet newValue = new LoggedSet(setId, "bench-press", BigDecimal.valueOf(8), 10, null);
 
-            service.processSetEdit(userId, sessionId, setId, oldValue, newValue);
+            boolean isPr = service.processSetEdit(userId, sessionId, setId, oldValue, newValue);
+
+            // FIRST_EVER active for this set → isPr=true
+            assertTrue(isPr, "isPr must be true: FIRST_EVER stays active");
 
             // bestWtKg should be 10 (from FIRST_EVER payload), not 15 or 8
             ArgumentCaptor<UserExerciseBests> cap = ArgumentCaptor.forClass(UserExerciseBests.class);
@@ -571,7 +591,10 @@ class PrEditCascadeServiceTest {
             LoggedSet oldValue = new LoggedSet(setId, "bench-press", BigDecimal.valueOf(80), 10, null);
             LoggedSet newValue = new LoggedSet(setId, "bench-press", BigDecimal.valueOf(72), 10, null);
 
-            service.processSetEdit(userId, sessionId, setId, oldValue, newValue);
+            boolean isPr = service.processSetEdit(userId, sessionId, setId, oldValue, newValue);
+
+            // hasRestored fires (E1 restored for this setId) → isPr=true
+            assertTrue(isPr, "isPr must be true: Step 4 restored E1 for this set");
 
             // E2 superseded
             assertNotNull(e2.getSupersededAt());
@@ -658,7 +681,10 @@ class PrEditCascadeServiceTest {
             LoggedSet oldValue = new LoggedSet(setId, "bench-press", BigDecimal.valueOf(15), 10, null);
             LoggedSet newValue = new LoggedSet(setId, "bench-press", BigDecimal.valueOf(12), 10, null);
 
-            service.processSetEdit(userId, sessionId, setId, oldValue, newValue);
+            boolean isPr = service.processSetEdit(userId, sessionId, setId, oldValue, newValue);
+
+            // hasFirstEver=true (E1) AND newPrFired=true (12kg fires WEIGHT_PR) → isPr=true
+            assertTrue(isPr, "isPr must be true: FIRST_EVER active AND new WEIGHT_PR fired");
 
             // E1 stays active (FIRST_EVER)
             assertNull(e1.getSupersededAt());
@@ -732,7 +758,10 @@ class PrEditCascadeServiceTest {
             LoggedSet oldValue = new LoggedSet(setId, "bench-press", BigDecimal.valueOf(25), 10, null);
             LoggedSet newValue = new LoggedSet(setId, "bench-press", BigDecimal.valueOf(18), 10, null);
 
-            service.processSetEdit(userId, sessionId, setId, oldValue, newValue);
+            boolean isPr = service.processSetEdit(userId, sessionId, setId, oldValue, newValue);
+
+            // FIRST_EVER (E1) stays active for this set → isPr=true
+            assertTrue(isPr, "isPr must be true: FIRST_EVER active");
 
             // E1 active (FIRST_EVER never superseded)
             assertNull(e1.getSupersededAt(), "FIRST_EVER must not be superseded");
