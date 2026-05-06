@@ -39,6 +39,7 @@ import com.fittribe.api.prv2.detector.LoggedSet;
 import com.fittribe.api.prv2.detector.PrCategory;
 import com.fittribe.api.prv2.detector.PRDetector;
 import com.fittribe.api.prv2.detector.PRResult;
+import com.fittribe.api.prv2.service.PrEditCascadeAsyncRunner;
 import com.fittribe.api.prv2.service.PrEditCascadeService;
 import com.fittribe.api.prv2.service.PrWritePathService;
 import com.fittribe.api.entity.Exercise;
@@ -124,6 +125,7 @@ public class SessionController {
     private final ProgressSnapshotService   progressSnapshotService;
     private final PrWritePathService        prWritePathService;
     private final PrEditCascadeService      prEditCascadeService;
+    private final PrEditCascadeAsyncRunner  prEditCascadeAsyncRunner;
     private final PrEventRepository         prEventRepo;
     private final UserExerciseBestsRepository userExerciseBestsRepo;
     private final PRDetector                 prDetector;
@@ -152,6 +154,7 @@ public class SessionController {
                              ProgressSnapshotService progressSnapshotService,
                              PrWritePathService prWritePathService,
                              PrEditCascadeService prEditCascadeService,
+                             PrEditCascadeAsyncRunner prEditCascadeAsyncRunner,
                              PrEventRepository prEventRepo,
                              UserExerciseBestsRepository userExerciseBestsRepo,
                              PRDetector prDetector,
@@ -179,6 +182,7 @@ public class SessionController {
         this.progressSnapshotService = progressSnapshotService;
         this.prWritePathService  = prWritePathService;
         this.prEditCascadeService = prEditCascadeService;
+        this.prEditCascadeAsyncRunner = prEditCascadeAsyncRunner;
         this.prEventRepo = prEventRepo;
         this.userExerciseBestsRepo = userExerciseBestsRepo;
         this.prDetector = prDetector;
@@ -410,8 +414,13 @@ public class SessionController {
     }
 
     // ── PATCH /sessions/{id}/log-set/{exerciseId}/{setNumber} ───────
+    // NOT @Transactional at the method level. The sync writes (JSONB +
+    // prDetectionCompletedAt=null) MUST commit before the @Async cascade
+    // runner submits — otherwise the cascade thread races with the sync
+    // tx's not-yet-committed null write, and the cascade's "mark complete"
+    // can land before the sync's "mark in-flight," leaving the flag stuck
+    // on a stale NOW(). Each repo call below manages its own short tx.
     @PatchMapping("/{id}/log-set/{exerciseId}/{setNumber}")
-    @Transactional
     public ResponseEntity<ApiResponse<EditSetResponse>> editSet(
             @PathVariable UUID id,
             @PathVariable String exerciseId,
@@ -471,12 +480,25 @@ public class SessionController {
                 : null;
         int oldReps = ((Number) targetSet.get("reps")).intValue();
 
-        // Update JSONB
+        // ── Optimistic isPr (read-only, no writes) ─────────────────────
+        // Predicts what the post-cascade isPr lookup would return WITHOUT
+        // running the supersede/insert/coin-award work. Misses the rare
+        // Step-4 restoration case (where a prior superseded PR gets
+        // restored on this edit) — frontend reconciles when async cascade
+        // completes and prDetectionComplete flips back to true.
+        boolean optimisticIsPr = computeOptimisticIsPr(
+                userId, id, setId, exerciseId, request);
+
+        // Update JSONB — including isPr so buildTodayResponse below returns
+        // the optimistic flag while prDetectionCompletedAt is null. (Per
+        // Commit D's logic: when prDetectionComplete=false, the per-set
+        // isPr in the response comes from JSONB.isPr.)
         targetSet.put("weightKg", request.weightKg());
         targetSet.put("reps", request.reps());
         if (request.holdSeconds() != null) {
             targetSet.put("holdSeconds", request.holdSeconds());
         }
+        targetSet.put("isPr", optimisticIsPr);
 
         // Re-serialize exercises JSONB
         try {
@@ -486,40 +508,77 @@ public class SessionController {
             throw new RuntimeException("Could not update exercises", e);
         }
 
+        // Mark "cascade in flight" — single UPDATE flushes both the JSONB
+        // change and the flag clear in one round-trip via Hibernate dirty
+        // checking on the merged entity.
+        session.setPrDetectionCompletedAt(null);
         sessionRepo.save(session);
 
-        // Build cascade values using setId from JSONB
+        // ── Submit async cascade (fire-and-forget on prDetectionExecutor) ──
         LoggedSet oldValue = new LoggedSet(setId, exerciseId, oldWeightKg, oldReps, null);
-        LoggedSet newValue = new LoggedSet(setId, exerciseId, request.weightKg(), request.reps(), request.holdSeconds());
+        LoggedSet newValue = new LoggedSet(setId, exerciseId,
+                request.weightKg(), request.reps(), request.holdSeconds());
+        prEditCascadeAsyncRunner.runEditCascadeAsync(userId, id, setId, oldValue, newValue);
 
-        // Call cascade (handles supersession + re-detection). The returned boolean
-        // is the post-cascade isPr for this setId, computed inside the cascade from
-        // the live activeEvents/restored/newPrFired tracking — eliminates the
-        // post-cascade prEventRepo round-trip that this code used to do.
-        boolean isPr = false;
-        try {
-            isPr = prEditCascadeService.processSetEdit(userId, session.getId(), setId, oldValue, newValue);
-        } catch (Exception e) {
-            log.warn("Failed to process PR cascade for session={} exercise={} set={}",
-                    session.getId(), exerciseId, setNumber, e);
-            // Cascade failures are non-fatal — the edit itself succeeded.
-            // isPr stays false: safer default than guessing; frontend's next /today
-            // refetch will show the truth.
-        }
-
-        // Reuse the in-scope session reference. The cascade does not write to
-        // workout_sessions (only to pr_events, user_exercise_bests, weekly_pr_counts,
-        // coin_transactions, and users.coins via jdbcTemplate), so the entity we
-        // already loaded + mutated is the canonical post-cascade state.
+        // Reuse the in-scope session reference; cascade does not write to
+        // workout_sessions on the sync path. buildTodayResponse skips the
+        // pr_events query when prDetectionCompletedAt is null and falls
+        // back to JSONB.isPr (which we just wrote optimistically above).
         TodaySessionResponse todayDto = buildTodayResponse(session, userId);
 
         return ResponseEntity.ok(ApiResponse.success(
-                new EditSetResponse(setId, isPr, todayDto)));
+                new EditSetResponse(setId, optimisticIsPr, todayDto)));
+    }
+
+    /**
+     * Read-only optimistic isPr prediction for the edited set.
+     *
+     * <p>Mirrors what the post-cascade {@code findByUserIdAndSessionIdAndSetIdAndSupersededAtNull}
+     * lookup would return — WITHOUT writing pr_events, without superseding,
+     * without awarding coins. Used to populate JSONB.isPr and the response
+     * field while the async cascade is in flight.
+     *
+     * <p>Two DB reads: pr_events SELECT (active for this set) +
+     * user_exercise_bests SELECT (current bests for the exercise).
+     *
+     * <p>Trade-off: misses the Step-4 restoration case where a prior
+     * superseded PR gets restored on this edit. In that scenario this
+     * returns false but the cascade later sets isPr=true. Frontend
+     * reconciles when prDetectionComplete flips to true on /today refetch.
+     */
+    private boolean computeOptimisticIsPr(UUID userId, UUID sessionId, UUID setId,
+                                           String exerciseId, EditSetRequest request) {
+        // 1. FIRST_EVER stays active regardless of cascade outcome
+        List<com.fittribe.api.entity.PrEvent> activeEvents = prEventRepo
+                .findByUserIdAndSessionIdAndSetIdAndSupersededAtNull(userId, sessionId, setId);
+        if (activeEvents.stream().anyMatch(e -> "FIRST_EVER".equals(e.getPrCategory()))) {
+            return true;
+        }
+
+        // 2. Predict whether re-detect on the new value would fire a new PR.
+        //    We use the CURRENT bests as input (which still reflect the
+        //    soon-to-be-superseded PR). This is conservative — undercounts
+        //    new PRs in revert scenarios where supersession would lower the
+        //    baseline. Cascade is authoritative on commit; we accept the
+        //    optimistic miss.
+        com.fittribe.api.entity.UserExerciseBests currentBests = userExerciseBestsRepo
+                .findByUserIdAndExerciseId(userId, exerciseId)
+                .orElse(null);
+
+        com.fittribe.api.prv2.detector.ExerciseType exerciseType =
+                currentBests != null && currentBests.getExerciseType() != null
+                        ? com.fittribe.api.prv2.detector.ExerciseType.valueOf(currentBests.getExerciseType())
+                        : com.fittribe.api.prv2.detector.ExerciseType.WEIGHTED;
+
+        LoggedSet newValue = new LoggedSet(setId, exerciseId,
+                request.weightKg(), request.reps(), request.holdSeconds());
+        return prDetector.detect(newValue, currentBests, exerciseType).isPR();
     }
 
     // ── DELETE /sessions/{id}/log-set/{exerciseId}/{setNumber} ───────
+    // NOT @Transactional at the method level — same rationale as editSet:
+    // sync writes must commit before the async cascade submits.
     @DeleteMapping("/{id}/log-set/{exerciseId}/{setNumber}")
-    @Transactional
     public ResponseEntity<ApiResponse<DeleteSetResponse>> deleteSet(
             @PathVariable UUID id,
             @PathVariable String exerciseId,
@@ -597,29 +656,30 @@ public class SessionController {
             throw new RuntimeException("Could not update exercises", e);
         }
 
+        // Mark "cascade in flight" + commit JSONB write in one UPDATE
+        session.setPrDetectionCompletedAt(null);
         sessionRepo.save(session);
 
-        // Call cascade
-        try {
-            if (deletedSetId != null) {
-                prEditCascadeService.processSetDelete(userId, session.getId(), deletedSetId, oldValue);
-            }
-        } catch (Exception e) {
-            log.warn("Failed to process PR cascade for set delete: session={} exercise={} set={}",
-                    session.getId(), exerciseId, setNumber, e);
+        // Submit async cascade. The deleted set is gone from JSONB so there's
+        // no per-set isPr to optimistically write — remaining sets keep their
+        // existing JSONB.isPr (cascade only supersedes events for the deleted
+        // setId, by induction; other sets unaffected).
+        if (deletedSetId != null) {
+            prEditCascadeAsyncRunner.runDeleteCascadeAsync(
+                    userId, session.getId(), deletedSetId, oldValue);
         }
 
-        // Re-read session and build the full today DTO
-        WorkoutSession updated = sessionRepo.findById(session.getId()).orElse(session);
-        TodaySessionResponse todayDto = buildTodayResponse(updated, userId);
+        // Reuse in-scope session; buildTodayResponse skips the pr_events
+        // query when prDetectionCompletedAt is null and falls back to JSONB.isPr.
+        TodaySessionResponse todayDto = buildTodayResponse(session, userId);
 
         return ResponseEntity.ok(ApiResponse.success(
                 new DeleteSetResponse(true, todayDto)));
     }
 
     // ── DELETE /sessions/{id}/log-set/exercise/{exerciseId} ──────────
+    // NOT @Transactional — same rationale as editSet/deleteSet.
     @DeleteMapping("/{id}/log-set/exercise/{exerciseId}")
-    @Transactional
     public ResponseEntity<ApiResponse<Map<String, Boolean>>> deleteExerciseSets(
             @PathVariable UUID id,
             @PathVariable String exerciseId,
@@ -680,15 +740,13 @@ public class SessionController {
             throw new RuntimeException("Could not update exercises", e);
         }
 
+        // Mark "cascade in flight" + commit JSONB write in one UPDATE
+        session.setPrDetectionCompletedAt(null);
         sessionRepo.save(session);
 
-        // Call cascade
-        try {
-            prEditCascadeService.processExerciseDelete(userId, session.getId(), exerciseId, oldValues);
-        } catch (Exception e) {
-            log.warn("Failed to process PR cascade for exercise delete: session={} exercise={}",
-                    session.getId(), exerciseId, e);
-        }
+        // Submit async cascade
+        prEditCascadeAsyncRunner.runExerciseDeleteCascadeAsync(
+                userId, session.getId(), exerciseId, oldValues);
 
         return ResponseEntity.ok(ApiResponse.success(Map.of("deleted", true)));
     }
@@ -1446,23 +1504,22 @@ public class SessionController {
                 List<Map<String, Object>> parsed = objectMapper.readValue(
                         rawEx, new TypeReference<List<Map<String, Object>>>() {});
 
-                // Exclude FIRST_EVER events — those mark the first time a
-                // user logs an exercise (useful for analytics / future
-                // achievements) but should not surface as trophies on the
-                // Summary screen. Within-session PRs (REP_PR, WEIGHT_PR, etc.)
-                // continue to render normally.
-                java.util.Set<UUID> prSetIds = prEventRepo
-                        .findBySessionIdAndSupersededAtIsNull(session.getId())
-                        .stream()
-                        .filter(pe -> !"FIRST_EVER".equals(pe.getPrCategory()))
-                        .map(pe -> pe.getSetId())
-                        .collect(java.util.stream.Collectors.toSet());
-
                 // Authoritative source switches based on whether the async PR
                 // pipeline has finished:
                 //   - prDetectionCompletedAt == null  → trust JSONB isPr (frontend optimistic)
                 //   - prDetectionCompletedAt != null  → prefer pr_events (server authoritative)
                 boolean prDetectionDone = session.getPrDetectionCompletedAt() != null;
+
+                // Skip the pr_events round-trip entirely when prDetectionDone=false:
+                // the per-set isPr resolution falls back to JSONB.isPr, which the
+                // edit/delete endpoints write optimistically before the async cascade.
+                java.util.Set<UUID> prSetIds = prDetectionDone
+                        ? prEventRepo.findBySessionIdAndSupersededAtIsNull(session.getId())
+                                .stream()
+                                .filter(pe -> !"FIRST_EVER".equals(pe.getPrCategory()))
+                                .map(pe -> pe.getSetId())
+                                .collect(java.util.stream.Collectors.toSet())
+                        : java.util.Set.of();
 
                 exercises = new ArrayList<>();
                 for (Map<String, Object> ex : parsed) {
