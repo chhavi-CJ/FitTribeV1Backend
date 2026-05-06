@@ -1472,6 +1472,11 @@ public class SessionController {
      */
     private TodaySessionResponse buildTodayResponse(WorkoutSession session, UUID userId,
                                                      Map<UUID, Boolean> isPrOverrides) {
+        // TEMP debug: confirms 3-arg overload is reached and shows what state
+        // the per-set isPr resolver will see. Remove after isPr trophies bug fix.
+        log.info("DEBUG buildTodayResponse sessionId={} prDetectionCompletedAt={} overrides.size={}",
+                session.getId(), session.getPrDetectionCompletedAt(), isPrOverrides.size());
+
         // For COMPLETED sessions, set_logs is wiped by the post-finish pipeline
         // (Option Y cleanup) and totalSets is always non-null in the entity, so
         // the logs.size() fallback below is unreachable — skip the round-trip.
@@ -1541,6 +1546,12 @@ public class SessionController {
                         .filter(pe -> !"FIRST_EVER".equals(pe.getPrCategory()))
                         .map(pe -> pe.getSetId())
                         .collect(java.util.stream.Collectors.toSet());
+
+                // TEMP debug: shows how many active non-FIRST_EVER PRs the
+                // per-set loop will use as authoritative set-id matches.
+                // Remove after isPr trophies bug fix.
+                log.info("DEBUG buildTodayResponse sessionId={} prSetIds.size={} prSetIds={}",
+                        session.getId(), prSetIds.size(), prSetIds);
 
                 exercises = new ArrayList<>();
                 for (Map<String, Object> ex : parsed) {
