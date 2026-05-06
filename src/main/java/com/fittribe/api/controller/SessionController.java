@@ -521,10 +521,15 @@ public class SessionController {
         prEditCascadeAsyncRunner.runEditCascadeAsync(userId, id, setId, oldValue, newValue);
 
         // Reuse the in-scope session reference; cascade does not write to
-        // workout_sessions on the sync path. buildTodayResponse skips the
-        // pr_events query when prDetectionCompletedAt is null and falls
-        // back to JSONB.isPr (which we just wrote optimistically above).
-        TodaySessionResponse todayDto = buildTodayResponse(session, userId);
+        // workout_sessions on the sync path. Pass an override map so the
+        // edited set's response carries the optimistic isPr — pr_events for
+        // this setId is pre-edit until the async cascade commits, so it
+        // alone can't be trusted for THIS set during the cascade window.
+        // Guard against null setId (legacy sessions without embedded UUIDs).
+        Map<UUID, Boolean> isPrOverrides = setId != null
+                ? Map.of(setId, optimisticIsPr)
+                : Map.of();
+        TodaySessionResponse todayDto = buildTodayResponse(session, userId, isPrOverrides);
 
         return ResponseEntity.ok(ApiResponse.success(
                 new EditSetResponse(setId, optimisticIsPr, todayDto)));
@@ -1450,6 +1455,23 @@ public class SessionController {
      * its state atomically.
      */
     private TodaySessionResponse buildTodayResponse(WorkoutSession session, UUID userId) {
+        return buildTodayResponse(session, userId, Map.of());
+    }
+
+    /**
+     * Build the TodaySessionResponse, honouring per-set isPr overrides.
+     *
+     * <p>The override map exists for the edit-set endpoint: it supplies the
+     * optimistic isPr for the just-edited set BEFORE the async cascade has
+     * run. For other sets, pr_events is the authoritative source — the
+     * cascade only mutates events for the edited setId, so non-edited sets'
+     * pr_events rows are always current relative to this request.
+     *
+     * <p>Empty map = "no overrides; use pr_events for every set." Used by
+     * todaySession, updateSession, deleteSet, deleteExerciseSets.
+     */
+    private TodaySessionResponse buildTodayResponse(WorkoutSession session, UUID userId,
+                                                     Map<UUID, Boolean> isPrOverrides) {
         // For COMPLETED sessions, set_logs is wiped by the post-finish pipeline
         // (Option Y cleanup) and totalSets is always non-null in the entity, so
         // the logs.size() fallback below is unreachable — skip the round-trip.
@@ -1504,22 +1526,21 @@ public class SessionController {
                 List<Map<String, Object>> parsed = objectMapper.readValue(
                         rawEx, new TypeReference<List<Map<String, Object>>>() {});
 
-                // Authoritative source switches based on whether the async PR
-                // pipeline has finished:
-                //   - prDetectionCompletedAt == null  → trust JSONB isPr (frontend optimistic)
-                //   - prDetectionCompletedAt != null  → prefer pr_events (server authoritative)
-                boolean prDetectionDone = session.getPrDetectionCompletedAt() != null;
-
-                // Skip the pr_events round-trip entirely when prDetectionDone=false:
-                // the per-set isPr resolution falls back to JSONB.isPr, which the
-                // edit/delete endpoints write optimistically before the async cascade.
-                java.util.Set<UUID> prSetIds = prDetectionDone
-                        ? prEventRepo.findBySessionIdAndSupersededAtIsNull(session.getId())
-                                .stream()
-                                .filter(pe -> !"FIRST_EVER".equals(pe.getPrCategory()))
-                                .map(pe -> pe.getSetId())
-                                .collect(java.util.stream.Collectors.toSet())
-                        : java.util.Set.of();
+                // pr_events is the authoritative per-set isPr source. Query it
+                // unconditionally — for non-edited sets in any state, this is
+                // always correct. For the just-edited set during the async
+                // cascade window, the caller's isPrOverrides map supplies the
+                // optimistic value that wins below.
+                //
+                // FIRST_EVER events are filtered out: those mark the first time
+                // a user logs an exercise (analytics signal) but should not
+                // surface as trophies on the Summary screen.
+                java.util.Set<UUID> prSetIds = prEventRepo
+                        .findBySessionIdAndSupersededAtIsNull(session.getId())
+                        .stream()
+                        .filter(pe -> !"FIRST_EVER".equals(pe.getPrCategory()))
+                        .map(pe -> pe.getSetId())
+                        .collect(java.util.stream.Collectors.toSet());
 
                 exercises = new ArrayList<>();
                 for (Map<String, Object> ex : parsed) {
@@ -1541,9 +1562,17 @@ public class SessionController {
                                     setId = UUID.fromString(setIdRaw.toString());
                                 } catch (IllegalArgumentException ignored) {}
                             }
-                            boolean fromBackend = setId != null && prSetIds.contains(setId);
-                            boolean fromJsonb   = Boolean.TRUE.equals(enrichedSet.get("isPr"));
-                            boolean isPr = prDetectionDone ? fromBackend : fromJsonb;
+                            // Override map wins for the edited set (the caller
+                            // supplied the optimistic isPr because pr_events
+                            // for that setId is pre-edit until cascade commits).
+                            // All other sets read from pr_events directly —
+                            // their pr_events rows are unaffected by the edit.
+                            boolean isPr;
+                            if (setId != null && isPrOverrides.containsKey(setId)) {
+                                isPr = Boolean.TRUE.equals(isPrOverrides.get(setId));
+                            } else {
+                                isPr = setId != null && prSetIds.contains(setId);
+                            }
                             enrichedSet.put("isPr", isPr);
                             if (isPr) anySetIsPr = true;
                             enrichedSets.add(enrichedSet);
