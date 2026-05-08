@@ -1553,6 +1553,11 @@ public class SessionController {
                 log.info("DEBUG buildTodayResponse sessionId={} prSetIds.size={} prSetIds={}",
                         session.getId(), prSetIds.size(), prSetIds);
 
+                // Whether the async PR detection cascade has finished writing
+                // pr_events for this session. Read once outside the loop —
+                // every set in the session shares the same gate.
+                boolean cascadeDone = session.getPrDetectionCompletedAt() != null;
+
                 exercises = new ArrayList<>();
                 for (Map<String, Object> ex : parsed) {
                     Map<String, Object> enrichedEx = new LinkedHashMap<>(ex);
@@ -1573,16 +1578,50 @@ public class SessionController {
                                     setId = UUID.fromString(setIdRaw.toString());
                                 } catch (IllegalArgumentException ignored) {}
                             }
-                            // Override map wins for the edited set (the caller
-                            // supplied the optimistic isPr because pr_events
-                            // for that setId is pre-edit until cascade commits).
-                            // All other sets read from pr_events directly —
-                            // their pr_events rows are unaffected by the edit.
+                            // Capture the JSONB-supplied optimistic flag BEFORE
+                            // the put() below overwrites it. The write side at
+                            // finishSession (lines 911-915) persists the
+                            // frontend's computePr result here as a display-only
+                            // hint while the async cascade runs.
+                            Object jsonbIsPrRaw = enrichedSet.get("isPr");
+                            boolean jsonbIsPr = Boolean.TRUE.equals(jsonbIsPrRaw);
+
+                            // Per-set isPr resolver — 4 branches, evaluated in
+                            // order:
+                            //
+                            //   1. Edit-set override window: caller supplied
+                            //      the optimistic isPr because pr_events for
+                            //      that setId is pre-edit until the edit-set
+                            //      cascade commits. Wins for edited sets only;
+                            //      empty map for every other caller.
+                            //
+                            //   2. pr_events row exists (non-FIRST_EVER, not
+                            //      superseded): cascade has confirmed this set
+                            //      as a PR. Authoritative.
+                            //
+                            //   3. Cascade still in flight (prDetectionCompletedAt
+                            //      is null): fall back to the JSONB flag the
+                            //      frontend supplied at finish. Lets trophies
+                            //      render immediately for the obvious cases
+                            //      (within-session WEIGHT_PR / REP_PR) while the
+                            //      backend cascade is still running. Matches the
+                            //      write-side contract documented at
+                            //      finishSession lines 911-914.
+                            //
+                            //   4. Cascade done, no pr_events row: not a PR.
+                            //      pr_events is authoritative once
+                            //      prDetectionCompletedAt is set; ignore JSONB
+                            //      (which is stale because it's never rewritten
+                            //      after finish).
                             boolean isPr;
                             if (setId != null && isPrOverrides.containsKey(setId)) {
                                 isPr = Boolean.TRUE.equals(isPrOverrides.get(setId));
+                            } else if (setId != null && prSetIds.contains(setId)) {
+                                isPr = true;
+                            } else if (!cascadeDone) {
+                                isPr = jsonbIsPr;
                             } else {
-                                isPr = setId != null && prSetIds.contains(setId);
+                                isPr = false;
                             }
                             enrichedSet.put("isPr", isPr);
                             if (isPr) anySetIsPr = true;
