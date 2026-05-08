@@ -68,6 +68,7 @@ import com.fittribe.api.strengthscore.ProgressSnapshotService;
 import jakarta.validation.Valid;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.Authentication;
@@ -194,16 +195,42 @@ public class SessionController {
         this.postProcessor = postProcessor;
     }
 
+    // All-zeros UUID, rejected as a clientId — too easy to send by mistake
+    // (uninitialised buffers, default values) and signals nothing useful.
+    private static final UUID ZERO_UUID = new UUID(0L, 0L);
+
     // ── POST /sessions/start ──────────────────────────────────────────
+    //
+    // Accepts an optional client-supplied UUID via {@code clientId}. When
+    // present the value becomes the canonical {@code workout_sessions.id};
+    // when absent the server generates one (legacy contract). Every other
+    // existing branch — cooldown, in-progress dedupe, source validation,
+    // SAVED_ROUTINE update — is unchanged.
+    //
+    // {@code noRollbackFor = DataIntegrityViolationException.class} keeps
+    // the surrounding transaction usable inside the catch block: when two
+    // concurrent requests race for the same {@code clientId}, the loser's
+    // INSERT trips the PK constraint and we re-query so both callers see
+    // identical responses (idempotent retry).
     @PostMapping("/start")
-    @Transactional
+    @Transactional(noRollbackFor = DataIntegrityViolationException.class)
     public ResponseEntity<ApiResponse<?>> startSession(
             @RequestBody @Valid StartSessionRequest request,
             Authentication auth) {
 
         UUID userId = userId(auth);
+        UUID clientId = request.clientId();
 
-        // 8-hour cooldown check
+        // Reject the all-zeros UUID up front — a valid v4 from any
+        // randomUUID source will never equal this value.
+        if (clientId != null && ZERO_UUID.equals(clientId)) {
+            throw new ApiException(HttpStatus.BAD_REQUEST, "INVALID_CLIENT_ID",
+                    "clientId must not be the all-zeros UUID.");
+        }
+
+        // 8-hour cooldown check — runs first so it always wins over
+        // idempotency: a client retrying a clientId during cooldown still
+        // gets SESSION_TOO_SOON.
         Instant cooldownCutoff = Instant.now().minus(COOLDOWN_HOURS, ChronoUnit.HOURS);
         var recent = sessionRepo.findFirstByUserIdAndStatusAndFinishedAtAfter(
                 userId, "COMPLETED", cooldownCutoff);
@@ -218,7 +245,31 @@ public class SessionController {
                             unlocksAt.toString()));
         }
 
-        // Return existing IN_PROGRESS session instead of creating a duplicate
+        // Idempotency lookup: existing row with this clientId for this user
+        // → either return it (still IN_PROGRESS) or 409 (already finalised).
+        // A row owned by a different user looks like 404 to avoid leaking
+        // the existence of foreign sessions.
+        if (clientId != null) {
+            Optional<WorkoutSession> existing = sessionRepo.findById(clientId);
+            if (existing.isPresent()) {
+                WorkoutSession s = existing.get();
+                if (!userId.equals(s.getUserId())) {
+                    throw new ApiException(HttpStatus.NOT_FOUND, "NOT_FOUND",
+                            "Session not found.");
+                }
+                if ("IN_PROGRESS".equals(s.getStatus())) {
+                    return ResponseEntity.ok(ApiResponse.success(
+                            new StartSessionResponse(s.getId(), s.getStartedAt())));
+                }
+                throw new ApiException(HttpStatus.CONFLICT, "SESSION_ALREADY_FINALIZED",
+                        "Session has already been finalized and cannot be reused.");
+            }
+        }
+
+        // Return existing IN_PROGRESS session instead of creating a duplicate.
+        // Runs after the clientId lookup so a user with both an existing
+        // IN_PROGRESS session AND a fresh clientId still resumes the
+        // existing session (cross-device safety).
         var inProgress = sessionRepo.findFirstByUserIdAndStatusOrderByStartedAtDesc(
                 userId, "IN_PROGRESS");
         if (inProgress.isPresent()) {
@@ -228,6 +279,10 @@ public class SessionController {
         }
 
         WorkoutSession session = new WorkoutSession();
+        // Caller supplies the id when present; else fall back to a
+        // server-generated v4. The DB-level PK constraint is the
+        // authoritative idempotency guard for the clientId path.
+        session.setId(clientId != null ? clientId : UUID.randomUUID());
         session.setUserId(userId);
         session.setName(request.name());
         session.setBadge(request.badge());
@@ -279,10 +334,34 @@ public class SessionController {
             }
         }
 
-        WorkoutSession saved = sessionRepo.save(session);
+        try {
+            // saveAndFlush, not save, because we need the PK-violation to
+            // surface synchronously here — without an explicit flush the
+            // INSERT runs at commit time, well past our catch block.
+            // WorkoutSession implements Persistable<UUID> so Spring Data
+            // calls EntityManager.persist (single INSERT) rather than
+            // merge (SELECT + INSERT/UPDATE) for these fresh entities.
+            WorkoutSession saved = sessionRepo.saveAndFlush(session);
+            return ResponseEntity.ok(ApiResponse.success(
+                    new StartSessionResponse(saved.getId(), saved.getStartedAt())));
+        } catch (DataIntegrityViolationException e) {
+            // Without a clientId, server-generated UUID collisions are
+            // effectively impossible — if this fires we have something
+            // worse than a race; surface it.
+            if (clientId == null) throw e;
 
-        return ResponseEntity.ok(ApiResponse.success(
-                new StartSessionResponse(saved.getId(), saved.getStartedAt())));
+            log.debug("Lost INSERT race for clientId {}, returning existing session", clientId);
+            Optional<WorkoutSession> winner = sessionRepo.findById(clientId);
+            if (winner.isPresent() && userId.equals(winner.get().getUserId())) {
+                WorkoutSession s = winner.get();
+                return ResponseEntity.ok(ApiResponse.success(
+                        new StartSessionResponse(s.getId(), s.getStartedAt())));
+            }
+            // Either the row vanished (impossible after PK violation) or
+            // belongs to another user (UUID collision across users) — both
+            // are pathological. Bubble up.
+            throw e;
+        }
     }
 
     // ── POST /sessions/{id}/log-set ───────────────────────────────────

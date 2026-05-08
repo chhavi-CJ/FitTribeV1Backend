@@ -3,17 +3,25 @@ package com.fittribe.api.entity;
 import jakarta.persistence.*;
 import org.hibernate.annotations.JdbcTypeCode;
 import org.hibernate.type.SqlTypes;
+import org.springframework.data.domain.Persistable;
 
 import java.math.BigDecimal;
 import java.time.Instant;
 import java.util.UUID;
 
+/**
+ * Implements {@link Persistable} so Spring Data JPA's {@code save()}
+ * picks {@code EntityManager.persist()} (single INSERT) over
+ * {@code EntityManager.merge()} (SELECT-then-INSERT-or-UPDATE) for
+ * fresh entities with caller-assigned ids. The flag flips to false on
+ * {@code @PostLoad} (loaded entities are not new) and on
+ * {@code @PrePersist} (after insert the entity is no longer new).
+ */
 @Entity
 @Table(name = "workout_sessions")
-public class WorkoutSession {
+public class WorkoutSession implements Persistable<UUID> {
 
     @Id
-    @GeneratedValue(strategy = GenerationType.UUID)
     @Column(name = "id", updatable = false, nullable = false)
     private UUID id;
 
@@ -101,16 +109,31 @@ public class WorkoutSession {
     @Column(name = "streak")
     private Integer streak;
 
+    @Transient
+    private boolean isNew = true;
+
     @PrePersist
     void prePersist() {
         if (startedAt == null) startedAt = Instant.now();
+        this.isNew = false;
+    }
+
+    @PostLoad
+    void postLoad() {
+        this.isNew = false;
     }
 
     // ── Required by JPA ───────────────────────────────────────────────
     public WorkoutSession() {}
 
+    // ── Persistable<UUID> contract ───────────────────────────────────
+    @Override
+    public boolean isNew()            { return isNew; }
+
     // ── Getters / Setters ─────────────────────────────────────────────
+    @Override
     public UUID getId()               { return id; }
+    public void setId(UUID v)         { this.id = v; }
 
     public UUID getUserId()           { return userId; }
     public void setUserId(UUID v)     { this.userId = v; }
