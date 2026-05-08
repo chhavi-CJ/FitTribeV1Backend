@@ -503,11 +503,11 @@ public final class AiPrompts {
             "{recoveryBlock}\n\n" +
 
             "ARCHETYPE RULES — FOLLOW EXACTLY:\n" +
-            "PUSH: 4 exercises — 1 chest compound, 1 shoulder, 1 triceps, 1 chest-or-shoulder isolation. Moderate volume (3 sets each).\n" +
-            "PULL: 4 exercises — 1 back compound (pulldown/row), 1 biceps compound, 1 rear-delt isolation, 1 biceps isolation. 3 sets each.\n" +
-            "LEGS: 4 exercises — 1 quad compound (NOT deadlift), 1 hamstring, 1 glute, 1 calf. Gentler than main leg day. 3 sets each.\n" +
-            "WEAK_POINT_FOCUS: 4 exercises — isolation only. Target the group with least work this week. 3-4 sets, higher reps (12-15).\n" +
-            "ACCESSORY_CORE: 4 exercises — 1 isolation for biceps/triceps/shoulders, 1 back-friendly row or pulldown, 2 core exercises. Never heavy compounds. 3 sets each. Reps 10-15.\n\n" +
+            "PUSH: 6 exercises — 2 per muscle: 2 chest (1 compound + 1 isolation), 2 shoulder (1 press + 1 isolation), 2 triceps (1 compound + 1 isolation). 3 sets each.\n" +
+            "PULL: 6 exercises — 2 per muscle: 2 back (1 vertical pull + 1 horizontal row), 2 biceps (1 compound + 1 isolation), 2 rear-delt/trap (1 face pull or rear-delt fly + 1 shrug or upper-back accessory). 3 sets each.\n" +
+            "LEGS: 6 exercises — 2 quads (1 compound NOT deadlift + 1 isolation), 2 hamstrings (1 hip-hinge + 1 isolation), 2 glutes-or-calves (any combination). Gentler than main leg day. 3 sets each.\n" +
+            "WEAK_POINT_FOCUS: 6 exercises — 4 directly target the weakest muscle group from this week's recovery data, 2 support related synergists. Isolation-heavy. 3-4 sets, higher reps (12-15).\n" +
+            "ACCESSORY_CORE: 6 exercises — 2 arm isolation (biceps/triceps/shoulders), 2 upper-back-friendly (rows, pulldowns, face pulls), 2 core. Never heavy compounds. 3 sets each. Reps 10-15.\n\n" +
 
             "SAFETY HARD RULES — NON NEGOTIABLE:\n" +
             "PREGNANCY:\n" +

@@ -327,11 +327,11 @@ public class BonusSessionService {
 
     private List<Map<String, Object>> stubExercisesForArchetype(Archetype archetype) {
         List<String> ids = switch (archetype) {
-            case PUSH              -> List.of("bench-press", "shoulder-press", "tricep-pushdowns", "lateral-raises");
-            case PULL              -> List.of("lat-pulldown", "seated-cable-row", "bicep-curl", "face-pulls");
-            case LEGS              -> List.of("leg-press", "leg-curl", "glute-bridge", "standing-calf-raises");
-            case WEAK_POINT_FOCUS  -> List.of("cable-flyes", "hammer-curl", "tricep-kickback", "lateral-raises");
-            case ACCESSORY_CORE    -> List.of("bicep-curl", "face-pulls", "dead-bug", "russian-twist");
+            case PUSH              -> List.of("bench-press", "shoulder-press", "tricep-pushdowns", "lateral-raises", "incline-db-press", "cable-flyes");
+            case PULL              -> List.of("lat-pulldown", "seated-cable-row", "bicep-curl", "face-pulls", "pull-ups", "hammer-curl");
+            case LEGS              -> List.of("leg-press", "leg-curl", "glute-bridge", "standing-calf-raises", "bulgarian-split-squat", "lunges");
+            case WEAK_POINT_FOCUS  -> List.of("cable-flyes", "hammer-curl", "tricep-kickback", "lateral-raises", "face-pulls", "glute-bridge");
+            case ACCESSORY_CORE    -> List.of("bicep-curl", "face-pulls", "dead-bug", "russian-twist", "glute-bridge", "mountain-climbers");
         };
         List<Map<String, Object>> out = new ArrayList<>();
         for (String id : ids) {
