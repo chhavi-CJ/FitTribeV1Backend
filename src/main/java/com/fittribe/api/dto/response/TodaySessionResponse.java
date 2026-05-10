@@ -13,6 +13,7 @@ public record TodaySessionResponse(
         BigDecimal totalVolumeKg,
         int totalSets,
         Integer durationMins,
+        Instant startedAt,
         Instant finishedAt,
         String aiCoachInsight,
         String status,
