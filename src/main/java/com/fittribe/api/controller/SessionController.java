@@ -1254,7 +1254,12 @@ public class SessionController {
             throw new ApiException(HttpStatus.BAD_REQUEST,
                     "INVALID_TIME_RANGE", "finishedAt must be after startedAt.");
         }
-        if (request.finishedAt().isAfter(Instant.now().plusSeconds(5))) {
+        Instant nowPlusSkew = Instant.now().plusSeconds(5);
+        if (request.startedAt().isAfter(nowPlusSkew)) {
+            throw new ApiException(HttpStatus.BAD_REQUEST,
+                    "START_IN_FUTURE", "startedAt cannot be in the future.");
+        }
+        if (request.finishedAt().isAfter(nowPlusSkew)) {
             throw new ApiException(HttpStatus.BAD_REQUEST,
                     "FINISH_IN_FUTURE", "finishedAt cannot be in the future.");
         }
