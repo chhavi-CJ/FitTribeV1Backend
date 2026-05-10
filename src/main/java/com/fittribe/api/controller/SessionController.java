@@ -1628,6 +1628,20 @@ public class SessionController {
                 List<Map<String, Object>> parsed = objectMapper.readValue(
                         rawEx, new TypeReference<List<Map<String, Object>>>() {});
 
+                // Batch-fetch isBodyweight for every distinct exerciseId in
+                // this session — single round-trip, computed at read time
+                // from the canonical Exercise catalog (JSONB stays as-is
+                // for backward compat with existing sessions).
+                List<String> exerciseIds = parsed.stream()
+                        .map(e -> (String) e.get("exerciseId"))
+                        .filter(Objects::nonNull)
+                        .distinct()
+                        .toList();
+                Map<String, Boolean> bodyweightById = exerciseIds.isEmpty()
+                        ? Map.of()
+                        : exerciseRepo.findAllById(exerciseIds).stream()
+                                .collect(Collectors.toMap(Exercise::getId, Exercise::isBodyweight));
+
                 // pr_events is the authoritative per-set isPr source. Query it
                 // unconditionally — for non-edited sets in any state, this is
                 // always correct. For the just-edited set during the async
@@ -1728,6 +1742,8 @@ public class SessionController {
                     }
 
                     enrichedEx.put("prAchieved", anySetIsPr);
+                    enrichedEx.put("isBodyweight",
+                            bodyweightById.getOrDefault((String) ex.get("exerciseId"), false));
                     exercises.add(enrichedEx);
                 }
             } else {
