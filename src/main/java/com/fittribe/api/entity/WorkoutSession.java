@@ -51,7 +51,7 @@ public class WorkoutSession implements Persistable<UUID> {
     @Column(name = "duration_mins")
     private Integer durationMins;
 
-    @Column(name = "started_at", updatable = false)
+    @Column(name = "started_at")
     private Instant startedAt;
 
     @Column(name = "finished_at")
