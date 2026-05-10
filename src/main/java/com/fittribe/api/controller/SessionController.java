@@ -559,14 +559,18 @@ public class SessionController {
                 : null;
         int oldReps = ((Number) targetSet.get("reps")).intValue();
 
+        // Pre-edit isPr — read BEFORE the put below so the optimistic
+        // value reflects the set's status at request time, not after
+        // any field flip we are about to write.
+        Boolean preEditIsPr = targetSet.get("isPr") instanceof Boolean b ? b : Boolean.FALSE;
+
         // ── Optimistic isPr (read-only, no writes) ─────────────────────
-        // Predicts what the post-cascade isPr lookup would return WITHOUT
-        // running the supersede/insert/coin-award work. Misses the rare
-        // Step-4 restoration case (where a prior superseded PR gets
-        // restored on this edit) — frontend reconciles when async cascade
-        // completes and prDetectionComplete flips back to true.
+        // Preserves pre-edit state — never invents a new PR on edit.
+        // The async cascade is authoritative; if the edit legitimately
+        // upgrades a non-PR set into a PR, /today polling picks it up
+        // when prDetectionCompletedAt is set.
         boolean optimisticIsPr = computeOptimisticIsPr(
-                userId, id, setId, exerciseId, request);
+                userId, id, setId, preEditIsPr);
 
         // Update JSONB — including isPr so buildTodayResponse below returns
         // the optimistic flag while prDetectionCompletedAt is null. (Per
@@ -617,46 +621,41 @@ public class SessionController {
     /**
      * Read-only optimistic isPr prediction for the edited set.
      *
-     * <p>Mirrors what the post-cascade {@code findByUserIdAndSessionIdAndSetIdAndSupersededAtNull}
-     * lookup would return — WITHOUT writing pr_events, without superseding,
-     * without awarding coins. Used to populate JSONB.isPr and the response
-     * field while the async cascade is in flight.
+     * <p>Preserves pre-edit state — never invents a new PR on edit.
+     * Two stable cases keep returning {@code true}:
+     * <ol>
+     *   <li>FIRST_EVER on this {@code setId} — that category survives
+     *       any value edit and the cascade keeps it active.</li>
+     *   <li>The set was already {@code isPr=true} pre-edit (read from
+     *       JSONB before the field is overwritten) — the cascade may
+     *       downgrade it, but optimistically we keep the trophy
+     *       visible until pr_detection_completed_at is repopulated.</li>
+     * </ol>
      *
-     * <p>Two DB reads: pr_events SELECT (active for this set) +
-     * user_exercise_bests SELECT (current bests for the exercise).
+     * <p>Otherwise we return {@code false}. This deliberately drops the
+     * old "predict-via-detector against currentBests" path: that path
+     * compared the new value to bests that still include the edited
+     * set's own contribution, producing "PR against yourself" false
+     * positives whenever the edited set was the current bests-holder.
      *
-     * <p>Trade-off: misses the Step-4 restoration case where a prior
-     * superseded PR gets restored on this edit. In that scenario this
-     * returns false but the cascade later sets isPr=true. Frontend
-     * reconciles when prDetectionComplete flips to true on /today refetch.
+     * <p>The async cascade remains authoritative. If an edit
+     * legitimately turns a non-PR set into a PR, the cascade sets
+     * {@code isPr=true} on commit and the next {@code /today} fetch
+     * picks it up via the existing {@code prDetectionCompletedAt}
+     * polling. The user sees the trophy appear within seconds rather
+     * than instantly — a deliberate trade for not lying.
      */
     private boolean computeOptimisticIsPr(UUID userId, UUID sessionId, UUID setId,
-                                           String exerciseId, EditSetRequest request) {
-        // 1. FIRST_EVER stays active regardless of cascade outcome
+                                           Boolean preEditIsPr) {
+        // 1. FIRST_EVER stays active regardless of edit value.
         List<com.fittribe.api.entity.PrEvent> activeEvents = prEventRepo
                 .findByUserIdAndSessionIdAndSetIdAndSupersededAtNull(userId, sessionId, setId);
         if (activeEvents.stream().anyMatch(e -> "FIRST_EVER".equals(e.getPrCategory()))) {
             return true;
         }
 
-        // 2. Predict whether re-detect on the new value would fire a new PR.
-        //    We use the CURRENT bests as input (which still reflect the
-        //    soon-to-be-superseded PR). This is conservative — undercounts
-        //    new PRs in revert scenarios where supersession would lower the
-        //    baseline. Cascade is authoritative on commit; we accept the
-        //    optimistic miss.
-        com.fittribe.api.entity.UserExerciseBests currentBests = userExerciseBestsRepo
-                .findByUserIdAndExerciseId(userId, exerciseId)
-                .orElse(null);
-
-        com.fittribe.api.prv2.detector.ExerciseType exerciseType =
-                currentBests != null && currentBests.getExerciseType() != null
-                        ? com.fittribe.api.prv2.detector.ExerciseType.valueOf(currentBests.getExerciseType())
-                        : com.fittribe.api.prv2.detector.ExerciseType.WEIGHTED;
-
-        LoggedSet newValue = new LoggedSet(setId, exerciseId,
-                request.weightKg(), request.reps(), request.holdSeconds());
-        return prDetector.detect(newValue, currentBests, exerciseType).isPR();
+        // 2. Preserve pre-edit isPr — the async cascade is authoritative.
+        return Boolean.TRUE.equals(preEditIsPr);
     }
 
     // ── DELETE /sessions/{id}/log-set/{exerciseId}/{setNumber} ───────
