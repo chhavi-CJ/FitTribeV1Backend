@@ -16,6 +16,7 @@ import com.fittribe.api.repository.WeeklyPrCountRepository;
 import com.fittribe.api.repository.WorkoutSessionRepository;
 import com.fittribe.api.service.CoinService;
 import com.fittribe.api.service.FeedEventWriter;
+import com.fittribe.api.util.Zones;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
@@ -25,7 +26,6 @@ import org.springframework.transaction.support.TransactionTemplate;
 import java.math.BigDecimal;
 import java.time.Instant;
 import java.time.LocalDate;
-import java.time.ZoneOffset;
 import java.time.DayOfWeek;
 import java.time.temporal.TemporalAdjusters;
 import java.util.List;
@@ -378,11 +378,14 @@ public class PrWritePathService {
     }
 
     /**
-     * Calculate Monday of the week for a given instant.
-     * Uses UTC for consistency with SessionController.
+     * Calculate Monday of the week for a given instant, anchored to IST
+     * to align with WeeklyReportCron and the rest of the app's
+     * IST-based week boundary. Sessions finished between IST midnight
+     * and UTC midnight on Mondays previously landed in the wrong
+     * partition due to UTC anchoring; IST anchoring fixes this.
      */
     private LocalDate weekStartFor(Instant instant) {
-        return LocalDate.ofInstant(instant, ZoneOffset.UTC)
+        return LocalDate.ofInstant(instant, Zones.APP_ZONE)
                 .with(TemporalAdjusters.previousOrSame(DayOfWeek.MONDAY));
     }
 }
