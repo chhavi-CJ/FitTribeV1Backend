@@ -548,6 +548,20 @@ public class SessionController {
                     "Set not found in exercises");
         }
 
+        // Defense-in-depth: a weighted exercise must always have a weight value.
+        // The reverse case (bodyweight exercise with non-null weight) is allowed —
+        // it represents weighted-bodyweight progression (e.g. Weighted Pull-Ups
+        // with belt + 5kg). Only block the data-corruption direction.
+        boolean isBodyweight = exerciseRepo.findById(exerciseId)
+                .map(Exercise::isBodyweight)
+                .orElseThrow(() -> new ApiException(HttpStatus.NOT_FOUND,
+                        "EXERCISE_NOT_FOUND", "Exercise not found."));
+        if (!isBodyweight && request.weightKg() == null) {
+            throw new ApiException(HttpStatus.BAD_REQUEST,
+                    "WEIGHT_REQUIRED",
+                    "This exercise requires a weight value.");
+        }
+
         // Parse setId from JSONB (canonical source after finish)
         UUID setId = targetSet.get("setId") != null
                 ? UUID.fromString(targetSet.get("setId").toString())
