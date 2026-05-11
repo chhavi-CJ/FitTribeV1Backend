@@ -1392,10 +1392,12 @@ public class SessionController {
         // TODO: if the catalog grows significantly, switch to findAllById(distinctExerciseIds)
         //   where distinctExerciseIds is collected from session.getExercises() JSONB in a
         //   first pass — avoids fetching unused rows at the cost of parsing JSONB twice.
-        Map<String, String> muscleGroupById = exerciseRepo.findAll()
-                .stream()
+        List<Exercise> allExercises = exerciseRepo.findAll();
+        Map<String, String> muscleGroupById = allExercises.stream()
                 .collect(Collectors.toMap(Exercise::getId,
                         e -> e.getMuscleGroup() != null ? e.getMuscleGroup() : ""));
+        Map<String, Boolean> bodyweightById = allExercises.stream()
+                .collect(Collectors.toMap(Exercise::getId, Exercise::isBodyweight));
 
         // Query 4: pr_events — one batch for all sessions.
         // week_start IN clause is required to hit the correct RANGE partitions.
@@ -1438,7 +1440,8 @@ public class SessionController {
             // This is the same durable source used by buildTodayResponse().
             List<SessionHistoryItem.ExerciseGroup> exercises =
                     parseSnapshotIntoExerciseGroups(
-                            session.getExercises(), prSetIds, firstEverExerciseIds, muscleGroupById);
+                            session.getExercises(), prSetIds, firstEverExerciseIds,
+                            muscleGroupById, bodyweightById);
 
             LinkedHashSet<String> muscleGroupsSeen = new LinkedHashSet<>();
             for (SessionHistoryItem.ExerciseGroup eg : exercises) {
@@ -1489,7 +1492,8 @@ public class SessionController {
             String rawJson,
             Set<UUID> prSetIds,
             Set<String> firstEverExerciseIds,
-            Map<String, String> muscleGroupById) {
+            Map<String, String> muscleGroupById,
+            Map<String, Boolean> bodyweightById) {
 
         if (rawJson == null || rawJson.isBlank()) return List.of();
 
@@ -1504,6 +1508,8 @@ public class SessionController {
                 String muscleGroup  = muscleGroupById.getOrDefault(
                         exerciseId != null ? exerciseId : "", "");
                 boolean firstEver   = exerciseId != null && firstEverExerciseIds.contains(exerciseId);
+                boolean isBodyweight = exerciseId != null
+                        && Boolean.TRUE.equals(bodyweightById.get(exerciseId));
 
                 List<SessionHistoryItem.SetSummary> sets = new ArrayList<>();
                 Object setsRaw = ex.get("sets");
@@ -1536,7 +1542,7 @@ public class SessionController {
 
                 result.add(new SessionHistoryItem.ExerciseGroup(
                         exerciseName != null ? exerciseName : exerciseId,
-                        muscleGroup, firstEver, sets));
+                        muscleGroup, firstEver, isBodyweight, sets));
             }
             return result;
         } catch (Exception e) {
