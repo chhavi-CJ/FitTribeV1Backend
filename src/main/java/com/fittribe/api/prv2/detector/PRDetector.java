@@ -36,6 +36,16 @@ public class PRDetector {
      * @return PRResult with detection outcome
      */
     public PRResult detect(LoggedSet set, UserExerciseBests currentBests, ExerciseType exerciseType) {
+        // 0×0 guard: a set with no weight AND no reps AND no hold-time is corrupt
+        // input — neither a real attempt nor a meaningful FIRST_EVER. Suppress the
+        // PR result so no pr_events row is written and no coins are awarded.
+        // PrWritePathService.updateNonPrBests() still runs downstream, so
+        // last_logged_at and totalSessionsWithExercise continue to tick.
+        boolean noWeight = set.weightKg() == null || set.weightKg().signum() <= 0;
+        boolean noReps   = set.reps() == null || set.reps() <= 0;
+        boolean noHold   = set.holdSeconds() == null || set.holdSeconds() <= 0;
+        if (noWeight && noReps && noHold) return noResult();
+
         // FIRST_EVER
         if (isFirstEver(currentBests)) {
             return prResult(PrCategory.FIRST_EVER, 3, signalsMet("first_ever", true),

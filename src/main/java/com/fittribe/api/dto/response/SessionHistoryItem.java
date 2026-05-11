@@ -22,6 +22,7 @@ public record SessionHistoryItem(
             String name,
             String muscleGroup,
             boolean firstEver,
+            boolean isBodyweight,
             List<SetSummary> sets) {}
 
     public record SetSummary(
