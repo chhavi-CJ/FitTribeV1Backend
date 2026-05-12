@@ -5,6 +5,7 @@ import com.fittribe.api.entity.Exercise;
 import com.fittribe.api.entity.User;
 import com.fittribe.api.entity.WorkoutSession;
 import com.fittribe.api.repository.ExerciseRepository;
+import com.fittribe.api.repository.PrEventRepository;
 import com.fittribe.api.repository.SetLogRepository;
 import com.fittribe.api.repository.UserRepository;
 import com.fittribe.api.repository.WorkoutSessionRepository;
@@ -50,6 +51,7 @@ class WeekDataBuilderTest {
     private SetLogRepository setLogRepo;
     private ExerciseRepository exerciseRepo;
     private UserRepository userRepo;
+    private PrEventRepository prEventRepo;
 
     private WeekDataBuilder builder;
 
@@ -63,9 +65,10 @@ class WeekDataBuilderTest {
         setLogRepo   = mock(SetLogRepository.class);
         exerciseRepo = mock(ExerciseRepository.class);
         userRepo     = mock(UserRepository.class);
+        prEventRepo  = mock(PrEventRepository.class);
 
         builder = new WeekDataBuilder(
-                sessionRepo, setLogRepo, exerciseRepo, userRepo,
+                sessionRepo, setLogRepo, exerciseRepo, userRepo, prEventRepo,
                 new ObjectMapper()
         );
 
@@ -155,6 +158,11 @@ class WeekDataBuilderTest {
                 .thenReturn(List.<Object[]>of(
                         new Object[]{"lat-pulldown", new BigDecimal("37.5"), 10}
                 ));
+
+        // pr_events authoritative — bench-press and squat both hit PRs
+        // this week. (JSONB ex.isPr in the fixtures is now irrelevant.)
+        when(prEventRepo.findDistinctPrExerciseIdsForWeek(USER_ID, WEEK_START))
+                .thenReturn(List.of("bench-press", "squat"));
 
         WeekData week = builder.build(USER_ID, WEEK_START);
 
@@ -303,6 +311,85 @@ class WeekDataBuilderTest {
         assertThat(week.weekNumber()).isEqualTo(2);
         assertThat(week.isWeekOne()).isFalse();
         assertThat(week.pushSessionCount()).isEqualTo(4);
+    }
+
+    // ── PR sourcing tests — prCount must come from pr_events, not JSONB ──
+
+    @Test
+    @DisplayName("prCount is sourced from pr_events even when JSONB ex.isPr says otherwise")
+    void prCount_sourcedFromPrEventsNotJsonb() {
+        // Two sessions, both with ex.isPr=true in the JSONB snapshot.
+        // Pre-fix, builder would read JSONB → prCount=2. After fix it
+        // must read pr_events; here the repo returns only one exercise
+        // ("bench-press"), so prCount must be 1.
+        WorkoutSession s1 = session(
+                UUID.fromString("aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"),
+                instant(2026, 4, 6, 18),
+                new BigDecimal("900.00"),
+                "[{\"exerciseId\":\"bench-press\",\"exerciseName\":\"Bench Press\"," +
+                        "\"sets\":[{\"setNumber\":1,\"reps\":10,\"weightKg\":60.0}]," +
+                        "\"maxWeightKg\":60.0,\"totalVolume\":600,\"isPr\":true}]",
+                "[]",
+                1
+        );
+        WorkoutSession s2 = session(
+                UUID.fromString("bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb"),
+                instant(2026, 4, 8, 19),
+                new BigDecimal("1600.00"),
+                "[{\"exerciseId\":\"squat\",\"exerciseName\":\"Squat\"," +
+                        "\"sets\":[{\"setNumber\":1,\"reps\":10,\"weightKg\":80.0}]," +
+                        "\"maxWeightKg\":80.0,\"totalVolume\":800,\"isPr\":true}]",
+                "[]",
+                1
+        );
+        when(sessionRepo.findByUserIdAndStatusAndFinishedAtBetween(
+                eq(USER_ID), eq("COMPLETED"),
+                any(Instant.class), any(Instant.class)))
+                .thenReturn(new ArrayList<>(List.of(s1, s2)));
+
+        // pr_events authoritative source — only bench-press has an
+        // active non-FIRST_EVER PR row this week. squat's JSONB.isPr
+        // flag is stale/wrong and must be ignored.
+        when(prEventRepo.findDistinctPrExerciseIdsForWeek(USER_ID, WEEK_START))
+                .thenReturn(List.of("bench-press"));
+
+        WeekData week = builder.build(USER_ID, WEEK_START);
+
+        assertThat(week.prCount()).isEqualTo(1);
+    }
+
+    @Test
+    @DisplayName("prCount dedups: one exercise with WEIGHT_PR + REP_PR in one week counts as 1")
+    void prCount_dedupsByExerciseWhenMultiplePrCategoriesFireSameWeek() {
+        // The SQL in PrEventRepository.findDistinctPrExerciseIdsForWeek
+        // uses SELECT DISTINCT pe.exerciseId — so the same exercise
+        // hitting WEIGHT_PR and REP_PR in the same week comes back as
+        // a single entry. This test verifies the builder honours that
+        // dedup by reading list size for prCount.
+        WorkoutSession s1 = session(
+                UUID.fromString("aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"),
+                instant(2026, 4, 6, 18),
+                new BigDecimal("900.00"),
+                "[{\"exerciseId\":\"bench-press\",\"exerciseName\":\"Bench Press\"," +
+                        "\"sets\":[{\"setNumber\":1,\"reps\":10,\"weightKg\":60.0}]," +
+                        "\"maxWeightKg\":60.0,\"totalVolume\":600,\"isPr\":false}]",
+                "[]",
+                1
+        );
+        when(sessionRepo.findByUserIdAndStatusAndFinishedAtBetween(
+                eq(USER_ID), eq("COMPLETED"),
+                any(Instant.class), any(Instant.class)))
+                .thenReturn(new ArrayList<>(List.of(s1)));
+
+        // bench-press had two pr_events rows this week (WEIGHT_PR +
+        // REP_PR). After DISTINCT exercise_id at the repo, only one
+        // entry remains.
+        when(prEventRepo.findDistinctPrExerciseIdsForWeek(USER_ID, WEEK_START))
+                .thenReturn(List.of("bench-press"));
+
+        WeekData week = builder.build(USER_ID, WEEK_START);
+
+        assertThat(week.prCount()).isEqualTo(1);
     }
 
     // ── Fixture helpers ────────────────────────────────────────────────

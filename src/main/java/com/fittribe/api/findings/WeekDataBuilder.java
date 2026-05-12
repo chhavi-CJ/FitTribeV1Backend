@@ -6,6 +6,7 @@ import com.fittribe.api.entity.Exercise;
 import com.fittribe.api.entity.User;
 import com.fittribe.api.entity.WorkoutSession;
 import com.fittribe.api.repository.ExerciseRepository;
+import com.fittribe.api.repository.PrEventRepository;
 import com.fittribe.api.repository.SetLogRepository;
 import com.fittribe.api.repository.UserRepository;
 import com.fittribe.api.repository.WorkoutSessionRepository;
@@ -68,6 +69,7 @@ public class WeekDataBuilder {
     private final SetLogRepository setLogRepo;
     private final ExerciseRepository exerciseRepo;
     private final UserRepository userRepo;
+    private final PrEventRepository prEventRepo;
     private final ObjectMapper objectMapper;
 
     @Autowired
@@ -75,11 +77,13 @@ public class WeekDataBuilder {
                            SetLogRepository setLogRepo,
                            ExerciseRepository exerciseRepo,
                            UserRepository userRepo,
+                           PrEventRepository prEventRepo,
                            ObjectMapper objectMapper) {
         this.sessionRepo = sessionRepo;
         this.setLogRepo = setLogRepo;
         this.exerciseRepo = exerciseRepo;
         this.userRepo = userRepo;
+        this.prEventRepo = prEventRepo;
         this.objectMapper = objectMapper;
     }
 
@@ -125,7 +129,6 @@ public class WeekDataBuilder {
         int pullSessionCount = 0;
         int legsSessionCount = 0;
         BigDecimal totalVolume = BigDecimal.ZERO;
-        Set<String> prExerciseIdsThisWeek = new LinkedHashSet<>();
         Map<String, WeekData.TargetVsLogged> targetExercises = new LinkedHashMap<>();
 
         // Needed only to build the catalog snapshot at the end: union of
@@ -170,9 +173,6 @@ public class WeekDataBuilder {
 
                 BigDecimal exVolume = bigDecimalOf(ex.get("totalVolume"));
                 BigDecimal exMaxKg  = bigDecimalOf(ex.get("maxWeightKg"));
-                boolean exIsPr      = Boolean.TRUE.equals(ex.get("isPr"));
-
-                if (exIsPr) prExerciseIdsThisWeek.add(exerciseId);
 
                 // Update TargetVsLogged.loggedMaxKg if this exercise has a target
                 targetExercises.computeIfPresent(exerciseId, (id, existing) -> {
@@ -214,7 +214,8 @@ public class WeekDataBuilder {
                                 wKg != null ? wKg : BigDecimal.ZERO,
                                 reps,
                                 setNo,
-                                exIsPr  // coarse: set marked PR if the parent exercise is PR
+                                false  // pr_events is authoritative for PR state; JSONB.isPr
+                                       // is dead-write since PR system V2.
                         ));
                     }
                 }
@@ -276,6 +277,21 @@ public class WeekDataBuilder {
         }
 
         // ── 7. personalRecords — PRs this week + previous all-time max ─
+        //
+        // PR source: pr_events (authoritative), not workout_sessions.exercises
+        // JSONB ex.isPr (which has been hardcoded false at session finish since
+        // PR system V2). Dedups by exercise_id — one exercise with both
+        // WEIGHT_PR and REP_PR in the same week counts as a single PR
+        // exercise. Excludes FIRST_EVER (first-time-logging isn't a PR per
+        // product definition) and superseded events (edited away).
+        //
+        // TZ: pr_events.week_start is computed in IST via
+        // PrWritePathService.weekStartFor() using Zones.APP_ZONE. The
+        // weekStart argument here originates from JobWorker.previousMondayIst()
+        // (or an explicit ISO date in the job payload), which is also IST.
+        // Conventions match — no IST/UTC reconciliation required.
+        List<String> prExerciseIdsThisWeek = prEventRepo
+                .findDistinctPrExerciseIdsForWeek(userId, weekStart);
         List<WeekData.PrEntry> personalRecords = new ArrayList<>();
         if (!prExerciseIdsThisWeek.isEmpty()) {
             // Previous all-time max per exercise (strictly before weekStart)
