@@ -96,4 +96,27 @@ public interface PrEventRepository extends JpaRepository<PrEvent, UUID> {
      */
     List<PrEvent> findByUserIdAndSessionIdInAndWeekStartInAndSupersededAtIsNull(
             UUID userId, Collection<UUID> sessionIds, Collection<LocalDate> weekStarts);
+
+    /**
+     * Distinct exercise IDs that hit a non-FIRST_EVER PR for the user in
+     * the given week. Excludes FIRST_EVER (first-time-logging isn't a PR
+     * per product definition) and superseded events (edited away).
+     *
+     * <p>Dedups by exercise_id: an exercise that hits both WEIGHT_PR and
+     * REP_PR in one week counts as one PR exercise, not two.
+     *
+     * <p>Used by WeekDataBuilder for both prCount (size of the list) and
+     * personalRecords (iterates the list to attach previous-best lookups).
+     */
+    @Query("""
+            SELECT DISTINCT pe.exerciseId
+            FROM PrEvent pe
+            WHERE pe.userId = :userId
+              AND pe.weekStart = :weekStart
+              AND pe.prCategory IN ('WEIGHT_PR', 'REP_PR', 'VOLUME_PR')
+              AND pe.supersededAt IS NULL
+            """)
+    List<String> findDistinctPrExerciseIdsForWeek(
+            @Param("userId") UUID userId,
+            @Param("weekStart") LocalDate weekStart);
 }
