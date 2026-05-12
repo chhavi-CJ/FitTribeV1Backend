@@ -24,9 +24,19 @@ public interface UserRepository extends JpaRepository<User, UUID> {
 
     Optional<User> findByEmailIgnoreCase(String email);
 
-    @Query("SELECT u FROM User u WHERE " +
-           "(:email IS NOT NULL AND LOWER(u.email) = LOWER(:email)) OR " +
-           "(:phone IS NOT NULL AND u.phone = :phone)")
+    // Native query with explicit CAST(:param AS text) on every reference to
+    // the bound parameter. The JPQL version emitted untyped placeholders;
+    // when :email was null Postgres inferred LOWER(?) as LOWER(bytea), which
+    // has no matching overload and raised "function lower(bytea) does not
+    // exist". Casting forces the planner to resolve LOWER(text) regardless
+    // of whether the bound value is null or a string.
+    @Query(value = """
+            SELECT * FROM users u
+            WHERE (CAST(:email AS text) IS NOT NULL
+                   AND LOWER(u.email) = LOWER(CAST(:email AS text)))
+               OR (CAST(:phone AS text) IS NOT NULL
+                   AND u.phone = CAST(:phone AS text))
+            """, nativeQuery = true)
     Optional<User> findByEmailOrPhone(@Param("email") String email,
                                       @Param("phone") String phone);
 
