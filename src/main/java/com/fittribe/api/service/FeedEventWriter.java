@@ -94,11 +94,23 @@ public class FeedEventWriter {
         try {
             if (prs == null || prs.isEmpty()) return;
 
+            // Match Summary trophies: exclude FIRST_EVER. See
+            // SessionController.buildTodayResponse (~line 1660).
+            // FIRST_EVER events mark the first time a user logs an exercise
+            // (analytics signal) and do not surface as trophies on Summary, so
+            // they must not contribute to the feed card's prCount either.
+            // If only FIRST_EVER events exist the session has zero countable
+            // PRs — bail without writing a PR_DETECTED card.
+            List<PrEvent> countablePrs = prs.stream()
+                    .filter(pr -> !"FIRST_EVER".equals(pr.getPrCategory()))
+                    .collect(Collectors.toList());
+            if (countablePrs.isEmpty()) return;
+
             String name  = firstName(userId);
-            int    count = prs.size();
+            int    count = countablePrs.size();
             String body;
             if (count == 1) {
-                PrEvent    first     = prs.get(0);
+                PrEvent    first     = countablePrs.get(0);
                 String     exName    = exerciseNames.getOrDefault(first.getExerciseId(), first.getExerciseId());
                 @SuppressWarnings("unchecked")
                 Map<String, Object> newBest1 = (Map<String, Object>) first.getValuePayload().get("new_best");
@@ -118,7 +130,7 @@ public class FeedEventWriter {
                 body = name + " hit " + count + " PRs in their session";
             }
 
-            List<Map<String, Object>> lifts = prs.stream().map(pr -> {
+            List<Map<String, Object>> lifts = countablePrs.stream().map(pr -> {
                 Map<String, Object> lift = new LinkedHashMap<>();
                 lift.put("exerciseName", exerciseNames.getOrDefault(pr.getExerciseId(), pr.getExerciseId()));
                 lift.put("prCategory",   pr.getPrCategory());
