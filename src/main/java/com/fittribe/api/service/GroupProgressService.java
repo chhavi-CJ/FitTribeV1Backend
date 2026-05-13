@@ -7,7 +7,6 @@ import com.fittribe.api.entity.FeedItem;
 import com.fittribe.api.entity.Group;
 import com.fittribe.api.entity.GroupMember;
 import com.fittribe.api.entity.GroupMemberGoalSnapshot;
-import com.fittribe.api.entity.GroupWeeklyCard;
 import com.fittribe.api.entity.GroupWeeklyProgress;
 import com.fittribe.api.entity.User;
 import com.fittribe.api.repository.FeedItemRepository;
@@ -30,9 +29,13 @@ import java.time.LocalDate;
 import java.time.temporal.TemporalAdjusters;
 import java.time.temporal.WeekFields;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 import java.util.UUID;
+import java.util.stream.Collectors;
 
 @Service
 public class GroupProgressService {
@@ -176,12 +179,26 @@ public class GroupProgressService {
         List<GroupMemberGoalSnapshot> snapshots =
                 snapshotRepo.findByGroupIdAndIsoYearAndIsoWeek(groupId, isoYear, isoWeek);
 
+        // Batch the display-name lookup — one query for all members instead of N
+        // findById calls. findByIdIn (not findActiveByIdIn) preserves prior behavior
+        // of surfacing names for inactive/deleted users in the breakdown.
+        // HashMap (not Collectors.toMap) because users.display_name is nullable —
+        // newly-signed-up users have null displayName until onboarding completes.
+        Set<UUID> memberIds = snapshots.stream()
+                .map(GroupMemberGoalSnapshot::getUserId)
+                .collect(Collectors.toSet());
+        Map<UUID, String> nameById = new HashMap<>();
+        if (!memberIds.isEmpty()) {
+            for (User u : userRepo.findByIdIn(memberIds)) {
+                nameById.put(u.getId(), u.getDisplayName());
+            }
+        }
+
         List<MemberProgressDto> breakdown = new ArrayList<>();
         MemberProgressDto myStatus = null;
 
         for (GroupMemberGoalSnapshot s : snapshots) {
-            String name = userRepo.findById(s.getUserId())
-                    .map(User::getDisplayName).orElse(null);
+            String name = nameById.get(s.getUserId());
             MemberProgressDto dto = new MemberProgressDto(
                     s.getUserId(), name, s.getWeeklyGoal(),
                     s.getSessionsContributed(),
@@ -196,15 +213,7 @@ public class GroupProgressService {
                 ? (progress.getSessionsLogged() * 100) / progress.getTargetSessions()
                 : 0;
 
-        List<GroupWeeklyCard> cards = groupWeeklyCardRepo.findByGroupIdOrderByIsoYearDescIsoWeekDesc(groupId);
-        int historicalGoldStreak = 0;
-        for (GroupWeeklyCard card : cards) {
-            if ("GOLD".equals(card.getFinalTier())) {
-                historicalGoldStreak++;
-            } else {
-                break;
-            }
-        }
+        int historicalGoldStreak = groupWeeklyCardRepo.countLeadingGoldStreak(groupId);
         int goldStreak = "GOLD".equals(progress.getCurrentTier())
                 ? historicalGoldStreak + 1
                 : historicalGoldStreak;
