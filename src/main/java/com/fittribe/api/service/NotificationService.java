@@ -1,7 +1,9 @@
 package com.fittribe.api.service;
 
 import com.fittribe.api.entity.DeviceToken;
+import com.fittribe.api.entity.GroupMember;
 import com.fittribe.api.repository.DeviceTokenRepository;
+import com.fittribe.api.repository.GroupMemberRepository;
 import com.google.firebase.FirebaseApp;
 import com.google.firebase.messaging.FirebaseMessaging;
 import com.google.firebase.messaging.FirebaseMessagingException;
@@ -21,9 +23,31 @@ public class NotificationService {
     private static final Logger log = LoggerFactory.getLogger(NotificationService.class);
 
     private final DeviceTokenRepository deviceTokenRepo;
+    private final GroupMemberRepository groupMemberRepo;
 
-    public NotificationService(DeviceTokenRepository deviceTokenRepo) {
+    public NotificationService(DeviceTokenRepository deviceTokenRepo,
+                               GroupMemberRepository groupMemberRepo) {
         this.deviceTokenRepo = deviceTokenRepo;
+        this.groupMemberRepo = groupMemberRepo;
+    }
+
+    /**
+     * Fan-out push to every member of a group, optionally excluding one user.
+     * Used for events like MEMBER_JOINED, MEMBER_LEFT, NEW_WORKOUT_FEED_ITEM.
+     * Failures for individual users are logged but do not stop the fan-out.
+     */
+    public void sendPushToGroupExceptUser(UUID groupId, UUID excludeUserId,
+                                          String title, String body,
+                                          Map<String, String> data) {
+        List<GroupMember> members = groupMemberRepo.findByGroupId(groupId);
+        for (GroupMember m : members) {
+            if (excludeUserId != null && excludeUserId.equals(m.getUserId())) continue;
+            try {
+                sendPush(m.getUserId(), title, body, data);
+            } catch (Exception e) {
+                log.warn("Push fan-out failed for user={} in group={}", m.getUserId(), groupId, e);
+            }
+        }
     }
 
     /**

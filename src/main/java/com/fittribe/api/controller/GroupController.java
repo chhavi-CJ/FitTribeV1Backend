@@ -11,6 +11,7 @@ import com.fittribe.api.dto.group.TopPerformerDto;
 import com.fittribe.api.entity.GroupWeeklyTopPerformer;
 import com.fittribe.api.repository.GroupWeeklyTopPerformerRepository;
 import com.fittribe.api.service.LeaderboardService;
+import com.fittribe.api.service.NotificationService;
 import com.fittribe.api.service.TopPerformerService;
 import com.fittribe.api.dto.request.CreateGroupRequest;
 import com.fittribe.api.dto.request.JoinGroupRequest;
@@ -60,6 +61,7 @@ public class GroupController {
     private final GroupWeeklyTopPerformerRepository topPerformerRepo;
     private final LeaderboardService                leaderboardService;
     private final PokeLogRepository                 pokeLogRepo;
+    private final NotificationService               notificationService;
     private final ObjectMapper                      mapper;
 
     public GroupController(GroupRepository groupRepo,
@@ -75,6 +77,7 @@ public class GroupController {
                            GroupWeeklyTopPerformerRepository topPerformerRepo,
                            LeaderboardService leaderboardService,
                            PokeLogRepository pokeLogRepo,
+                           NotificationService notificationService,
                            ObjectMapper mapper) {
         this.groupRepo             = groupRepo;
         this.memberRepo            = memberRepo;
@@ -89,6 +92,7 @@ public class GroupController {
         this.topPerformerRepo      = topPerformerRepo;
         this.leaderboardService    = leaderboardService;
         this.pokeLogRepo           = pokeLogRepo;
+        this.notificationService   = notificationService;
         this.mapper                = mapper;
     }
 
@@ -168,6 +172,23 @@ public class GroupController {
         feed.setType("MEMBER_JOINED");
         feed.setBody((displayName != null ? displayName : "Someone") + " joined the group");
         feedRepo.save(feed);
+
+        try {
+            notificationService.sendPushToGroupExceptUser(
+                group.getId(),
+                userId,  // exclude the joiner — they update their UI locally
+                group.getName(),
+                (displayName != null ? displayName : "Someone") + " joined " + group.getName(),
+                Map.of(
+                    "type", "GROUP_MEMBER_JOINED",
+                    "groupId", group.getId().toString(),
+                    "joinedUserId", userId.toString()
+                )
+            );
+        } catch (Exception e) {
+            log.error("Group join push fan-out failed for group={}", group.getId(), e);
+            // Don't fail the join because push failed
+        }
 
         long memberCount = memberRepo.findByGroupId(group.getId()).size();
         return ResponseEntity.ok(ApiResponse.success(toGroupResponse(group, memberCount)));
