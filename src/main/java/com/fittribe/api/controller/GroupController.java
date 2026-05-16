@@ -38,6 +38,7 @@ import java.time.Instant;
 import java.time.LocalDate;
 import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
+import java.time.temporal.IsoFields;
 import java.time.temporal.TemporalAdjusters;
 import java.util.*;
 import java.util.stream.Collectors;
@@ -62,6 +63,8 @@ public class GroupController {
     private final LeaderboardService                leaderboardService;
     private final PokeLogRepository                 pokeLogRepo;
     private final NotificationService               notificationService;
+    private final GroupMemberGoalSnapshotRepository groupMemberGoalSnapshotRepo;
+    private final UserDayStatusRepository           userDayStatusRepo;
     private final ObjectMapper                      mapper;
 
     public GroupController(GroupRepository groupRepo,
@@ -78,6 +81,8 @@ public class GroupController {
                            LeaderboardService leaderboardService,
                            PokeLogRepository pokeLogRepo,
                            NotificationService notificationService,
+                           GroupMemberGoalSnapshotRepository groupMemberGoalSnapshotRepo,
+                           UserDayStatusRepository userDayStatusRepo,
                            ObjectMapper mapper) {
         this.groupRepo             = groupRepo;
         this.memberRepo            = memberRepo;
@@ -93,6 +98,8 @@ public class GroupController {
         this.leaderboardService    = leaderboardService;
         this.pokeLogRepo           = pokeLogRepo;
         this.notificationService   = notificationService;
+        this.groupMemberGoalSnapshotRepo = groupMemberGoalSnapshotRepo;
+        this.userDayStatusRepo     = userDayStatusRepo;
         this.mapper                = mapper;
     }
 
@@ -331,15 +338,61 @@ public class GroupController {
 
         requireMembership(id, userId(auth));
 
-        // Batch-load which recipients have been poked today in this group (one query)
-        LocalDate today = LocalDate.now(Zones.APP_ZONE);
-        Set<UUID> pokedTodayIds = pokeLogRepo.findRecipientsPokdToday(id, today);
+        List<GroupMember> members = memberRepo.findByGroupId(id);
+        Set<UUID> memberIds = members.stream()
+                .map(GroupMember::getUserId)
+                .collect(Collectors.toSet());
 
-        List<Map<String, Object>> result = memberRepo.findByGroupId(id).stream()
+        // Batch-load users (replaces a per-member findById N+1).
+        Map<UUID, User> userById = new HashMap<>();
+        if (!memberIds.isEmpty()) {
+            for (User u : userRepo.findByIdIn(memberIds)) {
+                userById.put(u.getId(), u);
+            }
+        }
+
+        // Current-day basis for status lookup — must match the write path
+        // (PlanService.setTodayStatus keys user_day_status.date on Zones.fitnessDayNow()).
+        LocalDate today  = Zones.fitnessDayNow();
+        int isoYear      = today.get(IsoFields.WEEK_BASED_YEAR);
+        int isoWeek      = today.get(IsoFields.WEEK_OF_WEEK_BASED_YEAR);
+
+        // Batch-load this group-week's goal snapshots (carries weeklyGoal +
+        // sessionsContributed, consistent with mid-week-joiner handling).
+        Map<UUID, GroupMemberGoalSnapshot> snapshotByUser = new HashMap<>();
+        for (GroupMemberGoalSnapshot s :
+                groupMemberGoalSnapshotRepo.findByGroupIdAndIsoYearAndIsoWeek(id, isoYear, isoWeek)) {
+            snapshotByUser.put(s.getUserId(), s);
+        }
+
+        // Batch-load today's day-status rows. Absent → no status set today (null).
+        Map<UUID, String> statusByUser = new HashMap<>();
+        if (!memberIds.isEmpty()) {
+            for (UserDayStatus ds : userDayStatusRepo.findByIdUserIdInAndIdDate(memberIds, today)) {
+                statusByUser.put(ds.getId().getUserId(), ds.getStatus());
+            }
+        }
+
+        // TODO: pokedToday uses LocalDate.now(APP_ZONE) (midnight IST); status below
+        // uses Zones.fitnessDayNow() (5am IST). Unify in a future cleanup.
+        Set<UUID> pokedTodayIds = pokeLogRepo.findRecipientsPokdToday(id, LocalDate.now(Zones.APP_ZONE));
+
+        // Identical for every member — compute once. Matches ThisWeekSummary
+        // parity: 0 on Sunday, 6 on Monday (days remaining after today).
+        int daysRemainingInWeek = 7 - today.getDayOfWeek().getValue();
+
+        List<Map<String, Object>> result = members.stream()
                 .map(gm -> {
-                    User user = userRepo.findById(gm.getUserId()).orElse(null);
+                    User user = userById.get(gm.getUserId());
                     // Skip if user not found (orphaned member row)
                     if (user == null) return null;
+
+                    GroupMemberGoalSnapshot snapshot = snapshotByUser.get(gm.getUserId());
+                    int weeklyGoal          = snapshot != null ? snapshot.getWeeklyGoal() : 4;
+                    int sessionsContributed = snapshot != null ? snapshot.getSessionsContributed() : 0;
+                    int sessionsRemaining   = Math.max(0, weeklyGoal - sessionsContributed);
+                    String status           = statusByUser.get(gm.getUserId());
+
                     Map<String, Object> m = new LinkedHashMap<>();
                     m.put("userId",      gm.getUserId());
                     m.put("displayName", user.getDisplayName());
@@ -349,6 +402,9 @@ public class GroupController {
                     m.put("hasCrown",    gm.getCrownExpiresAt() != null
                             && gm.getCrownExpiresAt().isAfter(Instant.now()));
                     m.put("pokedToday",  pokedTodayIds.contains(gm.getUserId()));
+                    m.put("status",              status);
+                    m.put("sessionsRemaining",   sessionsRemaining);
+                    m.put("daysRemainingInWeek", daysRemainingInWeek);
                     return m;
                 })
                 .filter(Objects::nonNull)

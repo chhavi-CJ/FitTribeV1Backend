@@ -6,6 +6,8 @@ import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.stereotype.Repository;
 
 import java.time.LocalDate;
+import java.util.Collection;
+import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 
@@ -13,4 +15,7 @@ import java.util.UUID;
 public interface UserDayStatusRepository extends JpaRepository<UserDayStatus, UserDayStatusId> {
 
     Optional<UserDayStatus> findByIdUserIdAndIdDate(UUID userId, LocalDate date);
+
+    /** Batch variant — all status rows for a set of users on a given date. */
+    List<UserDayStatus> findByIdUserIdInAndIdDate(Collection<UUID> userIds, LocalDate date);
 }
