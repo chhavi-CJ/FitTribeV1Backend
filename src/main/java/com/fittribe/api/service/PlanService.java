@@ -290,7 +290,7 @@ public class PlanService {
         response.put("cardioDurationMin", templateDay.get("cardioDurationMin"));
         response.put("estimatedMins",     templateDay.get("estimatedMins"));
         response.put("fitnessLevel",      user.getFitnessLevel());
-        response.put("status",               statusOpt.map(UserDayStatus::getStatus).orElse("PENDING"));
+        response.put("status",               statusOpt.map(UserDayStatus::getStatus).orElse("READY"));
         response.put("workoutCompletedToday", workoutCompletedToday);
         statusOpt.ifPresent(s -> response.put("message", statusMessage(s.getStatus())));
         return response;
