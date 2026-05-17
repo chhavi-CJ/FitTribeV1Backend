@@ -83,6 +83,14 @@ public interface UserRepository extends JpaRepository<User, UUID> {
     @Query("SELECT u.id FROM User u WHERE u.isActive = true AND u.deletionRequestedAt IS NULL")
     List<UUID> findActiveUserIds();
 
+    /**
+     * IDs of users who never finished onboarding and have been stale for a
+     * while — fed to {@code IncompleteUserCleanupScheduler}. Backed by the
+     * partial index idx_users_onboarding_complete_created_at (V68).
+     */
+    @Query("SELECT u.id FROM User u WHERE u.onboardingComplete = false AND u.createdAt < :cutoff")
+    List<UUID> findIncompleteUserIdsCreatedBefore(@Param("cutoff") java.time.Instant cutoff);
+
     /** IDs of users eligible for the leaderboard: active, not deleting, leaderboard_eligible=true,
      *  and pause_until is null or in the past. */
     @Query("SELECT u.id FROM User u WHERE u.isActive = true AND u.deletionRequestedAt IS NULL " +
