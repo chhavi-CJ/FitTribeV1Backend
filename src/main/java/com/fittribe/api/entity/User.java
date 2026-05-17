@@ -103,6 +103,9 @@ public class User {
     @Column(name = "is_active", nullable = false)
     private Boolean isActive = true;
 
+    @Column(name = "onboarding_complete", nullable = false)
+    private Boolean onboardingComplete = false;
+
     @Column(name = "deletion_requested_at")
     private Instant deletionRequestedAt;
 
@@ -202,6 +205,9 @@ public class User {
 
     public Boolean getIsActive()               { return isActive; }
     public void setIsActive(Boolean isActive)  { this.isActive = isActive; }
+
+    public Boolean getOnboardingComplete()                       { return onboardingComplete; }
+    public void setOnboardingComplete(Boolean onboardingComplete) { this.onboardingComplete = onboardingComplete; }
 
     public Instant getDeletionRequestedAt()                         { return deletionRequestedAt; }
     public void setDeletionRequestedAt(Instant deletionRequestedAt) { this.deletionRequestedAt = deletionRequestedAt; }

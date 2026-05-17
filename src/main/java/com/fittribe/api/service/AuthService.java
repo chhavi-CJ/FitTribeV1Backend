@@ -205,6 +205,10 @@ public class AuthService {
         }
 
         String token = jwtService.generateToken(user.getId());
-        return new AuthResponse(token, user.getId(), isNewUser, user.getDisplayName());
+        // onboardingComplete reflects the persisted column: always false for a
+        // just-inserted new user (entity default), and the real stored value
+        // for returning users. Frontend prefers this over isNewUser for routing.
+        boolean onboardingComplete = Boolean.TRUE.equals(user.getOnboardingComplete());
+        return new AuthResponse(token, user.getId(), isNewUser, onboardingComplete, user.getDisplayName());
     }
 }

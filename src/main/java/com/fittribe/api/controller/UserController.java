@@ -174,6 +174,22 @@ public class UserController {
             user.setAiContext(sanitized);
         }
 
+        // Onboarding-completion gate. Flip onboarding_complete true ONLY on the
+        // final onboarding submit — i.e. the user is still incomplete AND this
+        // single payload carries all six required onboarding fields. This is
+        // deliberately scoped so that later partial profile edits (e.g. just
+        // changing weeklyGoal or aiContext) never toggle the flag back, and a
+        // user who somehow reaches /users/me with a partial body stays gated.
+        if (!Boolean.TRUE.equals(user.getOnboardingComplete())
+                && request.displayName()  != null
+                && request.gender()       != null
+                && request.goal()         != null
+                && request.fitnessLevel() != null
+                && request.heightCm()     != null
+                && request.weightKg()     != null) {
+            user.setOnboardingComplete(true);
+        }
+
         return ResponseEntity.ok(ApiResponse.success(userRepository.save(user)));
     }
 
