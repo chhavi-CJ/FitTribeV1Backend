@@ -12,13 +12,11 @@ import com.fittribe.api.entity.User;
 import com.fittribe.api.entity.UserPlan;
 import com.fittribe.api.exception.ApiException;
 import com.fittribe.api.healthcondition.HealthConditionNormalizer;
-import com.fittribe.api.entity.GroupMember;
-import com.fittribe.api.repository.GroupMemberRepository;
 import com.fittribe.api.repository.UserExerciseBestsRepository;
 import com.fittribe.api.repository.UserPlanRepository;
 import com.fittribe.api.repository.UserRepository;
 import com.fittribe.api.repository.WorkoutSessionRepository;
-import com.fittribe.api.service.GroupMembershipService;
+import com.fittribe.api.service.UserDeletionService;
 import com.fittribe.api.service.RankService;
 import com.fittribe.api.util.PromptSanitiser;
 import jakarta.validation.Valid;
@@ -58,23 +56,20 @@ public class UserController {
     private final UserPlanRepository          planRepository;
     private final UserExerciseBestsRepository bestsRepository;
     private final ObjectMapper                objectMapper;
-    private final GroupMemberRepository       groupMemberRepository;
-    private final GroupMembershipService      groupMembershipService;
+    private final UserDeletionService         userDeletionService;
 
     public UserController(UserRepository userRepository,
                           WorkoutSessionRepository sessionRepository,
                           UserPlanRepository planRepository,
                           UserExerciseBestsRepository bestsRepository,
                           ObjectMapper objectMapper,
-                          GroupMemberRepository groupMemberRepository,
-                          GroupMembershipService groupMembershipService) {
+                          UserDeletionService userDeletionService) {
         this.userRepository       = userRepository;
         this.sessionRepository    = sessionRepository;
         this.planRepository       = planRepository;
         this.bestsRepository      = bestsRepository;
         this.objectMapper         = objectMapper;
-        this.groupMemberRepository = groupMemberRepository;
-        this.groupMembershipService = groupMembershipService;
+        this.userDeletionService  = userDeletionService;
     }
 
     // ── GET /api/v1/users/me/exercise-bests ─────────────────────────────
@@ -249,27 +244,18 @@ public class UserController {
 
     // ── DELETE /api/v1/users/account ─────────────────────────────────
     @DeleteMapping("/account")
-    @Transactional
     public ResponseEntity<ApiResponse<Map<String, Object>>> deleteAccount(Authentication auth) {
         User user = resolveUser(auth);
-        try {
-            // Exit every group first: removeMemberFromGroup handles admin
-            // transfer, sole-member group deletion, and weekly-progress
-            // aggregate adjustment in one place.
-            List<GroupMember> memberships = groupMemberRepository.findByUserId(user.getId());
-            for (GroupMember gm : memberships) {
-                groupMembershipService.removeMemberFromGroup(gm.getGroupId(), user.getId());
-            }
+        UUID   userId      = user.getId();
+        String firebaseUid = user.getFirebaseUid();   // capture BEFORE delete
 
-            // Hard delete. V69 FK cascades remove all remaining child rows
-            // (workout_sessions, set_logs, pr_events, user_session_feedback,
-            // saved_routines, reactions, notifications, coin_transactions,
-            // device_tokens, ai_insights, user_plans, etc).
-            userRepository.delete(user);
-        } catch (Exception e) {
-            log.error("Hard delete failed for user={}: {}", user.getId(), e.getMessage(), e);
-            throw e;
-        }
+        // 1. Postgres hard-delete in its own transaction (commits on return).
+        userDeletionService.deletePostgresData(user);
+
+        // 2. Firebase delete only AFTER Postgres has committed. Soft-fail
+        //    inside the service: a Firebase failure never 5xxs the user.
+        userDeletionService.deleteFirebaseUser(userId, firebaseUid);
+
         return ResponseEntity.ok(ApiResponse.success(Map.of("deleted", true)));
     }
 
