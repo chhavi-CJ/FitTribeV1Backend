@@ -21,6 +21,7 @@ import com.fittribe.api.entity.*;
 import com.fittribe.api.exception.ApiException;
 import com.fittribe.api.service.GroupProgressService;
 import com.fittribe.api.service.GroupWeeklyCardService;
+import com.fittribe.api.service.GroupMembershipService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import com.fittribe.api.repository.*;
@@ -59,6 +60,7 @@ public class GroupController {
     private final ReactionRepository      reactionRepo;
     private final GroupProgressService              groupProgressService;
     private final GroupWeeklyCardService            groupWeeklyCardService;
+    private final GroupMembershipService            groupMembershipService;
     private final GroupWeeklyTopPerformerRepository topPerformerRepo;
     private final LeaderboardService                leaderboardService;
     private final PokeLogRepository                 pokeLogRepo;
@@ -77,6 +79,7 @@ public class GroupController {
                            ReactionRepository reactionRepo,
                            GroupProgressService groupProgressService,
                            GroupWeeklyCardService groupWeeklyCardService,
+                           GroupMembershipService groupMembershipService,
                            GroupWeeklyTopPerformerRepository topPerformerRepo,
                            LeaderboardService leaderboardService,
                            PokeLogRepository pokeLogRepo,
@@ -94,6 +97,7 @@ public class GroupController {
         this.reactionRepo          = reactionRepo;
         this.groupProgressService  = groupProgressService;
         this.groupWeeklyCardService = groupWeeklyCardService;
+        this.groupMembershipService = groupMembershipService;
         this.topPerformerRepo      = topPerformerRepo;
         this.leaderboardService    = leaderboardService;
         this.pokeLogRepo           = pokeLogRepo;
@@ -257,41 +261,7 @@ public class GroupController {
     public ResponseEntity<ApiResponse<?>> leave(
             @PathVariable UUID id, Authentication auth) {
 
-        UUID userId = userId(auth);
-
-        GroupMember leaving = memberRepo.findByGroupIdAndUserId(id, userId)
-                .orElseThrow(() -> ApiException.notFound("Membership"));
-
-        List<GroupMember> allMembers = memberRepo.findByGroupId(id);
-
-        if (allMembers.size() == 1) {
-            // Sole member — delete the entire group (cascades to members, feed, reactions)
-            groupRepo.deleteById(id);
-        } else {
-            // If leaving user is the only ADMIN, promote longest-tenured member
-            boolean isOnlyAdmin = "ADMIN".equals(leaving.getRole())
-                    && allMembers.stream().filter(m -> "ADMIN".equals(m.getRole())).count() == 1;
-
-            if (isOnlyAdmin) {
-                allMembers.stream()
-                        .filter(m -> !m.getUserId().equals(userId))
-                        .min(Comparator.comparing(GroupMember::getJoinedAt,
-                                Comparator.nullsLast(Comparator.naturalOrder())))
-                        .ifPresent(m -> {
-                            m.setRole("ADMIN");
-                            memberRepo.save(m);
-                        });
-            }
-
-            memberRepo.delete(leaving);
-
-            try {
-                groupProgressService.onMemberLeftGroup(id, userId);
-            } catch (Exception e) {
-                log.error("Group progress leave hook failed for group={} user={}", id, userId, e);
-            }
-        }
-
+        groupMembershipService.removeMemberFromGroup(id, userId(auth));
         return ResponseEntity.ok(ApiResponse.success(Map.of("success", true)));
     }
 
