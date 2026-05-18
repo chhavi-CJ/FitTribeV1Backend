@@ -18,7 +18,7 @@ import com.fittribe.api.repository.UserExerciseBestsRepository;
 import com.fittribe.api.repository.UserPlanRepository;
 import com.fittribe.api.repository.UserRepository;
 import com.fittribe.api.repository.WorkoutSessionRepository;
-import com.fittribe.api.service.GroupProgressService;
+import com.fittribe.api.service.GroupMembershipService;
 import com.fittribe.api.service.RankService;
 import com.fittribe.api.util.PromptSanitiser;
 import jakarta.validation.Valid;
@@ -59,7 +59,7 @@ public class UserController {
     private final UserExerciseBestsRepository bestsRepository;
     private final ObjectMapper                objectMapper;
     private final GroupMemberRepository       groupMemberRepository;
-    private final GroupProgressService        groupProgressService;
+    private final GroupMembershipService      groupMembershipService;
 
     public UserController(UserRepository userRepository,
                           WorkoutSessionRepository sessionRepository,
@@ -67,14 +67,14 @@ public class UserController {
                           UserExerciseBestsRepository bestsRepository,
                           ObjectMapper objectMapper,
                           GroupMemberRepository groupMemberRepository,
-                          GroupProgressService groupProgressService) {
+                          GroupMembershipService groupMembershipService) {
         this.userRepository       = userRepository;
         this.sessionRepository    = sessionRepository;
         this.planRepository       = planRepository;
         this.bestsRepository      = bestsRepository;
         this.objectMapper         = objectMapper;
         this.groupMemberRepository = groupMemberRepository;
-        this.groupProgressService  = groupProgressService;
+        this.groupMembershipService = groupMembershipService;
     }
 
     // ── GET /api/v1/users/me/exercise-bests ─────────────────────────────
@@ -252,22 +252,24 @@ public class UserController {
     @Transactional
     public ResponseEntity<ApiResponse<Map<String, Object>>> deleteAccount(Authentication auth) {
         User user = resolveUser(auth);
-
-        user.setIsActive(false);
-        user.setDeletionRequestedAt(Instant.now());
-        userRepository.save(user);
-
-        // Adjust group weekly progress for every group this user was in
-        List<GroupMember> memberships = groupMemberRepository.findByUserId(user.getId());
-        for (GroupMember gm : memberships) {
-            try {
-                groupProgressService.onMemberLeftGroup(gm.getGroupId(), user.getId());
-            } catch (Exception e) {
-                log.error("Group progress leave hook failed on account deletion for group={} user={}",
-                        gm.getGroupId(), user.getId(), e);
+        try {
+            // Exit every group first: removeMemberFromGroup handles admin
+            // transfer, sole-member group deletion, and weekly-progress
+            // aggregate adjustment in one place.
+            List<GroupMember> memberships = groupMemberRepository.findByUserId(user.getId());
+            for (GroupMember gm : memberships) {
+                groupMembershipService.removeMemberFromGroup(gm.getGroupId(), user.getId());
             }
-        }
 
+            // Hard delete. V69 FK cascades remove all remaining child rows
+            // (workout_sessions, set_logs, pr_events, user_session_feedback,
+            // saved_routines, reactions, notifications, coin_transactions,
+            // device_tokens, ai_insights, user_plans, etc).
+            userRepository.delete(user);
+        } catch (Exception e) {
+            log.error("Hard delete failed for user={}: {}", user.getId(), e.getMessage(), e);
+            throw e;
+        }
         return ResponseEntity.ok(ApiResponse.success(Map.of("deleted", true)));
     }
 
