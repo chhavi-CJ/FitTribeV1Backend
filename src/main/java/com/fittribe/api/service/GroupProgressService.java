@@ -98,8 +98,18 @@ public class GroupProgressService {
 
     /**
      * Called when a user joins a group mid-week.
-     * Creates a snapshot with weekly_goal=0 so the joiner's goal is not
-     * added to this week's target (which was already set).
+     *
+     * The week's target_sessions is "frozen" the moment the week's first
+     * session is recorded — that is exactly when {@link #createProgress}
+     * creates the GroupWeeklyProgress row. So the seeded weekly_goal
+     * depends on whether that row already exists:
+     *
+     *  - No progress row yet (target NOT frozen): seed the joiner's real
+     *    weekly_goal, so the snapshot is consistent with what
+     *    createProgress will later SUM into target_sessions.
+     *  - Progress row exists (target frozen): seed weekly_goal=0 so the
+     *    joiner does not inflate an already-frozen target, and so the
+     *    join/leave symmetry invariant (see onMemberLeftGroup) holds.
      */
     @Transactional
     public void onMemberJoinedGroup(UUID groupId, UUID userId) {
@@ -107,25 +117,41 @@ public class GroupProgressService {
         int isoWeek = currentIsoWeek();
 
         if (snapshotRepo.findByGroupIdAndUserIdAndIsoYearAndIsoWeek(groupId, userId, isoYear, isoWeek).isEmpty()) {
+            boolean targetFrozen = progressRepo
+                    .findByGroupIdAndIsoYearAndIsoWeek(groupId, isoYear, isoWeek)
+                    .isPresent();
+
             GroupMemberGoalSnapshot s = new GroupMemberGoalSnapshot();
             s.setGroupId(groupId);
             s.setUserId(userId);
             s.setIsoYear(isoYear);
             s.setIsoWeek(isoWeek);
-            s.setWeeklyGoal(0);   // joiner does not add to target
+            // Frozen week: 0 so the joiner does not inflate target.
+            // Fresh week: real goal — createProgress will SUM it into target.
+            s.setWeeklyGoal(targetFrozen ? 0 : resolveWeeklyGoal(userId));
             s.setSessionsContributed(0);
             s.setIsActive(true);
             s.setJoinedThisWeek(true);
             s.setLeftThisWeek(false);
             snapshotRepo.save(s);
         }
-        // DO NOT recalculate target — it was locked when the week's first session was recorded
+        // DO NOT recalculate target here. For a frozen week it must not
+        // change; for a fresh week createProgress computes it on the
+        // week's first session.
     }
 
     /**
      * Called when a user leaves a group (or is removed).
      * Marks their snapshot inactive and recomputes the group's sessions_logged
      * and tier for the current week (may downgrade — that is the rule).
+     *
+     * SYMMETRY INVARIANT: a member's snapshot.weekly_goal at leave time
+     * must equal the value that was counted into target_sessions for that
+     * member at join time. The subtraction below ({@code target -
+     * snapshot.weekly_goal}) only stays balanced because onMemberJoinedGroup
+     * seeds the snapshot with exactly the goal that was (or will be) summed
+     * into target — the real goal for a fresh week, 0 for a frozen week.
+     * Do not change one side of this without changing the other.
      */
     @Transactional
     public void onMemberLeftGroup(UUID groupId, UUID userId) {
@@ -305,10 +331,19 @@ public class GroupProgressService {
         progressRepo.save(progress);
     }
 
-    private GroupMemberGoalSnapshot createSnapshot(UUID groupId, UUID userId, int isoYear, int isoWeek) {
-        int weeklyGoal = userRepo.findById(userId)
+    /**
+     * Resolves a user's weekly_goal, defaulting to 4 when null or the
+     * user row is missing. Single source of truth for goal resolution so
+     * onMemberJoinedGroup and createSnapshot cannot drift apart.
+     */
+    private int resolveWeeklyGoal(UUID userId) {
+        return userRepo.findById(userId)
                 .map(u -> u.getWeeklyGoal() != null ? u.getWeeklyGoal() : 4)
                 .orElse(4);
+    }
+
+    private GroupMemberGoalSnapshot createSnapshot(UUID groupId, UUID userId, int isoYear, int isoWeek) {
+        int weeklyGoal = resolveWeeklyGoal(userId);
 
         GroupMemberGoalSnapshot s = new GroupMemberGoalSnapshot();
         s.setGroupId(groupId);
