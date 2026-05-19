@@ -1,6 +1,7 @@
 package com.fittribe.api.repository;
 
 import com.fittribe.api.entity.User;
+import com.fittribe.api.entity.UserMatchingStatus;
 import jakarta.persistence.LockModeType;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Lock;
@@ -17,6 +18,9 @@ import java.util.UUID;
 
 @Repository
 public interface UserRepository extends JpaRepository<User, UUID> {
+
+    /** Eligible-pool query for Conscious Matching batch runs. */
+    List<User> findByUserMatchingStatus(UserMatchingStatus status);
 
     Optional<User> findByFirebaseUid(String firebaseUid);
 

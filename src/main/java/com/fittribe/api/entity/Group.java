@@ -35,6 +35,9 @@ public class Group {
     @Column(name = "created_by")
     private UUID createdBy;
 
+    @Column(name = "created_via", nullable = false, length = 16)
+    private String createdVia = "INVITE";
+
     @Column(name = "created_at", insertable = false, updatable = false)
     private Instant createdAt;
 
@@ -62,6 +65,9 @@ public class Group {
 
     public UUID getCreatedBy()           { return createdBy; }
     public void setCreatedBy(UUID v)     { this.createdBy = v; }
+
+    public String getCreatedVia()        { return createdVia; }
+    public void setCreatedVia(String v)  { this.createdVia = v; }
 
     public Instant getCreatedAt()        { return createdAt; }
 }
