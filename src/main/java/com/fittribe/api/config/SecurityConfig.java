@@ -73,6 +73,10 @@ public class SecurityConfig {
                     // secret check could run. The empty-secret deny-by-default
                     // posture lives in the controller itself.
                     .requestMatchers("/api/v1/admin/jobs/**").permitAll()
+                    // Conscious Matching admin trigger — same rationale as
+                    // /api/v1/admin/jobs/**: its own X-Admin-Key shared-secret
+                    // (deny-by-default) check lives inside the controller.
+                    .requestMatchers("/api/admin/matching/**").permitAll()
                     .requestMatchers("/api/waitlist", "/api/waitlist/**").permitAll();
                 // Dev endpoints are only permitted when running in dev/test mode.
                 // In production (real FIREBASE_PROJECT_ID set), the DevController bean

@@ -100,3 +100,11 @@ resend:
 fittribe:
   admin:
     secret: ${ADMIN_SECRET:}
+
+# ── Conscious Matching ────────────────────────────────────────────────
+# Shared key required on the X-Admin-Key header for
+# /api/admin/matching/run-batch. Default is intentionally empty so the
+# app starts cleanly without ADMIN_KEY set — the controller treats an
+# empty/missing key as "reject all requests" (deny-by-default).
+matching:
+  admin-key: ${ADMIN_KEY:}
