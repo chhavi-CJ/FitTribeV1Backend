@@ -106,6 +106,10 @@ public class User {
     @Column(name = "onboarding_complete", nullable = false)
     private Boolean onboardingComplete = false;
 
+    @Enumerated(EnumType.STRING)
+    @Column(name = "user_matching_status", nullable = false, length = 16)
+    private UserMatchingStatus userMatchingStatus = UserMatchingStatus.NONE;
+
     @Column(name = "deletion_requested_at")
     private Instant deletionRequestedAt;
 
@@ -208,6 +212,9 @@ public class User {
 
     public Boolean getOnboardingComplete()                       { return onboardingComplete; }
     public void setOnboardingComplete(Boolean onboardingComplete) { this.onboardingComplete = onboardingComplete; }
+
+    public UserMatchingStatus getUserMatchingStatus()             { return userMatchingStatus; }
+    public void setUserMatchingStatus(UserMatchingStatus v)       { this.userMatchingStatus = v; }
 
     public Instant getDeletionRequestedAt()                         { return deletionRequestedAt; }
     public void setDeletionRequestedAt(Instant deletionRequestedAt) { this.deletionRequestedAt = deletionRequestedAt; }
