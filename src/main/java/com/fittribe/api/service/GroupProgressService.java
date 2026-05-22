@@ -267,9 +267,21 @@ public class GroupProgressService {
             Group group = groupRepo.findById(groupId).orElse(null);
             if (group == null) continue;
 
-            GroupWeeklyProgress progress = progressRepo
-                    .findByGroupIdAndIsoYearAndIsoWeek(groupId, isoYear, isoWeek)
-                    .orElse(emptyProgress(groupId, isoYear, isoWeek));
+            // Live count from current memberships — not cached on progress row
+            int memberCount = memberRepo.findByGroupId(groupId).size();
+
+            Optional<GroupWeeklyProgress> progressOpt = progressRepo
+                    .findByGroupIdAndIsoYearAndIsoWeek(groupId, isoYear, isoWeek);
+            // When no progress row exists yet for this week (no one has logged
+            // a workout), fall back to a live-computed targetSessions = sum of
+            // current members' weekly goals. The default emptyProgress returns
+            // 0 for target which would render the carousel as 0/0 even though
+            // the goals are knowable from members alone.
+            GroupWeeklyProgress progress = progressOpt.orElseGet(() -> {
+                GroupWeeklyProgress empty = emptyProgress(groupId, isoYear, isoWeek);
+                empty.setTargetSessions(sumCurrentMemberWeeklyGoals(groupId));
+                return empty;
+            });
 
             int myContributed = snapshotRepo
                     .findByGroupIdAndUserIdAndIsoYearAndIsoWeek(groupId, userId, isoYear, isoWeek)
@@ -286,7 +298,7 @@ public class GroupProgressService {
                     progress.getCurrentTier(),
                     progress.getSessionsLogged(),
                     progress.getTargetSessions(),
-                    pct, myContributed));
+                    pct, myContributed, memberCount));
         }
         return result;
     }
@@ -358,14 +370,24 @@ public class GroupProgressService {
         return snapshotRepo.save(s);
     }
 
-    private GroupWeeklyProgress createProgress(UUID groupId, int isoYear, int isoWeek) {
-        // Target = SUM of weekly_goal across all current group members
+    /**
+     * Live computation of a group's weekly target = SUM of weekly_goal
+     * across all current members (defaults to 4 when weekly_goal is null).
+     * Used by createProgress AND the carousel when no GroupWeeklyProgress
+     * row exists yet for the current week.
+     */
+    private int sumCurrentMemberWeeklyGoals(UUID groupId) {
         Integer target = jdbc.queryForObject(
                 "SELECT COALESCE(SUM(COALESCE(u.weekly_goal, 4)), 0) " +
                 "FROM group_members gm JOIN users u ON u.id = gm.user_id " +
                 "WHERE gm.group_id = ?",
                 Integer.class, groupId);
-        if (target == null) target = 0;
+        return target != null ? target : 0;
+    }
+
+    private GroupWeeklyProgress createProgress(UUID groupId, int isoYear, int isoWeek) {
+        // Target = SUM of weekly_goal across all current group members
+        int target = sumCurrentMemberWeeklyGoals(groupId);
 
         GroupWeeklyProgress p = new GroupWeeklyProgress();
         p.setGroupId(groupId);

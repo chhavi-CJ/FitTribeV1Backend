@@ -12,5 +12,6 @@ public record GroupCarouselDto(
         int    sessionsLogged,
         int    targetSessions,
         int    percentComplete,
-        int    mySessionsContributed
+        int    mySessionsContributed,
+        int    memberCount
 ) {}
