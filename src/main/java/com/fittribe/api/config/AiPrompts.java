@@ -437,8 +437,12 @@ public final class AiPrompts {
             "FULL BODY: kettlebell-swing, burpees, box-jumps, power-clean\n\n" +
 
             "LENGTH RULES — STRICTLY ENFORCED:\n" +
-            "- sessionNote: MAX 3 sentences. MUST reference recovery state " +
-            "and/or feedback rating. Never generic.\n" +
+            "- sessionNote: MAX 3 sentences. " +
+            "If historyBlock says 'No training history — first session', " +
+            "acknowledge this is their first session — focus on what to expect " +
+            "today and how to start safely. Do NOT mention recovery state for new users. " +
+            "Otherwise, MUST reference recovery state and/or feedback rating. " +
+            "Never generic.\n" +
             "- dayCoachTip: EXACTLY 1 sentence. Actionable. " +
             "Specific to today's session type.\n" +
             "- whyThisExercise: MAX 2 sentences per exercise.\n" +
@@ -463,7 +467,7 @@ public final class AiPrompts {
             "      \"coachTip\": \"1 actionable sentence only\"\n" +
             "    }\n" +
             "  ],\n" +
-            "  \"sessionNote\": \"Max 3 sentences. Why today specifically — reference recovery state or feedback rating. Never generic.\",\n" +
+            "  \"sessionNote\": \"Max 3 sentences. For new users (no training history), acknowledge first session and focus on what to expect. For returning users, reference recovery state or feedback rating. Never generic.\",\n" +
             "  \"dayCoachTip\": \"1 sentence only. Actionable tip for today's session type.\",\n" +
             "  \"cardioSuggestion\": {\n" +
             "    \"type\": \"brisk_walk\",\n" +
