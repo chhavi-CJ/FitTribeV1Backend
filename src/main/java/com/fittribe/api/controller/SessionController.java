@@ -934,6 +934,24 @@ public class SessionController {
         log.info("finish T+{}ms idempotency_check_done sessionId={}",
                 (System.nanoTime() - startNanos) / 1_000_000, id);
 
+        // ── Optional name update ─────────────────────────────────────────
+        // The active workout screen lets users edit the workout name (e.g.
+        // they forgot to set a meaningful name on the Custom Workout screen
+        // before tapping Start). The updated name is only persisted at
+        // finish — discarded sessions don't get the name update, which
+        // matches the principle: no point saving the workout if the user
+        // walked away.
+        if (request.name() != null) {
+            String trimmedName = request.name().trim();
+            if (!trimmedName.isEmpty()) {
+                if (trimmedName.length() > 60) {
+                    throw new ApiException(HttpStatus.BAD_REQUEST,
+                            "NAME_TOO_LONG", "Workout name must be 60 characters or less.");
+                }
+                session.setName(trimmedName);
+            }
+        }
+
         // ── Compute totals and build exercises JSONB from request ─────
         int totalSets;
         BigDecimal totalVolumeKg;

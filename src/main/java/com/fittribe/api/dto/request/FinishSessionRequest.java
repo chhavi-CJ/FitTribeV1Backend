@@ -4,5 +4,6 @@ import java.util.List;
 
 public record FinishSessionRequest(
         Integer durationMins,
-        List<ExerciseLogRequest> exercises
+        List<ExerciseLogRequest> exercises,
+        String name
 ) {}
