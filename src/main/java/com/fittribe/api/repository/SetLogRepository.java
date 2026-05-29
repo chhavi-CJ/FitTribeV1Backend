@@ -128,6 +128,11 @@ public interface SetLogRepository extends JpaRepository<SetLog, UUID> {
      *      for pre-fill anyway.
      *   4. DISTINCT ON (exerciseId) ordered by finished_at DESC picks the
      *      most recent session per exercise.
+     *   5. Sets with non-numeric weightKg/setNumber/reps are skipped via
+     *      regex guards before casting — defends against malformed historical
+     *      JSONB that would otherwise abort the native query (an empty
+     *      string, null, or any non-numeric weightKg in one set would
+     *      otherwise 500 the whole endpoint for that user).
      *
      * Projection columns must match LastLoggedSetDto order:
      *   exercise_id (text), weight_kg (numeric), reps (int), logged_at (timestamptz).
@@ -152,7 +157,8 @@ public interface SetLogRepository extends JpaRepository<SetLog, UUID> {
             LEFT JOIN LATERAL (
                 SELECT s
                 FROM jsonb_array_elements(ex->'sets') AS s
-                WHERE (s->>'setNumber')::int = 1
+                WHERE s->>'setNumber' ~ '^[0-9]+$'
+                  AND (s->>'setNumber')::int = 1
                 LIMIT 1
             ) AS first_set_row(first_set) ON TRUE
             WHERE ws.user_id  = :userId
@@ -160,6 +166,8 @@ public interface SetLogRepository extends JpaRepository<SetLog, UUID> {
               AND ws.exercises IS NOT NULL
               AND jsonb_typeof(ws.exercises) = 'array'
               AND first_set_row.first_set IS NOT NULL
+              AND first_set_row.first_set->>'weightKg' ~ '^-?[0-9]+(\\.[0-9]+)?$'
+              AND first_set_row.first_set->>'reps'     ~ '^[0-9]+$'
               AND (first_set_row.first_set->>'reps')::int > 0
         ) per_session
         ORDER BY exercise_id, session_finished_at DESC
