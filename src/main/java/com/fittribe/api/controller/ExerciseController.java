@@ -79,7 +79,27 @@ public class ExerciseController {
             String exerciseId    = (String) row[0];
             BigDecimal weightKg  = (BigDecimal) row[1];
             Integer reps         = (Integer) row[2];
-            Instant loggedAt     = ((java.sql.Timestamp) row[3]).toInstant();
+            // logged_at (timestamptz) comes back from JDBC as java.time.Instant
+            // (current pgjdbc), not java.sql.Timestamp. The original
+            // (java.sql.Timestamp) cast was wrong in every environment — it
+            // only never threw locally because no test or curl exercised this
+            // controller path before deploy; the first real HTTP call on
+            // staging 500'd with ClassCastException. Handle Instant / Timestamp /
+            // OffsetDateTime defensively so any driver or PG version works.
+            Object tsRaw = row[3];
+            Instant loggedAt;
+            if (tsRaw instanceof Instant i) {
+                loggedAt = i;
+            } else if (tsRaw instanceof java.sql.Timestamp ts) {
+                loggedAt = ts.toInstant();
+            } else if (tsRaw instanceof java.time.OffsetDateTime odt) {
+                loggedAt = odt.toInstant();
+            } else if (tsRaw == null) {
+                loggedAt = null;
+            } else {
+                throw new IllegalStateException(
+                        "Unexpected type for logged_at: " + tsRaw.getClass().getName());
+            }
             result.put(exerciseId, new LastLoggedSetDto(weightKg, reps, loggedAt));
         }
         return ResponseEntity.ok(ApiResponse.success(result));
