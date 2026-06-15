@@ -1,10 +1,15 @@
 package com.fittribe.api.service;
 
 import com.fittribe.api.entity.Exercise;
+import com.fittribe.api.entity.Group;
+import com.fittribe.api.entity.GroupMember;
+import com.fittribe.api.entity.User;
 import com.fittribe.api.entity.WorkoutSession;
 import com.fittribe.api.prv2.detector.LoggedSet;
 import com.fittribe.api.prv2.service.PrWritePathService;
 import com.fittribe.api.repository.ExerciseRepository;
+import com.fittribe.api.repository.GroupMemberRepository;
+import com.fittribe.api.repository.GroupRepository;
 import com.fittribe.api.repository.PrEventRepository;
 import com.fittribe.api.repository.SetLogRepository;
 import com.fittribe.api.repository.UserDayStatusRepository;
@@ -24,8 +29,10 @@ import java.time.LocalDate;
 import java.time.temporal.ChronoUnit;
 import java.time.temporal.TemporalAdjusters;
 import java.util.List;
+import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
+import java.util.UUID;
 import java.util.stream.Collectors;
 
 /**
@@ -82,6 +89,9 @@ public class SessionFinishPostProcessor {
     private final ExerciseRepository       exerciseRepo;
     private final PlanService              planService;
     private final BonusFreezeGrantService  bonusFreezeGrantService;
+    private final NotificationService      notificationService;
+    private final GroupMemberRepository    groupMemberRepo;
+    private final GroupRepository          groupRepo;
 
     public SessionFinishPostProcessor(
             UserDayStatusRepository dayStatusRepo,
@@ -97,7 +107,10 @@ public class SessionFinishPostProcessor {
             SetLogRepository setLogRepo,
             ExerciseRepository exerciseRepo,
             PlanService planService,
-            BonusFreezeGrantService bonusFreezeGrantService) {
+            BonusFreezeGrantService bonusFreezeGrantService,
+            NotificationService notificationService,
+            GroupMemberRepository groupMemberRepo,
+            GroupRepository groupRepo) {
         this.dayStatusRepo           = dayStatusRepo;
         this.sessionRepo             = sessionRepo;
         this.userRepo                = userRepo;
@@ -112,6 +125,9 @@ public class SessionFinishPostProcessor {
         this.exerciseRepo            = exerciseRepo;
         this.planService             = planService;
         this.bonusFreezeGrantService = bonusFreezeGrantService;
+        this.notificationService     = notificationService;
+        this.groupMemberRepo         = groupMemberRepo;
+        this.groupRepo               = groupRepo;
     }
 
     /**
@@ -133,6 +149,7 @@ public class SessionFinishPostProcessor {
         tryStep("prDetection",           () -> runPrDetection(ctx));
         tryStep("workoutFinishedFeed",   () -> writeWorkoutFinishedFeed(ctx));
         tryStep("groupProgress",         () -> recordGroupProgress(ctx));
+        tryStep("notifyGroupFinished",   () -> notifyGroupWorkoutFinished(ctx));
         tryStep("nextWeekPlan",          () -> nextWeekPlan(ctx));
         tryStep("setLogCleanup",         () -> deleteSetLogs(ctx));
 
@@ -317,6 +334,51 @@ public class SessionFinishPostProcessor {
         groupProgressService.recordSessionForUser(
                 ctx.userId(),
                 ctx.finishedAt().atZone(Zones.APP_ZONE).toLocalDate());
+    }
+
+    /**
+     * Fan out a push notification to every other member of every group
+     * the finisher belongs to: "&lt;name&gt; just finished their workout 💪".
+     * Title matches the group-join push style (the group's own name).
+     *
+     * <p>Per-token FCM failures are swallowed inside
+     * {@link NotificationService#sendPushToGroupExceptUser}; the outer
+     * tryStep wrapper protects the pipeline from any unexpected error
+     * (e.g. DB lookup failure) so subsequent steps still run.
+     */
+    private void notifyGroupWorkoutFinished(SessionFinishContext ctx) {
+        String displayName = userRepo.findById(ctx.userId())
+                .map(User::getDisplayName)
+                .orElse("Someone");
+
+        List<GroupMember> memberships = groupMemberRepo.findByUserId(ctx.userId());
+        if (memberships.isEmpty()) return;
+
+        List<UUID> groupIds = memberships.stream()
+                .map(GroupMember::getGroupId)
+                .filter(Objects::nonNull)
+                .distinct()
+                .collect(Collectors.toList());
+
+        Map<UUID, String> groupNames = groupRepo.findAllById(groupIds).stream()
+                .collect(Collectors.toMap(Group::getId, Group::getName));
+
+        String body = displayName + " just finished their workout 💪";
+
+        for (UUID groupId : groupIds) {
+            String title = groupNames.getOrDefault(groupId, "Wynners");
+            notificationService.sendPushToGroupExceptUser(
+                    groupId,
+                    ctx.userId(),
+                    title,
+                    body,
+                    Map.of(
+                            "type",           "GROUP_MEMBER_FINISHED",
+                            "groupId",        groupId.toString(),
+                            "finishedUserId", ctx.userId().toString()
+                    )
+            );
+        }
     }
 
     /**
