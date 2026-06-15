@@ -22,6 +22,8 @@ public interface GroupMemberRepository extends JpaRepository<GroupMember, UUID> 
 
     boolean existsByGroupIdAndUserId(UUID groupId, UUID userId);
 
+    long countByGroupId(UUID groupId);
+
     /** Batch load: all memberships for a set of groups in one query. */
     List<GroupMember> findByGroupIdIn(Collection<UUID> groupIds);
 

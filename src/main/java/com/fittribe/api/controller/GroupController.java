@@ -50,6 +50,8 @@ public class GroupController {
 
     private static final Logger log = LoggerFactory.getLogger(GroupController.class);
 
+    private static final int MAX_GROUP_MEMBERS = 8;
+
     private final GroupRepository         groupRepo;
     private final GroupMemberRepository   memberRepo;
     private final FeedItemRepository      feedRepo;
@@ -154,6 +156,11 @@ public class GroupController {
 
         if (memberRepo.existsByGroupIdAndUserId(group.getId(), userId)) {
             throw ApiException.alreadyMember();
+        }
+
+        long currentMembers = memberRepo.countByGroupId(group.getId());
+        if (currentMembers >= MAX_GROUP_MEMBERS) {
+            throw ApiException.groupFull();
         }
 
         GroupMember member = new GroupMember();

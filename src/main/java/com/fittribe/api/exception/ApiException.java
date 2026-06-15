@@ -33,6 +33,11 @@ public class ApiException extends RuntimeException {
                 "You are already a member of this group.");
     }
 
+    public static ApiException groupFull() {
+        return new ApiException(HttpStatus.CONFLICT, "GROUP_FULL",
+                "This group is full (8 members max).");
+    }
+
     public static ApiException insufficientCoins() {
         return new ApiException(HttpStatus.PAYMENT_REQUIRED, "INSUFFICIENT_COINS",
                 "You do not have enough FitCoins for this action.");
