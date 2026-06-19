@@ -64,7 +64,9 @@ public class AuthService {
         String phone = (String) decoded.getClaims().get("phone_number");
         String email = decoded.getEmail();
 
-        if (phone == null && email == null) {
+        // Apple users may have neither phone nor email (Hide My Email, or any
+        // sign-in after the first). They are identified by Firebase UID instead.
+        if (phone == null && email == null && provider != AuthProvider.APPLE) {
             throw new ApiException(HttpStatus.BAD_REQUEST, "NO_IDENTIFIER",
                     "Firebase token contains neither phone nor email.");
         }
