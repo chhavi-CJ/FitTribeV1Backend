@@ -191,21 +191,25 @@ public class GroupController {
         feed.setBody((displayName != null ? displayName : "Someone") + " joined the group");
         feedRepo.save(feed);
 
+        // EVENT 5 — GROUP_MEMBER_JOINED: push + in-app to all existing members
         try {
-            notificationService.sendPushToGroupExceptUser(
-                group.getId(),
-                userId,  // exclude the joiner — they update their UI locally
-                group.getName(),
-                (displayName != null ? displayName : "Someone") + " joined " + group.getName(),
-                Map.of(
-                    "type", "GROUP_MEMBER_JOINED",
-                    "groupId", group.getId().toString(),
-                    "joinedUserId", userId.toString()
-                )
-            );
+            String notifyName = displayName != null ? displayName : "Someone";
+            String joinTitle  = "👋 " + notifyName + " joined " + group.getName();
+            String joinBody   = "Your accountability crew just got stronger!";
+            Map<String, String> joinData = Map.of(
+                    "type",         "GROUP_MEMBER_JOINED",
+                    "targetScreen", "/group",
+                    "groupId",      group.getId().toString(),
+                    "joinedUserId", userId.toString());
+            for (com.fittribe.api.entity.GroupMember m : memberRepo.findByGroupId(group.getId())) {
+                if (userId.equals(m.getUserId())) continue; // exclude the joiner
+                notificationService.notifyUser(
+                        m.getUserId(), "GROUP_MEMBER_JOINED",
+                        joinTitle, joinBody,
+                        userId, group.getId(), joinData, true);
+            }
         } catch (Exception e) {
-            log.error("Group join push fan-out failed for group={}", group.getId(), e);
-            // Don't fail the join because push failed
+            log.error("Group join notification fan-out failed for group={}", group.getId(), e);
         }
 
         long memberCount = memberRepo.findByGroupId(group.getId()).size();

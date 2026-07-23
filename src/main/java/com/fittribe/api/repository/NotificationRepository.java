@@ -27,6 +27,10 @@ public interface NotificationRepository extends JpaRepository<Notification, UUID
            nativeQuery = true)
     void markAllReadByRecipientId(@Param("recipientId") UUID recipientId);
 
+    /** Dedup guard for GROUP_GOAL_HIT — check whether a notification of
+     *  the given type was already created for this group after a given timestamp. */
+    boolean existsByGroupIdAndTypeAndCreatedAtAfter(UUID groupId, String type, java.time.OffsetDateTime after);
+
     @Modifying
     @Transactional
     @Query(value = """

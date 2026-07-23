@@ -10,6 +10,7 @@ import com.fittribe.api.prv2.service.PrWritePathService;
 import com.fittribe.api.repository.ExerciseRepository;
 import com.fittribe.api.repository.GroupMemberRepository;
 import com.fittribe.api.repository.GroupRepository;
+import com.fittribe.api.repository.NotificationRepository;
 import com.fittribe.api.repository.PrEventRepository;
 import com.fittribe.api.repository.SetLogRepository;
 import com.fittribe.api.repository.UserDayStatusRepository;
@@ -26,6 +27,7 @@ import java.math.BigDecimal;
 import java.time.DayOfWeek;
 import java.time.Instant;
 import java.time.LocalDate;
+import java.time.ZoneOffset;
 import java.time.temporal.ChronoUnit;
 import java.time.temporal.TemporalAdjusters;
 import java.util.List;
@@ -90,6 +92,7 @@ public class SessionFinishPostProcessor {
     private final PlanService              planService;
     private final BonusFreezeGrantService  bonusFreezeGrantService;
     private final NotificationService      notificationService;
+    private final NotificationRepository   notificationRepo;
     private final GroupMemberRepository    groupMemberRepo;
     private final GroupRepository          groupRepo;
 
@@ -109,6 +112,7 @@ public class SessionFinishPostProcessor {
             PlanService planService,
             BonusFreezeGrantService bonusFreezeGrantService,
             NotificationService notificationService,
+            NotificationRepository notificationRepo,
             GroupMemberRepository groupMemberRepo,
             GroupRepository groupRepo) {
         this.dayStatusRepo           = dayStatusRepo;
@@ -126,6 +130,7 @@ public class SessionFinishPostProcessor {
         this.planService             = planService;
         this.bonusFreezeGrantService = bonusFreezeGrantService;
         this.notificationService     = notificationService;
+        this.notificationRepo        = notificationRepo;
         this.groupMemberRepo         = groupMemberRepo;
         this.groupRepo               = groupRepo;
     }
@@ -140,18 +145,21 @@ public class SessionFinishPostProcessor {
         log.info("postFinish START sessionId={} thread={}",
                 ctx.sessionId(), Thread.currentThread().getName());
 
-        tryStep("clearTodayStatus",      () -> clearTodayStatus(ctx));
-        tryStep("streakSnapshot",        () -> writeStreakSnapshot(ctx));
-        tryStep("strengthSnapshot",      () -> computeStrengthSnapshot(ctx));
-        tryStep("rankPromotion",         () -> checkRankPromotion(ctx));
-        tryStep("baseCoinAwards",        () -> awardBaseCoins(ctx));
-        tryStep("streakMilestoneFeed",   () -> writeStreakMilestoneFeed(ctx));
-        tryStep("prDetection",           () -> runPrDetection(ctx));
-        tryStep("workoutFinishedFeed",   () -> writeWorkoutFinishedFeed(ctx));
-        tryStep("groupProgress",         () -> recordGroupProgress(ctx));
-        tryStep("notifyGroupFinished",   () -> notifyGroupWorkoutFinished(ctx));
-        tryStep("nextWeekPlan",          () -> nextWeekPlan(ctx));
-        tryStep("setLogCleanup",         () -> deleteSetLogs(ctx));
+        tryStep("clearTodayStatus",       () -> clearTodayStatus(ctx));
+        tryStep("streakSnapshot",         () -> writeStreakSnapshot(ctx));
+        tryStep("strengthSnapshot",       () -> computeStrengthSnapshot(ctx));
+        tryStep("rankPromotion",          () -> checkRankPromotion(ctx));
+        tryStep("baseCoinAwards",         () -> awardBaseCoins(ctx));
+        tryStep("streakMilestoneFeed",    () -> writeStreakMilestoneFeed(ctx));
+        tryStep("streakMilestoneNotify",  () -> notifyStreakMilestone(ctx));
+        tryStep("prDetection",            () -> runPrDetection(ctx));
+        tryStep("workoutFinishedFeed",    () -> writeWorkoutFinishedFeed(ctx));
+        tryStep("groupProgress",          () -> recordGroupProgress(ctx));
+        tryStep("notifyGroupMemberLogged",() -> notifyGroupMemberLogged(ctx));
+        tryStep("nextWeekPlan",           () -> nextWeekPlan(ctx));
+        tryStep("weeklyGoalNotify",       () -> notifyWeeklyGoalHit(ctx));
+        tryStep("groupGoalNotify",        () -> notifyGroupGoalHit(ctx));
+        tryStep("setLogCleanup",          () -> deleteSetLogs(ctx));
 
         log.info("postFinish DONE sessionId={} totalMs={}",
                 ctx.sessionId(), (System.nanoTime() - t0) / 1_000_000);
@@ -337,47 +345,125 @@ public class SessionFinishPostProcessor {
     }
 
     /**
-     * Fan out a push notification to every other member of every group
-     * the finisher belongs to: "&lt;name&gt; just finished their workout 💪".
-     * Title matches the group-join push style (the group's own name).
-     *
-     * <p>Per-token FCM failures are swallowed inside
-     * {@link NotificationService#sendPushToGroupExceptUser}; the outer
-     * tryStep wrapper protects the pipeline from any unexpected error
-     * (e.g. DB lookup failure) so subsequent steps still run.
+     * EVENT 1 — STREAK_MILESTONE: push + in-app when the user's streak
+     * lands on a milestone value (5, 10, 30, 50, 100, 365).
      */
-    private void notifyGroupWorkoutFinished(SessionFinishContext ctx) {
+    void notifyStreakMilestone(SessionFinishContext ctx) {
+        int streak = ctx.currentStreak();
+        if (!STREAK_MILESTONES.contains(streak)) return;
+        notificationService.notifyUser(
+                ctx.userId(),
+                "STREAK_MILESTONE",
+                "🔥 " + streak + " day streak!",
+                "You've trained " + streak + " days in a row. Keep the fire going!",
+                null, null,
+                Map.of("type", "STREAK_MILESTONE", "targetScreen", "/home"),
+                true);
+    }
+
+    /**
+     * EVENT 2 — WEEKLY_GOAL_HIT: push + in-app on the exact session that
+     * crosses the user's weekly session goal. Fires once per week
+     * (exact-match guard: completed == goal, not >=).
+     */
+    void notifyWeeklyGoalHit(SessionFinishContext ctx) {
+        if (ctx.completedThisWeek() != ctx.weeklyGoal()) return;
+        notificationService.notifyUser(
+                ctx.userId(),
+                "WEEKLY_GOAL_HIT",
+                "🎯 Weekly goal smashed!",
+                "You hit your " + ctx.weeklyGoal()
+                        + "-session goal this week. Consistency wins.",
+                null, null,
+                Map.of("type", "WEEKLY_GOAL_HIT", "targetScreen", "/progress"),
+                true);
+    }
+
+    /**
+     * EVENT 3 — GROUP_GOAL_HIT: push + in-app to ALL members of each
+     * group where every member has now met the group's weekly goal.
+     * Dedup: skipped if a GROUP_GOAL_HIT notification was already
+     * written for this group in the current week.
+     */
+    void notifyGroupGoalHit(SessionFinishContext ctx) {
+        List<GroupMember> myMemberships = groupMemberRepo.findByUserId(ctx.userId());
+        if (myMemberships.isEmpty()) return;
+
+        List<UUID> groupIds = myMemberships.stream()
+                .map(GroupMember::getGroupId).filter(Objects::nonNull).distinct()
+                .collect(Collectors.toList());
+
+        java.time.OffsetDateTime weekStartOdt = ctx.weekFrom().atOffset(ZoneOffset.UTC);
+
+        for (UUID groupId : groupIds) {
+            Group group = groupRepo.findById(groupId).orElse(null);
+            if (group == null) continue;
+            int groupGoal = group.getWeeklyGoal() != null ? group.getWeeklyGoal() : 4;
+
+            // Dedup — only fire once per group per week
+            if (notificationRepo.existsByGroupIdAndTypeAndCreatedAtAfter(
+                    groupId, "GROUP_GOAL_HIT", weekStartOdt)) continue;
+
+            List<GroupMember> members = groupMemberRepo.findByGroupId(groupId);
+            boolean allHit = members.stream().allMatch(m ->
+                    sessionRepo.countByUserIdAndStatusAndFinishedAtBetween(
+                            m.getUserId(), "COMPLETED", ctx.weekFrom(), ctx.weekTo())
+                    >= groupGoal);
+
+            if (!allHit) continue;
+
+            String title = "🏆 " + group.getName() + " crushed it!";
+            String body  = "Everyone in " + group.getName()
+                    + " hit their weekly goal. Total team effort!";
+            Map<String, String> data = Map.of(
+                    "type",         "GROUP_GOAL_HIT",
+                    "targetScreen", "/group",
+                    "groupId",      groupId.toString());
+
+            for (GroupMember m : members) {
+                notificationService.notifyUser(
+                        m.getUserId(), "GROUP_GOAL_HIT", title, body,
+                        null, groupId, data, true);
+            }
+        }
+    }
+
+    /**
+     * EVENT 4 — GROUP_MEMBER_LOGGED: in-app ONLY (no push — too noisy)
+     * to every other member of every group the finisher belongs to.
+     * Replaces the old sendPushToGroupExceptUser call so the in-app feed
+     * is populated as well.
+     */
+    void notifyGroupMemberLogged(SessionFinishContext ctx) {
         String displayName = userRepo.findById(ctx.userId())
-                .map(User::getDisplayName)
-                .orElse("Someone");
+                .map(User::getDisplayName).orElse("Someone");
 
         List<GroupMember> memberships = groupMemberRepo.findByUserId(ctx.userId());
         if (memberships.isEmpty()) return;
 
         List<UUID> groupIds = memberships.stream()
-                .map(GroupMember::getGroupId)
-                .filter(Objects::nonNull)
-                .distinct()
+                .map(GroupMember::getGroupId).filter(Objects::nonNull).distinct()
                 .collect(Collectors.toList());
 
         Map<UUID, String> groupNames = groupRepo.findAllById(groupIds).stream()
                 .collect(Collectors.toMap(Group::getId, Group::getName));
 
-        String body = displayName + " just finished their workout 💪";
-
         for (UUID groupId : groupIds) {
-            String title = groupNames.getOrDefault(groupId, "Wynners");
-            notificationService.sendPushToGroupExceptUser(
-                    groupId,
-                    ctx.userId(),
-                    title,
-                    body,
-                    Map.of(
-                            "type",           "GROUP_MEMBER_FINISHED",
-                            "groupId",        groupId.toString(),
-                            "finishedUserId", ctx.userId().toString()
-                    )
-            );
+            String groupName = groupNames.getOrDefault(groupId, "your group");
+            String title = "💪 " + displayName + " just trained";
+            String body  = displayName + " logged a workout in " + groupName;
+            Map<String, String> data = Map.of(
+                    "type",           "GROUP_MEMBER_LOGGED",
+                    "targetScreen",   "/group",
+                    "groupId",        groupId.toString(),
+                    "finishedUserId", ctx.userId().toString());
+
+            for (GroupMember m : groupMemberRepo.findByGroupId(groupId)) {
+                if (ctx.userId().equals(m.getUserId())) continue;
+                notificationService.notifyUser(
+                        m.getUserId(), "GROUP_MEMBER_LOGGED", title, body,
+                        ctx.userId(), groupId, data, false);
+            }
         }
     }
 
