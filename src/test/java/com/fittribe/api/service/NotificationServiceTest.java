@@ -3,6 +3,7 @@ package com.fittribe.api.service;
 import com.fittribe.api.entity.Notification;
 import com.fittribe.api.repository.DeviceTokenRepository;
 import com.fittribe.api.repository.GroupMemberRepository;
+import com.fittribe.api.repository.NotificationPreferenceRepository;
 import com.fittribe.api.repository.NotificationRepository;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -18,9 +19,10 @@ import static org.mockito.Mockito.*;
 
 class NotificationServiceTest {
 
-    private DeviceTokenRepository  deviceTokenRepo;
-    private GroupMemberRepository  groupMemberRepo;
-    private NotificationRepository notificationRepo;
+    private DeviceTokenRepository         deviceTokenRepo;
+    private GroupMemberRepository         groupMemberRepo;
+    private NotificationRepository        notificationRepo;
+    private NotificationPreferenceRepository prefRepo;
 
     private NotificationService service;
 
@@ -29,7 +31,8 @@ class NotificationServiceTest {
         deviceTokenRepo  = mock(DeviceTokenRepository.class);
         groupMemberRepo  = mock(GroupMemberRepository.class);
         notificationRepo = mock(NotificationRepository.class);
-        service = new NotificationService(deviceTokenRepo, groupMemberRepo, notificationRepo);
+        prefRepo         = mock(NotificationPreferenceRepository.class);
+        service = new NotificationService(deviceTokenRepo, groupMemberRepo, notificationRepo, prefRepo);
     }
 
     @Test
