@@ -4,6 +4,7 @@ import com.fittribe.api.entity.FeedItem;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.stereotype.Repository;
 
+import java.time.Instant;
 import java.util.List;
 import java.util.UUID;
 
@@ -11,4 +12,6 @@ import java.util.UUID;
 public interface FeedItemRepository extends JpaRepository<FeedItem, UUID> {
 
     List<FeedItem> findTop30ByGroupIdOrderByCreatedAtDesc(UUID groupId);
+
+    List<FeedItem> findByGroupIdAndCreatedAtAfterOrderByCreatedAtDesc(UUID groupId, Instant after);
 }

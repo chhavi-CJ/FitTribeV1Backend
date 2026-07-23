@@ -5,8 +5,6 @@ import com.fittribe.api.waitlist.dto.WaitlistResponse;
 import com.fittribe.api.waitlist.dto.WaitlistSubmitRequest;
 import jakarta.persistence.EntityManager;
 import jakarta.persistence.PersistenceContext;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -16,21 +14,21 @@ import java.util.Optional;
 @Service
 public class WaitlistService {
 
-    private static final Logger log = LoggerFactory.getLogger(WaitlistService.class);
     private static final int REFERRAL_CODE_LENGTH = 6;
     private static final String REFERRAL_CODE_ALPHABET =
         "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";  // no confusing chars (0/O, 1/I, etc.)
 
     private final WaitlistRepository repo;
-    private final ReferralService    referralService;
     private final SecureRandom random = new SecureRandom();
 
     @PersistenceContext
     private EntityManager entityManager;
 
-    public WaitlistService(WaitlistRepository repo, ReferralService referralService) {
-        this.repo            = repo;
-        this.referralService = referralService;
+    private final WaitlistEmailService emailService;
+
+    public WaitlistService(WaitlistRepository repo, WaitlistEmailService emailService) {
+        this.repo = repo;
+        this.emailService = emailService;
     }
 
     @Transactional
@@ -56,15 +54,14 @@ public class WaitlistService {
         // Pull back the DB-assigned position and start_position (set via sequence + trigger).
         // flush forces the INSERT so DEFAULT-assigned position becomes readable via refresh()
         entityManager.refresh(saved);
+        emailService.sendConfirmation(saved.getEmail(), saved.getReferralCode(), saved.getPosition());
 
-        // Credit referrer — runs in its own transaction (REQUIRES_NEW) so a failure
-        // here never rolls back the new user's INSERT above.
+        // Credit referrer (non-blocking if fails)
         if (req.getReferredByCode() != null && !req.getReferredByCode().isBlank()) {
             try {
-                referralService.applyReferralJump(req.getReferredByCode());
+                applyReferralJump(req.getReferredByCode());
             } catch (Exception e) {
-                log.error("Referral jump failed for code={} — signup unaffected: {}",
-                        req.getReferredByCode(), e.getMessage(), e);
+                // Log and continue — referral credit failing shouldn't block signup
             }
         }
 
@@ -79,6 +76,36 @@ public class WaitlistService {
     @Transactional(readOnly = true)
     public long count() {
         return repo.count();
+    }
+
+    /**
+     * Referral jump curve — matches the copy on the landing page.
+     * Each successful referral (by phone-verified install eventually; for now, by signup)
+     * bumps the referrer UP the queue.
+     *
+     *   1st referral → jump ~70 spots
+     *   2nd          → jump ~20 spots
+     *   3rd          → jump ~10 spots
+     *   4th          → jump ~10 spots
+     *   5th+         → jump ~5 spots each
+     */
+    @Transactional
+    protected void applyReferralJump(String referrerCode) {
+        Optional<WaitlistEntry> opt = repo.findByReferralCode(referrerCode);
+        if (opt.isEmpty()) return;
+
+        WaitlistEntry referrer = opt.get();
+        int newRefCount = referrer.getReferralCount() + 1;
+        int jump = switch (newRefCount) {
+            case 1, 2 -> 3;
+            case 3, 4, 5 -> 2;
+            default -> 1;
+        };
+        int newPosition = Math.max(1, referrer.getPosition() - jump);
+
+        referrer.setReferralCount(newRefCount);
+        referrer.setPosition(newPosition);
+        repo.save(referrer);
     }
 
     private String generateUniqueReferralCode() {

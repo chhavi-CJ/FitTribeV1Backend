@@ -31,7 +31,11 @@ public class JwtAuthFilter extends OncePerRequestFilter {
         String path = request.getRequestURI();
         return path.startsWith("/api/v1/auth/")
                 || path.equals("/api/v1/health")
-                || path.startsWith("/api/v1/exercises");
+                // The public exercise list/detail need no auth, but
+                // /api/v1/exercises/last-logged is per-user — let the JWT
+                // filter run so the principal is populated for it.
+                || (path.startsWith("/api/v1/exercises")
+                        && !path.equals("/api/v1/exercises/last-logged"));
     }
 
     @Override

@@ -87,6 +87,95 @@ public interface SetLogRepository extends JpaRepository<SetLog, UUID> {
             @Param("exerciseId") String exerciseId);
 
     /**
+     * Returns one row per exercise — the user's "last logged" set for that
+     * exercise, derived from workout_sessions.exercises JSONB across all
+     * COMPLETED sessions. Used by GET /api/v1/exercises/last-logged to
+     * pre-fill weight + reps on the active workout screen.
+     *
+     * "Last logged" definition: the set with setNumber=1 (the opening
+     * working set) from the user's most RECENT completed session that
+     * contains that exercise. Picked over "top set" (skewed by drop sets)
+     * and "highest setNumber" (often a fatigue/failure set) because
+     * setNumber=1 most closely matches what the user will want to start
+     * at next time.
+     *
+     * Source of truth: workout_sessions.exercises is a JSONB array of
+     * exercise objects shaped like:
+     *   [
+     *     {
+     *       "exerciseId": "bench-press",
+     *       "sets": [
+     *         { "setNumber": 1, "weightKg": 5,   "reps": 12, "setId": "..." },
+     *         { "setNumber": 2, "weightKg": 5,   "reps": 12, "setId": "..." },
+     *         { "setNumber": 3, "weightKg": 5,   "reps": 13, "setId": "..." }
+     *       ],
+     *       ...
+     *     }, ...
+     *   ]
+     * weightKg may be a JSON number (integer or fractional, e.g. 6.5) — the
+     * native cast to NUMERIC handles both. set_logs is NOT queried here
+     * because the post-finish pipeline (SessionFinishPostProcessor.deleteSetLogs)
+     * deletes those rows once a session is COMPLETED — that table is scratch
+     * space for IN_PROGRESS sessions only.
+     *
+     * Strategy:
+     *   1. Unnest the JSONB array into one row per (session, exerciseObj).
+     *   2. Extract the setNumber=1 set object via a jsonb subquery (filtering
+     *      sets where setNumber = 1; takes the first match, defensive against
+     *      malformed data).
+     *   3. Skip rows where no setNumber=1 set exists (LEFT-joined NULL) — an
+     *      exercise that somehow got logged without a first set isn't usable
+     *      for pre-fill anyway.
+     *   4. DISTINCT ON (exerciseId) ordered by finished_at DESC picks the
+     *      most recent session per exercise.
+     *   5. Sets with non-numeric weightKg/setNumber/reps are skipped via
+     *      regex guards before casting — defends against malformed historical
+     *      JSONB that would otherwise abort the native query (an empty
+     *      string, null, or any non-numeric weightKg in one set would
+     *      otherwise 500 the whole endpoint for that user).
+     *
+     * Projection columns must match LastLoggedSetDto order:
+     *   exercise_id (text), weight_kg (numeric), reps (int), logged_at (timestamptz).
+     * logged_at is the session's finished_at — there's no per-set timestamp
+     * stored in JSONB.
+     */
+    @Query(value = """
+        SELECT DISTINCT ON (exercise_id)
+            exercise_id,
+            weight_kg,
+            reps,
+            logged_at
+        FROM (
+            SELECT
+                ex->>'exerciseId'                              AS exercise_id,
+                (first_set->>'weightKg')::numeric              AS weight_kg,
+                (first_set->>'reps')::int                      AS reps,
+                ws.finished_at                                 AS logged_at,
+                ws.finished_at                                 AS session_finished_at
+            FROM workout_sessions ws
+            CROSS JOIN LATERAL jsonb_array_elements(ws.exercises) AS ex
+            LEFT JOIN LATERAL (
+                SELECT s
+                FROM jsonb_array_elements(ex->'sets') AS s
+                WHERE s->>'setNumber' ~ '^[0-9]+$'
+                  AND (s->>'setNumber')::int = 1
+                LIMIT 1
+            ) AS first_set_row(first_set) ON TRUE
+            WHERE ws.user_id  = :userId
+              AND ws.status   = 'COMPLETED'
+              AND ws.exercises IS NOT NULL
+              AND jsonb_typeof(ws.exercises) = 'array'
+              AND first_set_row.first_set IS NOT NULL
+              AND first_set_row.first_set->>'weightKg' ~ '^-?[0-9]+(\\.[0-9]+)?$'
+              AND first_set_row.first_set->>'reps'     ~ '^[0-9]+$'
+              AND (first_set_row.first_set->>'reps')::int > 0
+        ) per_session
+        ORDER BY exercise_id, session_finished_at DESC
+        """,
+        nativeQuery = true)
+    List<Object[]> findLastLoggedPerExerciseForUser(@Param("userId") UUID userId);
+
+    /**
      * Top set per exercise for this user across COMPLETED sessions finished
      * in {@code [from, to)}. Returns one row per exercise — the heaviest
      * weight in the window, with the {@code reps} from the set that

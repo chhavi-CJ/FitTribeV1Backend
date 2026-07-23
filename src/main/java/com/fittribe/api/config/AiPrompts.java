@@ -297,9 +297,9 @@ public final class AiPrompts {
             "{feedbackBlock}\n\n" +
 
             "EXERCISE RULES:\n" +
-            "- REQUIRED exercise count — MUST generate between {exerciseMin} and {exerciseMax} working exercises.\n" +
-            "  This range has been computed for this specific session based on target muscles ({muscleGroups}) and fitness level ({fitnessLevel}).\n" +
-            "  Distribute exercises so each target muscle gets 2–3 exercises where possible.\n" +
+            "- REQUIRED exercise count — MUST generate exactly {exerciseCount} working exercises " +
+            "({perMuscle} per target muscle × {muscleGroups}).\n" +
+            "  Each target muscle MUST have exactly {perMuscle} exercises — no more, no less.\n" +
             "  If includesCore is TRUE, the core finisher is ADDITIONAL — do NOT count it in the working exercise total.\n" +
             "- Use ONLY exercise IDs from the catalog below\n" +
             "- Order: compound movements first, isolation last\n" +
@@ -437,8 +437,12 @@ public final class AiPrompts {
             "FULL BODY: kettlebell-swing, burpees, box-jumps, power-clean\n\n" +
 
             "LENGTH RULES — STRICTLY ENFORCED:\n" +
-            "- sessionNote: MAX 3 sentences. MUST reference recovery state " +
-            "and/or feedback rating. Never generic.\n" +
+            "- sessionNote: MAX 3 sentences. " +
+            "If historyBlock says 'No training history — first session', " +
+            "acknowledge this is their first session — focus on what to expect " +
+            "today and how to start safely. Do NOT mention recovery state for new users. " +
+            "Otherwise, MUST reference recovery state and/or feedback rating. " +
+            "Never generic.\n" +
             "- dayCoachTip: EXACTLY 1 sentence. Actionable. " +
             "Specific to today's session type.\n" +
             "- whyThisExercise: MAX 2 sentences per exercise.\n" +
@@ -463,7 +467,7 @@ public final class AiPrompts {
             "      \"coachTip\": \"1 actionable sentence only\"\n" +
             "    }\n" +
             "  ],\n" +
-            "  \"sessionNote\": \"Max 3 sentences. Why today specifically — reference recovery state or feedback rating. Never generic.\",\n" +
+            "  \"sessionNote\": \"Max 3 sentences. For new users (no training history), acknowledge first session and focus on what to expect. For returning users, reference recovery state or feedback rating. Never generic.\",\n" +
             "  \"dayCoachTip\": \"1 sentence only. Actionable tip for today's session type.\",\n" +
             "  \"cardioSuggestion\": {\n" +
             "    \"type\": \"brisk_walk\",\n" +
@@ -503,11 +507,11 @@ public final class AiPrompts {
             "{recoveryBlock}\n\n" +
 
             "ARCHETYPE RULES — FOLLOW EXACTLY:\n" +
-            "PUSH: 4 exercises — 1 chest compound, 1 shoulder, 1 triceps, 1 chest-or-shoulder isolation. Moderate volume (3 sets each).\n" +
-            "PULL: 4 exercises — 1 back compound (pulldown/row), 1 biceps compound, 1 rear-delt isolation, 1 biceps isolation. 3 sets each.\n" +
-            "LEGS: 4 exercises — 1 quad compound (NOT deadlift), 1 hamstring, 1 glute, 1 calf. Gentler than main leg day. 3 sets each.\n" +
-            "WEAK_POINT_FOCUS: 4 exercises — isolation only. Target the group with least work this week. 3-4 sets, higher reps (12-15).\n" +
-            "ACCESSORY_CORE: 4 exercises — 1 isolation for biceps/triceps/shoulders, 1 back-friendly row or pulldown, 2 core exercises. Never heavy compounds. 3 sets each. Reps 10-15.\n\n" +
+            "PUSH: 6 exercises — 2 per muscle: 2 chest (1 compound + 1 isolation), 2 shoulder (1 press + 1 isolation), 2 triceps (1 compound + 1 isolation). 3 sets each.\n" +
+            "PULL: 6 exercises — 2 per muscle: 2 back (1 vertical pull + 1 horizontal row), 2 biceps (1 compound + 1 isolation), 2 rear-delt/trap (1 face pull or rear-delt fly + 1 shrug or upper-back accessory). 3 sets each.\n" +
+            "LEGS: 6 exercises — 2 quads (1 compound NOT deadlift + 1 isolation), 2 hamstrings (1 hip-hinge + 1 isolation), 2 glutes-or-calves (any combination). Gentler than main leg day. 3 sets each.\n" +
+            "WEAK_POINT_FOCUS: 6 exercises — 4 directly target the weakest muscle group from this week's recovery data, 2 support related synergists. Isolation-heavy. 3-4 sets, higher reps (12-15).\n" +
+            "ACCESSORY_CORE: 6 exercises — 2 arm isolation (biceps/triceps/shoulders), 2 upper-back-friendly (rows, pulldowns, face pulls), 2 core. Never heavy compounds. 3 sets each. Reps 10-15.\n\n" +
 
             "SAFETY HARD RULES — NON NEGOTIABLE:\n" +
             "PREGNANCY:\n" +

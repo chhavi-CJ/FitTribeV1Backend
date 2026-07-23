@@ -27,6 +27,7 @@ import java.time.temporal.TemporalAdjusters;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 /**
  * Handles PR supersession, un-supersession, and coin reconciliation when a user
@@ -82,13 +83,18 @@ public class PrEditCascadeService {
      * prior PRs restored by the revert, re-detect, rebuild bests.
      *
      * <p>Called AFTER workout_sessions.exercises JSONB has been updated with new values.
+     *
+     * @return {@code true} if at least one non-superseded pr_event exists for this
+     *         (user, session, set) after the cascade — i.e., what the original
+     *         post-cascade {@code findByUserIdAndSessionIdAndSetIdAndSupersededAtNull}
+     *         lookup would have returned. Tracked inline to eliminate that round-trip.
      */
-    public void processSetEdit(UUID userId, UUID sessionId, UUID setId,
-                               LoggedSet oldValue, LoggedSet newValue) {
+    public boolean processSetEdit(UUID userId, UUID sessionId, UUID setId,
+                                  LoggedSet oldValue, LoggedSet newValue) {
         log.debug("Starting edit cascade for user={} session={} exercise={} setId={}",
                 userId, sessionId, oldValue.exerciseId(), setId);
 
-        processEditOrDelete(userId, sessionId, setId, oldValue, newValue, false);
+        return processEditOrDelete(userId, sessionId, setId, oldValue, newValue, false);
     }
 
     /**
@@ -96,12 +102,17 @@ public class PrEditCascadeService {
      * un-supersede prior PRs, rebuild bests. No re-detection.
      *
      * <p>Called AFTER the set has been removed from workout_sessions.exercises JSONB.
+     *
+     * @return {@code true} if at least one non-superseded pr_event exists for this
+     *         (user, session, set) after the cascade. New PR can never fire on the
+     *         delete path, but FIRST_EVER (sticky per Decision 1) and Step-4-restored
+     *         events can still leave the set with an active PR.
      */
-    public void processSetDelete(UUID userId, UUID sessionId, UUID setId, LoggedSet oldValue) {
+    public boolean processSetDelete(UUID userId, UUID sessionId, UUID setId, LoggedSet oldValue) {
         log.debug("Starting delete cascade for user={} session={} exercise={} setId={}",
                 userId, sessionId, oldValue.exerciseId(), setId);
 
-        processEditOrDelete(userId, sessionId, setId, oldValue, null, true);
+        return processEditOrDelete(userId, sessionId, setId, oldValue, null, true);
     }
 
     /**
@@ -152,9 +163,32 @@ public class PrEditCascadeService {
     /**
      * Internal: handle both edit and delete cascades with the full 7-step
      * pipeline from the HLD.
+     *
+     * <p>Returns true if any non-superseded pr_event exists for this
+     * (user, session, set) at the end of the cascade. Mirrors what the
+     * caller's old post-cascade lookup would have returned. The flag is
+     * the disjunction of three independent contributions:
+     * <ul>
+     *   <li>{@code hasFirstEver} — Step 1 contained a FIRST_EVER event for this
+     *       set (FIRST_EVER is sticky and is never superseded by Step 3)</li>
+     *   <li>{@code hasRestored} — Step 4 un-superseded at least one event whose
+     *       supersededBy pointed to a Step-3 event. By induction, every
+     *       restored event has the cascade's setId (Step 3 only supersedes
+     *       events for the edited setId; Step 6 backfill only sets superseded_by
+     *       on those same setId events), so no setId filter is needed</li>
+     *   <li>{@code newPrFired} — Step 6 detected a new PR and successfully
+     *       saved a new pr_event row for this set</li>
+     * </ul>
+     *
+     * <p>All three flags are reset to false in the catch block so a cascade
+     * failure (which rolls back the inner tx) returns the safe default.
      */
-    private void processEditOrDelete(UUID userId, UUID sessionId, UUID setId,
-                                      LoggedSet oldValue, LoggedSet newValue, boolean isDelete) {
+    private boolean processEditOrDelete(UUID userId, UUID sessionId, UUID setId,
+                                         LoggedSet oldValue, LoggedSet newValue, boolean isDelete) {
+        AtomicBoolean hasFirstEver = new AtomicBoolean(false);
+        AtomicBoolean hasRestored  = new AtomicBoolean(false);
+        AtomicBoolean newPrFired   = new AtomicBoolean(false);
+
         try {
             transactionTemplate.executeWithoutResult(txStatus -> {
                 String exerciseId = oldValue.exerciseId();
@@ -164,6 +198,12 @@ public class PrEditCascadeService {
                         .findByUserIdAndSessionIdAndSetIdAndSupersededAtNull(userId, sessionId, setId);
 
                 log.debug("Found {} active PR events for session={} set={}", activeEvents.size(), sessionId, setId);
+
+                // Track FIRST_EVER presence — these survive Step 3 supersession
+                // (Decision 1: FIRST_EVER is permanent) and contribute to the
+                // post-cascade isPr boolean.
+                hasFirstEver.set(activeEvents.stream()
+                        .anyMatch(e -> "FIRST_EVER".equals(e.getPrCategory())));
 
                 // Step 2: Filter out FIRST_EVER — permanent once earned
                 List<PrEvent> supersedable = activeEvents.stream()
@@ -203,6 +243,10 @@ public class PrEditCascadeService {
                         old.setSupersededBy(null);
                         prEventRepo.save(old);
                         log.debug("Un-superseded PR event: id={} category={}", old.getId(), old.getPrCategory());
+
+                        // Mark that the post-cascade isPr should be true for this set —
+                        // restored events always have the edit's setId (see method javadoc).
+                        hasRestored.set(true);
 
                         if (old.getCoinsAwarded() > 0) {
                             coinService.awardCoins(userId, old.getCoinsAwarded(), "PR_RESTORED",
@@ -256,6 +300,11 @@ public class PrEditCascadeService {
                     log.debug("Created new PR event after edit: id={} category={} coins={}",
                             saved.getId(), saved.getPrCategory(), saved.getCoinsAwarded());
 
+                    // Mark new PR fired — set immediately after the save so a later
+                    // failure inside Step 6 (backfill / weekly count / coins) rolls
+                    // back the whole inner tx and the catch block resets this flag.
+                    newPrFired.set(true);
+
                     // Backfill superseded_by on matching-category events from Step 3
                     String newCategory = prResult.category().toString();
                     for (PrEvent event : supersedable) {
@@ -275,13 +324,25 @@ public class PrEditCascadeService {
                     }
                 }
 
-                // Step 7: Final rebuild — incorporates the newly-written event if one was created
-                rebuildExerciseBests(userId, exerciseId);
+                // Step 7: Final rebuild — incorporates the newly-written event if one
+                // was created. Skip when no PR fired: Step 5.5's rebuild is already the
+                // final post-cascade state in that case (no further pr_events were
+                // written after it). Saves 3 round-trips on the no-PR edit path.
+                if (prResult.isPR()) {
+                    rebuildExerciseBests(userId, exerciseId);
+                }
             });
         } catch (Exception e) {
             log.warn("Failed to process edit/delete cascade for user={} session={} setId={}",
                     userId, sessionId, setId, e);
+            // Inner tx is rolling back — reset all isPr contributors to the safe default.
+            // Caller treats false as "no PR; frontend's next /today refetch will reconcile."
+            hasFirstEver.set(false);
+            hasRestored.set(false);
+            newPrFired.set(false);
         }
+
+        return hasFirstEver.get() || hasRestored.get() || newPrFired.get();
     }
 
     // ── Bests rebuild ─────────────────────────────────────────────────────
@@ -316,6 +377,15 @@ public class PrEditCascadeService {
                     b.setUserId(userId);
                     b.setExerciseId(exerciseId);
                     b.setExerciseType(ExerciseType.WEIGHTED.toString());
+                    // When rebuilding after edits, set counter to distinct session count from
+                    // active pr_events. This is a lower bound — sessions that logged this exercise
+                    // without producing a PR event are not counted. The counter will continue
+                    // incrementing correctly on future sessions via processSessionFinish.
+                    long distinctSessions = activeEvents.stream()
+                            .map(PrEvent::getSessionId)
+                            .distinct()
+                            .count();
+                    b.setTotalSessionsWithExercise((int) distinctSessions);
                     return b;
                 });
 

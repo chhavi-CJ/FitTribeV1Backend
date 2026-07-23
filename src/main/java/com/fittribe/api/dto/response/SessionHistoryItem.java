@@ -12,10 +12,22 @@ public record SessionHistoryItem(
         int totalSets,
         Integer durationMins,
         Integer streak,
+        List<String> muscleGroups,
+        int firstEverCount,
+        int prCount,
         List<ExerciseGroup> exercises,
         FeedbackInfo feedback
 ) {
-    public record ExerciseGroup(String name, List<SetSummary> sets) {}
+    public record ExerciseGroup(
+            String name,
+            String muscleGroup,
+            boolean firstEver,
+            boolean isBodyweight,
+            List<SetSummary> sets) {}
 
-    public record SetSummary(BigDecimal kg, int reps) {}
+    public record SetSummary(
+            UUID id,
+            BigDecimal kg,
+            int reps,
+            boolean isPr) {}
 }

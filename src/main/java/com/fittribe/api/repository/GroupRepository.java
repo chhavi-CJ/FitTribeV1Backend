@@ -18,4 +18,7 @@ public interface GroupRepository extends JpaRepository<Group, UUID> {
 
     /** Batch load: all groups for a set of IDs in one query. */
     List<Group> findByIdIn(Collection<UUID> ids);
+
+    /** Backs GroupNameUniquenessChecker for Conscious Matching. */
+    boolean existsByName(String name);
 }

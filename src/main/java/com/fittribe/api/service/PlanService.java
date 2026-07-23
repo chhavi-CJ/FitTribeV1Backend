@@ -7,9 +7,10 @@ import com.fittribe.api.fitnesssummary.FitnessSummary;
 import com.fittribe.api.fitnesssummary.FitnessSummaryService;
 import com.fittribe.api.util.MuscleGroupUtil;
 import com.fittribe.api.util.PromptSanitiser;
+import static com.fittribe.api.util.Zones.APP_ZONE;
+import com.fittribe.api.util.Zones;
 import com.fittribe.api.entity.AiInsight;
 import com.fittribe.api.entity.Exercise;
-import com.fittribe.api.entity.SetLog;
 import com.fittribe.api.entity.User;
 import com.fittribe.api.entity.UserPlan;
 import com.fittribe.api.entity.WorkoutSession;
@@ -52,13 +53,14 @@ public class PlanService {
 
     private static final Logger log = LoggerFactory.getLogger(PlanService.class);
 
-    // ── Exercise-count tier constants ─────────────────────────────────────
-    private static final Map<String, Integer> TIER_MIN = Map.of(
-            "BEGINNER", 4, "INTERMEDIATE", 5, "ADVANCED", 6);
-    private static final Map<String, Integer> TIER_HARD_CAP = Map.of(
-            "BEGINNER", 6, "INTERMEDIATE", 8, "ADVANCED", 10);
-    private static final int PER_MUSCLE_MIN = 2;
-    private static final int PER_MUSCLE_MAX = 3;
+    // ── Exercise-count constants ─────────────────────────────────────────
+    private static final int PER_MUSCLE_FULL_BODY = 2;
+    private static final int PER_MUSCLE_OTHER     = 3;
+
+    private int perMuscleCount(String dayType) {
+        if (dayType == null) return PER_MUSCLE_OTHER;
+        return dayType.toLowerCase().contains("full") ? PER_MUSCLE_FULL_BODY : PER_MUSCLE_OTHER;
+    }
 
     /** Maps common AI-invented exerciseIds to the canonical DB id. */
     private static final Map<String, String> EXERCISE_ID_ALIASES = Map.ofEntries(
@@ -112,7 +114,9 @@ public class PlanService {
     private final DailyPlanGeneratedRepository dailyPlanRepo;
     private final UserDayStatusRepository      dayStatusRepo;
     private final FitnessSummaryService        fitnessSummaryService;
+    private final PlanHistoryService           planHistoryService;
     private final ObjectMapper                mapper;
+    private final FeedEventWriter             feedEventWriter;
     private final RestTemplate                restTemplate = new RestTemplate();
 
     public PlanService(UserRepository userRepo,
@@ -126,7 +130,9 @@ public class PlanService {
                        DailyPlanGeneratedRepository dailyPlanRepo,
                        UserDayStatusRepository dayStatusRepo,
                        FitnessSummaryService fitnessSummaryService,
-                       ObjectMapper mapper) {
+                       PlanHistoryService planHistoryService,
+                       ObjectMapper mapper,
+                       FeedEventWriter feedEventWriter) {
         this.userRepo             = userRepo;
         this.planRepo             = planRepo;
         this.exerciseRepo         = exerciseRepo;
@@ -138,7 +144,9 @@ public class PlanService {
         this.dailyPlanRepo        = dailyPlanRepo;
         this.dayStatusRepo        = dayStatusRepo;
         this.fitnessSummaryService = fitnessSummaryService;
+        this.planHistoryService   = planHistoryService;
         this.mapper               = mapper;
+        this.feedEventWriter      = feedEventWriter;
     }
 
     // ── Public API ────────────────────────────────────────────────────
@@ -148,7 +156,7 @@ public class PlanService {
         User user = userRepo.findById(userId)
                 .orElseThrow(() -> ApiException.notFound("User"));
 
-        LocalDate monday = LocalDate.now(ZoneOffset.UTC)
+        LocalDate monday = LocalDate.now(APP_ZONE)
                 .with(TemporalAdjusters.previousOrSame(DayOfWeek.MONDAY));
         int weekNumber = weekNumberFor(user, monday);
 
@@ -200,7 +208,7 @@ public class PlanService {
         User user = userRepo.findById(userId)
                 .orElseThrow(() -> ApiException.notFound("User"));
 
-        LocalDate today = LocalDate.now(ZoneOffset.UTC);
+        LocalDate today = Zones.fitnessDayNow();
         LocalDate monday = today
                 .with(TemporalAdjusters.previousOrSame(DayOfWeek.MONDAY));
 
@@ -210,36 +218,36 @@ public class PlanService {
         int weeklyGoal = user.getWeeklyGoal() != null ? user.getWeeklyGoal() : 4;
         int completedThisWeek = sessionRepo.countCompletedThisWeekByStartedAt(userId);
 
-        // Check user day status
+        // Collect user day status — included in response but never gates the plan
         Optional<UserDayStatus> statusOpt = dayStatusRepo
                 .findByIdUserIdAndIdDate(userId, today);
-        if (statusOpt.isPresent()) {
-            Map<String, Object> response = new LinkedHashMap<>();
-            response.put("status",  statusOpt.get().getStatus());
-            response.put("message", statusMessage(statusOpt.get().getStatus()));
-            return response;
-        }
 
         // Check for IN_PROGRESS session today
-        Instant startOfDay = today.atStartOfDay(ZoneOffset.UTC).toInstant();
+        Instant startOfDay = Zones.fitnessDayStart(today);
+        Instant endOfDay   = Zones.fitnessDayStart(today.plusDays(1));
         Optional<WorkoutSession> inProgress = sessionRepo
                 .findFirstByUserIdAndStatusAndFinishedAtAfter(
                         userId, "IN_PROGRESS", startOfDay);
+        boolean workoutCompletedToday = sessionRepo.existsByUserIdAndStatusAndFinishedAtBetween(
+                userId, "COMPLETED", startOfDay, endOfDay);
+
         if (inProgress.isPresent()) {
             Map<String, Object> response = new LinkedHashMap<>();
-            response.put("status",    "IN_PROGRESS");
-            response.put("sessionId", inProgress.get().getId());
+            response.put("status",               "IN_PROGRESS");
+            response.put("sessionId",             inProgress.get().getId());
+            response.put("workoutCompletedToday", workoutCompletedToday);
             return response;
         }
 
         // Weekly goal hit check
         if (completedThisWeek >= weeklyGoal) {
             Map<String, Object> response = new LinkedHashMap<>();
-            response.put("status",           "GOAL_HIT");
-            response.put("isGoalHit",         true);
-            response.put("completedThisWeek", completedThisWeek);
-            response.put("weeklyGoal",        weeklyGoal);
-            response.put("message",           "Weekly goal hit! Rest or go for a bonus session.");
+            response.put("status",               "GOAL_HIT");
+            response.put("isGoalHit",             true);
+            response.put("completedThisWeek",     completedThisWeek);
+            response.put("weeklyGoal",            weeklyGoal);
+            response.put("message",               "Weekly goal hit! Rest or go for a bonus session.");
+            response.put("workoutCompletedToday", workoutCompletedToday);
             return response;
         }
 
@@ -282,7 +290,9 @@ public class PlanService {
         response.put("cardioDurationMin", templateDay.get("cardioDurationMin"));
         response.put("estimatedMins",     templateDay.get("estimatedMins"));
         response.put("fitnessLevel",      user.getFitnessLevel());
-        response.put("status",            "PENDING");
+        response.put("status",               statusOpt.map(UserDayStatus::getStatus).orElse("READY"));
+        response.put("workoutCompletedToday", workoutCompletedToday);
+        statusOpt.ifPresent(s -> response.put("message", statusMessage(s.getStatus())));
         return response;
     }
 
@@ -290,7 +300,7 @@ public class PlanService {
         User user = userRepo.findById(userId)
                 .orElseThrow(() -> ApiException.notFound("User"));
 
-        LocalDate monday = LocalDate.now(ZoneOffset.UTC)
+        LocalDate monday = LocalDate.now(APP_ZONE)
                 .with(TemporalAdjusters.previousOrSame(DayOfWeek.MONDAY));
 
         UserPlan plan = planRepo.findByUserIdAndWeekStartDate(userId, monday)
@@ -299,7 +309,7 @@ public class PlanService {
         int weeklyGoal = user.getWeeklyGoal() != null ? user.getWeeklyGoal() : 4;
 
         // Count completed sessions this week so frontend knows progress
-        Instant weekStart = monday.atStartOfDay(ZoneOffset.UTC).toInstant();
+        Instant weekStart = monday.atStartOfDay(APP_ZONE).toInstant();
         Instant now       = Instant.now();
         int completedThisWeek = sessionRepo.countByUserIdAndStatusAndFinishedAtBetween(
                 userId, "COMPLETED", weekStart, now);
@@ -326,7 +336,7 @@ public class PlanService {
     public Map<String, Object> generateTodaysPlan(UUID userId) {
         User user = userRepo.findById(userId)
                 .orElseThrow(() -> ApiException.notFound("User"));
-        LocalDate today = LocalDate.now(ZoneOffset.UTC);
+        LocalDate today = Zones.fitnessDayNow();
 
         // Gate 1 — user set a status today
         Optional<UserDayStatus> statusOpt = dayStatusRepo
@@ -338,7 +348,7 @@ public class PlanService {
         }
 
         // Gate 2 — IN_PROGRESS session exists today
-        Instant startOfDay = today.atStartOfDay(ZoneOffset.UTC).toInstant();
+        Instant startOfDay = Zones.fitnessDayStart(today);
         Optional<WorkoutSession> inProgress = sessionRepo
                 .findFirstByUserIdAndStatusAndFinishedAtAfter(userId, "IN_PROGRESS", startOfDay);
         if (inProgress.isPresent()) {
@@ -360,7 +370,7 @@ public class PlanService {
         UserPlan weekPlan = planRepo.findByUserIdAndWeekStartDate(userId, monday)
                 .orElseGet(() -> generatePlan(userId));
 
-        Instant weekStart = monday.atStartOfDay(ZoneOffset.UTC).toInstant();
+        Instant weekStart = monday.atStartOfDay(APP_ZONE).toInstant();
         Instant now       = Instant.now();
         int completedThisWeek = sessionRepo.countByUserIdAndStatusAndFinishedAtBetween(
                 userId, "COMPLETED", weekStart, now);
@@ -423,29 +433,27 @@ public class PlanService {
         }
 
         // Build context for AI
-        Instant since4Days  = today.minusDays(4).atStartOfDay(ZoneOffset.UTC).toInstant();
-        Instant since14Days = today.minusDays(14).atStartOfDay(ZoneOffset.UTC).toInstant();
+        Instant since4Days  = today.minusDays(4).atStartOfDay(APP_ZONE).toInstant();
+        Instant since14Days = today.minusDays(14).atStartOfDay(APP_ZONE).toInstant();
 
+        Map<String, Exercise> exMap = exerciseMap();
         List<WorkoutSession> recentSessions = sessionRepo
                 .findByUserIdAndStatusAndFinishedAtBetween(userId, "COMPLETED", since14Days, now);
-        List<UUID> sessionIds = recentSessions.stream()
-                .map(WorkoutSession::getId).collect(Collectors.toList());
-        List<SetLog> recentLogs = sessionIds.isEmpty()
-                ? List.of() : setLogRepo.findBySessionIdIn(sessionIds);
+        List<HistoricalSet> recentLogs = planHistoryService
+                .getRecentLoggedSets(userId, since14Days, exMap);
 
         List<SessionFeedback> recentFeedback = feedbackRepo
                 .findByUserIdOrderByCreatedAtDesc(user.getId())
                 .stream().limit(3).collect(Collectors.toList());
 
-        Map<String, Exercise> exMap = exerciseMap();
         HistoryAnalysis analysis = analyseHistory(
                 recentSessions, recentLogs, List.of(), bw, level, exMap);
 
         // Build daily context blocks
-        String recoveryBlock = buildRecoveryBlock(recentSessions, recentLogs, exMap);
+        String recoveryBlock = buildRecoveryBlock(recentLogs, exMap);
         String historyBlock  = buildDailyHistoryBlock(analysis, exMap);
         String feedbackBlock = buildDailyFeedbackBlock(recentFeedback);
-        String recentExBlock = buildRecentExercisesBlock(recentSessions, recentLogs, since4Days);
+        String recentExBlock = buildRecentExercisesBlock(recentLogs, since4Days);
 
         String aiContextBlock = (user.getAiContext() != null && !user.getAiContext().isBlank())
                 ? "PERSONAL CONTEXT: " + user.getAiContext() : "";
@@ -459,18 +467,11 @@ public class PlanService {
                 .distinct()
                 .toList();
 
-        // Compute dynamic exercise floor/ceiling based on muscle count and tier
-        String levelKey    = level.toUpperCase();
-        int tierMin        = TIER_MIN.getOrDefault(levelKey, 5);
-        int tierHardCap    = TIER_HARD_CAP.getOrDefault(levelKey, 8);
-        int muscleCount    = canonicalMuscles.size();
-        int exerciseMin    = Math.max(muscleCount * PER_MUSCLE_MIN, tierMin);
-        int exerciseMax    = Math.min(muscleCount * PER_MUSCLE_MAX, tierHardCap);
-        if (exerciseMin > exerciseMax) {
-            log.warn("[TIER_WARN] floor>ceiling: userId={} tier={} muscleCount={} floor={} ceiling={} — using floor as exact count",
-                    userId, levelKey, muscleCount, exerciseMin, exerciseMax);
-            exerciseMax = exerciseMin;
-        }
+        // Compute exercise count: each target muscle gets perMuscle exercises
+        String levelKey   = level.toUpperCase();
+        int muscleCount   = canonicalMuscles.size();
+        int perMuscle     = perMuscleCount(dayType);
+        int exerciseCount = muscleCount * perMuscle;
 
         String userPrompt = AiPrompts.DAILY_EXERCISE_USER
                 .replace("{name}",                 PromptSanitiser.sanitise(
@@ -486,8 +487,8 @@ public class PlanService {
                 .replace("{fitnessSummaryBlock}",  fitnessSummaryBlock)
                 .replace("{dayLabel}",             dayLabel)
                 .replace("{muscleGroups}",         String.join(", ", canonicalMuscles))
-                .replace("{exerciseMin}",          String.valueOf(exerciseMin))
-                .replace("{exerciseMax}",          String.valueOf(exerciseMax))
+                .replace("{exerciseCount}",        String.valueOf(exerciseCount))
+                .replace("{perMuscle}",            String.valueOf(perMuscle))
                 .replace("{includesCore}",         String.valueOf(includesCore))
                 .replace("{estimatedMins}",        String.valueOf(estimatedMins != null ? estimatedMins : 45))
                 .replace("{guidanceText}",         guidanceText != null ? guidanceText : "")
@@ -502,8 +503,8 @@ public class PlanService {
         String cardioSuggestion = null;
 
         if (openAiKey != null && !openAiKey.isBlank()) {
-            log.info("[PROMPT_DEBUG_META] userId={} tier={} muscleCount={} muscleGroupsRaw={} muscleGroupsCanonical={} exerciseMin={} exerciseMax={}",
-                    userId, levelKey, muscleCount, muscleGroups, canonicalMuscles, exerciseMin, exerciseMax);
+            log.info("[PROMPT_DEBUG_META] userId={} dayType={} muscleCount={} perMuscle={} exerciseCount={} muscleGroupsRaw={} muscleGroupsCanonical={}",
+                    userId, dayType, muscleCount, perMuscle, exerciseCount, muscleGroups, canonicalMuscles);
             log.info("[PROMPT_DEBUG_BODY] userId={} fullPrompt=\n{}", userId, userPrompt);
             String aiResponse = callDailyOpenAi(userPrompt);
             if (aiResponse != null) {
@@ -586,11 +587,21 @@ public class PlanService {
         }
     }
 
-    public Map<String, Object> setTodayStatus(UUID userId, String status) {
-        LocalDate today = LocalDate.now(ZoneOffset.UTC);
+    public Map<String, Object> setTodayStatus(UUID userId, String status, LocalDate targetDate) {
+        LocalDate today = targetDate;
+
+        // READY = cancel any active freeze-triggering status; treated as null/default.
+        // No guards apply — a user can always return to READY regardless of session state.
+        if ("READY".equals(status)) {
+            dayStatusRepo.findByIdUserIdAndIdDate(userId, today)
+                    .ifPresent(dayStatusRepo::delete);
+            return Map.of(
+                    "status",  "READY",
+                    "message", statusMessage("READY"));
+        }
 
         // Block if IN_PROGRESS session exists
-        Instant startOfDay = today.atStartOfDay(ZoneOffset.UTC).toInstant();
+        Instant startOfDay = Zones.fitnessDayStart(today);
         boolean hasActiveSession = sessionRepo
                 .findFirstByUserIdAndStatusAndFinishedAtAfter(userId, "IN_PROGRESS", startOfDay)
                 .isPresent();
@@ -599,8 +610,29 @@ public class PlanService {
                     "Cannot set status — you have an active session in progress.");
         }
 
+        // Block if workout already completed today — status is locked to READY
+        Instant endOfDay = Zones.fitnessDayStart(today.plusDays(1));
+        boolean workoutDoneToday = sessionRepo.existsByUserIdAndStatusAndFinishedAtBetween(
+                userId, "COMPLETED", startOfDay, endOfDay);
+        if (workoutDoneToday) {
+            throw new ApiException(HttpStatus.CONFLICT, "WORKOUT_COMPLETED_TODAY",
+                    "Cannot set status — you already completed a workout today.");
+        }
+
+        String previousStatus = dayStatusRepo.findByIdUserIdAndIdDate(userId, today)
+                .map(UserDayStatus::getStatus)
+                .orElse(null);
+
         UserDayStatus dayStatus = new UserDayStatus(userId, today, status);
         dayStatusRepo.save(dayStatus);
+
+        if (!status.equals(previousStatus)) {
+            try {
+                feedEventWriter.writeStatusChanged(userId, today, status, previousStatus);
+            } catch (Exception e) {
+                log.warn("Failed to write STATUS_CHANGED feed for user={}: {}", userId, e.getMessage());
+            }
+        }
 
         return Map.of(
                 "status",  status,
@@ -609,6 +641,7 @@ public class PlanService {
 
     private String statusMessage(String status) {
         return switch (status) {
+            case "READY"      -> "Let's go. Today's plan is waiting for you.";
             case "REST"       -> "Recovery is part of the plan. Your muscles are growing right now. See you tomorrow 💪";
             case "TRAVELLING" -> "Staying consistent while travelling is hard. We'll pick up tomorrow — your progress is safe.";
             case "BUSY"       -> "Life happens. One missed day won't break your progress. Come back when you're ready.";
@@ -620,7 +653,7 @@ public class PlanService {
     // ── History analysis ──────────────────────────────────────────────
 
     private HistoryAnalysis analyseHistory(List<WorkoutSession> sessions,
-                                            List<SetLog> logs,
+                                            List<HistoricalSet> logs,
                                             List<UserPlan> pastPlans,
                                             double bw, String level,
                                             Map<String, Exercise> exMap) {
@@ -628,10 +661,10 @@ public class PlanService {
         Map<String, BigDecimal> recentBestWeight = new LinkedHashMap<>();
         Map<String, Integer>    sessionCountPerExercise = new LinkedHashMap<>();
 
-        for (SetLog sl : logs) {
-            String id = sl.getExerciseId();
-            if (id == null || sl.getWeightKg() == null) continue;
-            recentBestWeight.merge(id, sl.getWeightKg(), BigDecimal::max);
+        for (HistoricalSet hs : logs) {
+            String id = hs.exerciseId();
+            if (id == null || hs.weightKg() == null) continue;
+            recentBestWeight.merge(id, hs.weightKg(), BigDecimal::max);
             sessionCountPerExercise.merge(id, 1, Integer::sum);
         }
 
@@ -660,35 +693,36 @@ public class PlanService {
         // Muscle gap: which muscle groups had 0 sessions in the last 7 days
         Instant lastWeek = Instant.now().minus(7, ChronoUnit.DAYS);
         Set<String> trainedMuscles = new LinkedHashSet<>();
-        for (SetLog sl : logs) {
-            if (sl.getExerciseId() != null) {
-                String mg = resolveMuscleGroup(sl.getExerciseId(), exMap);
-                if (!mg.isEmpty()) trainedMuscles.add(mg);
+        for (HistoricalSet hs : logs) {
+            if (hs.exerciseId() != null && !hs.muscleGroup().isEmpty()) {
+                trainedMuscles.add(hs.muscleGroup());
             }
         }
         // We only check muscle gaps across recent logs in last 7 days
         List<UUID> recentSessionIds = sessions.stream()
                 .filter(s -> s.getFinishedAt() != null && s.getFinishedAt().isAfter(lastWeek))
                 .map(WorkoutSession::getId).collect(Collectors.toList());
-        List<SetLog> recentWeekLogs = logs.stream()
-                .filter(sl -> recentSessionIds.contains(sl.getSessionId()))
+        List<HistoricalSet> recentWeekLogs = logs.stream()
+                .filter(hs -> recentSessionIds.contains(hs.sessionId()))
                 .collect(Collectors.toList());
         Set<String> trainedLastWeek = recentWeekLogs.stream()
-                .map(sl -> resolveMuscleGroup(sl.getExerciseId(), exMap))
-                .filter(s -> !s.isEmpty()).collect(Collectors.toSet());
+                .map(HistoricalSet::muscleGroup)
+                .filter(m -> !m.isEmpty())
+                .map(PlanService::broadGroupOf)
+                .collect(Collectors.toSet());
         List<String> muscleGaps = STANDARD_MUSCLES.stream()
                 .filter(m -> !trainedLastWeek.contains(m)).collect(Collectors.toList());
 
         // Progression stalls: exercise not progressed in 3+ sessions
         // (simple heuristic: if sessionCount >= 3 but no is_pr in last 3 sessions)
         Set<String> stalledExercises = new LinkedHashSet<>();
-        Map<String, List<SetLog>> byExId = logs.stream()
-                .filter(sl -> sl.getExerciseId() != null)
-                .collect(Collectors.groupingBy(SetLog::getExerciseId));
-        for (Map.Entry<String, List<SetLog>> entry : byExId.entrySet()) {
-            List<SetLog> exLogs = entry.getValue();
+        Map<String, List<HistoricalSet>> byExId = logs.stream()
+                .filter(hs -> hs.exerciseId() != null)
+                .collect(Collectors.groupingBy(HistoricalSet::exerciseId));
+        for (Map.Entry<String, List<HistoricalSet>> entry : byExId.entrySet()) {
+            List<HistoricalSet> exLogs = entry.getValue();
             if (exLogs.size() >= 3) {
-                boolean anyPr = exLogs.stream().anyMatch(sl -> Boolean.TRUE.equals(sl.getIsPr()));
+                boolean anyPr = exLogs.stream().anyMatch(HistoricalSet::isPr);
                 if (!anyPr) stalledExercises.add(entry.getKey());
             }
         }
@@ -1185,18 +1219,15 @@ When you change a weight from last week, explain why in that exercise's whyThisE
         return sb.toString().trim();
     }
 
-    private String buildRecoveryBlock(List<WorkoutSession> sessions, List<SetLog> logs, Map<String, Exercise> exMap) {
-        if (sessions.isEmpty()) return "RECOVERY STATUS: No recent sessions — all muscle groups fully recovered.";
+    private String buildRecoveryBlock(List<HistoricalSet> logs, Map<String, Exercise> exMap) {
+        if (logs.isEmpty()) return "RECOVERY STATUS: No recent sessions — all muscle groups fully recovered.";
 
         Map<String, Instant> lastTrainedPerMuscle = new LinkedHashMap<>();
-        for (SetLog sl : logs) {
-            String muscle = resolveMuscleGroup(sl.getExerciseId(), exMap);
+        for (HistoricalSet hs : logs) {
+            String muscle = hs.muscleGroup();
             if (muscle.isEmpty()) continue;
-            WorkoutSession session = sessions.stream()
-                    .filter(s -> s.getId().equals(sl.getSessionId()))
-                    .findFirst().orElse(null);
-            if (session == null || session.getFinishedAt() == null) continue;
-            lastTrainedPerMuscle.merge(muscle, session.getFinishedAt(),
+            if (hs.finishedAt() == null) continue;
+            lastTrainedPerMuscle.merge(muscle, hs.finishedAt(),
                     (a, b) -> a.isAfter(b) ? a : b);
         }
 
@@ -1230,17 +1261,10 @@ When you change a weight from last week, explain why in that exercise's whyThisE
         return sb.toString().trim();
     }
 
-    private String buildRecentExercisesBlock(List<WorkoutSession> sessions,
-                                              List<SetLog> logs, Instant since) {
+    private String buildRecentExercisesBlock(List<HistoricalSet> logs, Instant since) {
         List<String> recentExercises = logs.stream()
-                .filter(sl -> {
-                    WorkoutSession s = sessions.stream()
-                            .filter(ws -> ws.getId().equals(sl.getSessionId()))
-                            .findFirst().orElse(null);
-                    return s != null && s.getFinishedAt() != null
-                            && s.getFinishedAt().isAfter(since);
-                })
-                .map(SetLog::getExerciseId)
+                .filter(hs -> hs.finishedAt() != null && hs.finishedAt().isAfter(since))
+                .map(HistoricalSet::exerciseId)
                 .filter(Objects::nonNull)
                 .distinct()
                 .collect(Collectors.toList());
@@ -1309,7 +1333,7 @@ When you change a weight from last week, explain why in that exercise's whyThisE
                         .collect(Collectors.toList());
 
         if (!relevantLifts.isEmpty()) {
-            LocalDate today = LocalDate.now(ZoneOffset.UTC);
+            LocalDate today = LocalDate.now(APP_ZONE);
             sb.append("Strength reference (use for weight suggestions):\n");
             for (FitnessSummary.MainLiftEntry lift : relevantLifts) {
                 long daysAgo = -1;
@@ -1490,17 +1514,14 @@ When you change a weight from last week, explain why in that exercise's whyThisE
 
             // Gather recent history for AI context
             Instant since2Weeks = now.minus(14, java.time.temporal.ChronoUnit.DAYS);
+            Map<String, Exercise> exMap = exerciseMap();
             List<WorkoutSession> recentSessions = sessionRepo
                     .findByUserIdAndStatusAndFinishedAtBetween(
                             user.getId(), "COMPLETED", since2Weeks, now);
-            List<UUID> sessionIds = recentSessions.stream()
-                    .map(WorkoutSession::getId).collect(Collectors.toList());
-            List<SetLog> recentLogs = sessionIds.isEmpty()
-                    ? List.of()
-                    : setLogRepo.findBySessionIdIn(sessionIds);
+            List<HistoricalSet> recentLogs = planHistoryService
+                    .getRecentLoggedSets(user.getId(), since2Weeks, exMap);
 
             // Build history analysis for AI
-            Map<String, Exercise> exMap = exerciseMap();
             HistoryAnalysis analysis = analyseHistory(
                     recentSessions, recentLogs, List.of(), user.getWeightKg() != null
                             ? user.getWeightKg().doubleValue() : 70.0,
@@ -1696,6 +1717,19 @@ When you change a weight from last week, explain why in that exercise's whyThisE
             }
         }
         return EXERCISE_MUSCLE.getOrDefault(exerciseId, "");
+    }
+
+    /**
+     * Maps a canonical sub-muscle name back to its broad STANDARD_MUSCLES group.
+     * Used only for muscle-gap detection — never for exercise counting.
+     */
+    private static String broadGroupOf(String canonical) {
+        return switch (canonical) {
+            case "Quads", "Hamstrings", "Glutes", "Calves" -> "Legs";
+            case "Triceps", "Biceps"                         -> "Arms";
+            case "Front Delts", "Rear Delts"                 -> "Shoulders";
+            default -> canonical;
+        };
     }
 
     /** Delegates to {@link MuscleGroupUtil#canonicalize(String)}. */

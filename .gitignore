@@ -36,6 +36,10 @@ build/
 .env
 serviceAccountKey.json
 firebase-service-account.json
+firebase-service-account*.json
+*-firebase-adminsdk-*.json
+secrets/
+.config/
 application-local.yml
 
 # Local dev notes — not part of the codebase
@@ -83,3 +87,4 @@ docs/architecture/ADR-002_PR_1.5_multi_signal_detector.md
 
 
 src/test/outputs/*.json
+src/main/resources/application-local.properties

@@ -3,17 +3,25 @@ package com.fittribe.api.entity;
 import jakarta.persistence.*;
 import org.hibernate.annotations.JdbcTypeCode;
 import org.hibernate.type.SqlTypes;
+import org.springframework.data.domain.Persistable;
 
 import java.math.BigDecimal;
 import java.time.Instant;
 import java.util.UUID;
 
+/**
+ * Implements {@link Persistable} so Spring Data JPA's {@code save()}
+ * picks {@code EntityManager.persist()} (single INSERT) over
+ * {@code EntityManager.merge()} (SELECT-then-INSERT-or-UPDATE) for
+ * fresh entities with caller-assigned ids. The flag flips to false on
+ * {@code @PostLoad} (loaded entities are not new) and on
+ * {@code @PrePersist} (after insert the entity is no longer new).
+ */
 @Entity
 @Table(name = "workout_sessions")
-public class WorkoutSession {
+public class WorkoutSession implements Persistable<UUID> {
 
     @Id
-    @GeneratedValue(strategy = GenerationType.UUID)
     @Column(name = "id", updatable = false, nullable = false)
     private UUID id;
 
@@ -43,7 +51,7 @@ public class WorkoutSession {
     @Column(name = "duration_mins")
     private Integer durationMins;
 
-    @Column(name = "started_at", updatable = false)
+    @Column(name = "started_at")
     private Instant startedAt;
 
     @Column(name = "finished_at")
@@ -54,6 +62,16 @@ public class WorkoutSession {
 
     @Column(name = "ai_insight_generated_at")
     private Instant aiInsightGeneratedAt;
+
+    /**
+     * Set when PrWritePathService.processSessionFinish completes (post-loop,
+     * after the PR_DETECTED feed roundup). NULL means PR detection has not
+     * run / has not completed for this session — frontend uses this to
+     * distinguish "still detecting" from "detected, no PR" while the async
+     * pipeline is in flight.
+     */
+    @Column(name = "pr_detection_completed_at")
+    private Instant prDetectionCompletedAt;
 
     // ── AI Phase 2 fields (V8 migration) ──────────────────────────────
     @Column(name = "ai_planned_weights", columnDefinition = "jsonb")
@@ -91,16 +109,31 @@ public class WorkoutSession {
     @Column(name = "streak")
     private Integer streak;
 
+    @Transient
+    private boolean isNew = true;
+
     @PrePersist
     void prePersist() {
         if (startedAt == null) startedAt = Instant.now();
+        this.isNew = false;
+    }
+
+    @PostLoad
+    void postLoad() {
+        this.isNew = false;
     }
 
     // ── Required by JPA ───────────────────────────────────────────────
     public WorkoutSession() {}
 
+    // ── Persistable<UUID> contract ───────────────────────────────────
+    @Override
+    public boolean isNew()            { return isNew; }
+
     // ── Getters / Setters ─────────────────────────────────────────────
+    @Override
     public UUID getId()               { return id; }
+    public void setId(UUID v)         { this.id = v; }
 
     public UUID getUserId()           { return userId; }
     public void setUserId(UUID v)     { this.userId = v; }
@@ -126,7 +159,8 @@ public class WorkoutSession {
     public Integer getDurationMins()              { return durationMins; }
     public void setDurationMins(Integer v)        { this.durationMins = v; }
 
-    public Instant getStartedAt()     { return startedAt; }
+    public Instant getStartedAt()         { return startedAt; }
+    public void setStartedAt(Instant v)   { this.startedAt = v; }
 
     public Instant getFinishedAt()        { return finishedAt; }
     public void setFinishedAt(Instant v)  { this.finishedAt = v; }
@@ -136,6 +170,9 @@ public class WorkoutSession {
 
     public Instant getAiInsightGeneratedAt()         { return aiInsightGeneratedAt; }
     public void setAiInsightGeneratedAt(Instant v)   { this.aiInsightGeneratedAt = v; }
+
+    public Instant getPrDetectionCompletedAt()       { return prDetectionCompletedAt; }
+    public void setPrDetectionCompletedAt(Instant v) { this.prDetectionCompletedAt = v; }
 
     public String getAiPlannedWeights()              { return aiPlannedWeights; }
     public void setAiPlannedWeights(String v)        { this.aiPlannedWeights = v; }

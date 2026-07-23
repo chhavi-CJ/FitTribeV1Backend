@@ -10,6 +10,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
 import java.time.Instant;
+import java.time.LocalDate;
 import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
@@ -26,6 +27,11 @@ public interface WorkoutSessionRepository extends JpaRepository<WorkoutSession, 
 
     // Used to return an existing IN_PROGRESS session instead of creating a duplicate
     Optional<WorkoutSession> findFirstByUserIdAndStatusOrderByStartedAtDesc(
+            UUID userId, String status);
+
+    /** Most-recent completed session for a user — used by comeback-nudge to check
+     *  how long the user has been inactive. */
+    Optional<WorkoutSession> findFirstByUserIdAndStatusOrderByFinishedAtDesc(
             UUID userId, String status);
 
     // Used for 8-hour cooldown check: any COMPLETED session finished within the last 8 hours
@@ -46,6 +52,12 @@ public interface WorkoutSessionRepository extends JpaRepository<WorkoutSession, 
     @Query("UPDATE WorkoutSession w SET w.aiInsight = :insight WHERE w.id = :id")
     void updateAiInsight(@Param("id") UUID id, @Param("insight") String insight);
 
+    /** Bulk-abandons all sessions still IN_PROGRESS at Sunday end-of-week reset. */
+    @Modifying
+    @Transactional
+    @Query("UPDATE WorkoutSession ws SET ws.status = 'ABANDONED' WHERE ws.status = 'IN_PROGRESS'")
+    int abandonAllInProgressSessions();
+
     // Used for weeklyGoalHit and weekly report: sessions completed in a date range
     int countByUserIdAndStatusAndFinishedAtBetween(UUID userId, String status, Instant from, Instant to);
 
@@ -58,6 +70,32 @@ public interface WorkoutSessionRepository extends JpaRepository<WorkoutSession, 
 
     /** Total completed sessions ever for a user — used in profile response. */
     int countByUserIdAndStatus(UUID userId, String status);
+
+    /** Projection for consolidated profile counts — fetched in a single query. */
+    interface ProfileCounts {
+        int getCompletedThisWeek();
+        int getSessionsTotal();
+        int getTrainingDaysTotal();
+    }
+
+    /**
+     * Returns 3 counts in a single round-trip:
+     *  - completedThisWeek: COMPLETED sessions with finished_at in the given week range
+     *  - sessionsTotal:     all-time COMPLETED sessions
+     *  - trainingDaysTotal: distinct calendar days with COMPLETED sessions
+     */
+    @Query(value =
+        "SELECT " +
+        "  COUNT(*) FILTER (WHERE status = 'COMPLETED' AND finished_at >= :weekFrom AND finished_at < :weekTo) AS completedThisWeek, " +
+        "  COUNT(*) FILTER (WHERE status = 'COMPLETED') AS sessionsTotal, " +
+        "  COUNT(DISTINCT DATE(finished_at)) FILTER (WHERE status = 'COMPLETED' AND finished_at IS NOT NULL) AS trainingDaysTotal " +
+        "FROM workout_sessions " +
+        "WHERE user_id = :userId",
+        nativeQuery = true)
+    ProfileCounts getProfileCounts(
+        @Param("userId") UUID userId,
+        @Param("weekFrom") java.time.Instant weekFrom,
+        @Param("weekTo") java.time.Instant weekTo);
 
     /** Distinct calendar dates on which the user completed any session — drives rank system. */
     @Query(value = "SELECT COUNT(DISTINCT DATE(finished_at)) FROM workout_sessions " +
@@ -144,6 +182,16 @@ public interface WorkoutSessionRepository extends JpaRepository<WorkoutSession, 
     int updateStreak(@Param("id") UUID id, @Param("streak") int streak);
 
     /**
+     * Marker write at the end of PrWritePathService.processSessionFinish.
+     * Frontend reads back via GET /sessions/today as prDetectionComplete=true
+     * to know that backend isPr flags are now authoritative for this session.
+     */
+    @Modifying
+    @Transactional
+    @Query("UPDATE WorkoutSession ws SET ws.prDetectionCompletedAt = :ts WHERE ws.id = :sessionId")
+    void markPrDetectionComplete(@Param("sessionId") UUID sessionId, @Param("ts") Instant ts);
+
+    /**
      * Count COMPLETED sessions for a user in a time window, filtered by source.
      * Used by the bonus session flow to count how many BONUS-source sessions
      * exist in the current week (soft-cap logic) or to count non-BONUS planned
@@ -165,4 +213,43 @@ public interface WorkoutSessionRepository extends JpaRepository<WorkoutSession, 
      */
     int countByUserIdAndStatusAndSourceNotAndFinishedAtBetween(
             UUID userId, String status, String source, Instant from, Instant to);
+
+    /**
+     * Idempotency guard for the streak increment: counts COMPLETED sessions
+     * for this user on the same IST calendar day, excluding the session that
+     * was just finished. If the count is > 0 the streak has already been
+     * incremented today and should not be incremented again.
+     */
+    @Query(value =
+        "SELECT COUNT(*) FROM workout_sessions " +
+        "WHERE user_id = :userId " +
+        "  AND status = 'COMPLETED' " +
+        "  AND id != :excludeId " +
+        "  AND (finished_at AT TIME ZONE 'Asia/Kolkata')::date = :date",
+        nativeQuery = true)
+    long countOtherCompletedOnSameDay(
+        @Param("userId")    UUID      userId,
+        @Param("excludeId") UUID      excludeId,
+        @Param("date")      LocalDate date);
+
+    /**
+     * Counts distinct IST calendar days on which the user completed at least one session
+     * within a given time window. Used by WeeklyStreakEvaluationScheduler to determine
+     * how many days the user actually worked out in an ISO week.
+     *
+     * Converting finished_at to IST before extracting the date ensures that a session
+     * finishing just after midnight UTC (but still "today" in IST) is counted correctly.
+     */
+    @Query(value =
+        "SELECT COUNT(DISTINCT (finished_at AT TIME ZONE 'Asia/Kolkata')::date) " +
+        "FROM workout_sessions " +
+        "WHERE user_id = :userId " +
+        "  AND status = 'COMPLETED' " +
+        "  AND finished_at >= :weekStart " +
+        "  AND finished_at < :weekEnd",
+        nativeQuery = true)
+    long countDistinctCompletedDaysInRange(
+        @Param("userId")    UUID    userId,
+        @Param("weekStart") Instant weekStart,
+        @Param("weekEnd")   Instant weekEnd);
 }

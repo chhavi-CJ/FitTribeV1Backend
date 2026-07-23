@@ -59,17 +59,20 @@ public class WeeklyReportCron {
     }
 
     /**
-     * Scheduler entry point. Fires every Sunday at 23:00 IST and
-     * delegates to {@link #fanOutSundayJobs()}. Spring's
-     * {@code @Scheduled} contract requires a {@code void} return, so
-     * the success count is discarded here; use
-     * {@link #fanOutSundayJobs()} directly from admin endpoints or
-     * tests that need the count.
+     * Scheduler entry point. Fires every Monday at 04:30 IST. Aligned
+     * with the app's 5am-fitness-day boundary so the cron captures all
+     * sessions logged in the just-completed IST week, including
+     * late-Sunday-night and pre-5am-Monday workouts that belong to
+     * Sunday in fitness-day terms. Delegates to
+     * {@link #fanOutSundayJobs()}. Spring's {@code @Scheduled} contract
+     * requires a {@code void} return, so the success count is discarded
+     * here; use {@link #fanOutSundayJobs()} directly from admin
+     * endpoints or tests that need the count.
      *
      * <p>Package-private {@code run()} seam lets unit tests invoke the
      * same entry point without relying on Spring's scheduler.
      */
-    @Scheduled(cron = "0 0 23 * * SUN", zone = "Asia/Kolkata")
+    @Scheduled(cron = "0 30 4 * * MON", zone = "Asia/Kolkata")
     public void run() {
         fanOutSundayJobs();
     }

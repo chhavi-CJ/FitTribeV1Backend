@@ -2,9 +2,12 @@ package com.fittribe.api.repository;
 
 import com.fittribe.api.entity.PrEvent;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Query;
+import org.springframework.data.repository.query.Param;
 import org.springframework.stereotype.Repository;
 
 import java.time.LocalDate;
+import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
@@ -55,6 +58,21 @@ public interface PrEventRepository extends JpaRepository<PrEvent, UUID> {
      */
     List<PrEvent> findByUserIdAndExerciseIdAndSupersededAtIsNull(UUID userId, String exerciseId);
 
+    /**
+     * Batch fetch all non-superseded PR events for a set of sessions.
+     * week_start IN clause is REQUIRED to hit the correct RANGE partitions.
+     * week_start is computed as the UTC Monday of session.startedAt —
+     * matching PrWritePathService.weekStartFor() exactly.
+     */
+    @Query("SELECT p FROM PrEvent p WHERE p.userId = :userId " +
+           "AND p.sessionId IN :sessionIds " +
+           "AND p.weekStart IN :weekStarts " +
+           "AND p.supersededAt IS NULL")
+    List<PrEvent> findActiveByUserIdAndSessionIdInAndWeekStartIn(
+            @Param("userId") UUID userId,
+            @Param("sessionIds") Collection<UUID> sessionIds,
+            @Param("weekStarts") Collection<LocalDate> weekStarts);
+
     // TODO(pr-system-v2-followup): consider adding partial index on superseded_by
     // WHERE superseded_at IS NOT NULL if edit volume grows
     /**
@@ -63,4 +81,42 @@ public interface PrEventRepository extends JpaRepository<PrEvent, UUID> {
      * when a superseding edit is itself reverted.
      */
     List<PrEvent> findBySupersededByAndPrCategory(UUID supersededBy, String prCategory);
+
+    /** Count active (non-superseded) PR events for a set of session IDs.
+     *  Used by WeeklyStatsComputeJob to count PRs hit in an IST-bounded week
+     *  without timezone mismatch from the week_start partition column. */
+    @Query("SELECT COUNT(p) FROM PrEvent p WHERE p.sessionId IN :sessionIds AND p.supersededAt IS NULL")
+    int countActiveBySessionIdIn(@Param("sessionIds") Collection<UUID> sessionIds);
+
+    /**
+     * Bulk fetch of non-superseded PR events for a user across a set of sessions
+     * and their corresponding week-start partition keys.
+     * Used by PlanHistoryService to cross-reference JSONB set snapshots with
+     * PR history in one query instead of N per-session round-trips.
+     */
+    List<PrEvent> findByUserIdAndSessionIdInAndWeekStartInAndSupersededAtIsNull(
+            UUID userId, Collection<UUID> sessionIds, Collection<LocalDate> weekStarts);
+
+    /**
+     * Distinct exercise IDs that hit a non-FIRST_EVER PR for the user in
+     * the given week. Excludes FIRST_EVER (first-time-logging isn't a PR
+     * per product definition) and superseded events (edited away).
+     *
+     * <p>Dedups by exercise_id: an exercise that hits both WEIGHT_PR and
+     * REP_PR in one week counts as one PR exercise, not two.
+     *
+     * <p>Used by WeekDataBuilder for both prCount (size of the list) and
+     * personalRecords (iterates the list to attach previous-best lookups).
+     */
+    @Query("""
+            SELECT DISTINCT pe.exerciseId
+            FROM PrEvent pe
+            WHERE pe.userId = :userId
+              AND pe.weekStart = :weekStart
+              AND pe.prCategory IN ('WEIGHT_PR', 'REP_PR', 'VOLUME_PR')
+              AND pe.supersededAt IS NULL
+            """)
+    List<String> findDistinctPrExerciseIdsForWeek(
+            @Param("userId") UUID userId,
+            @Param("weekStart") LocalDate weekStart);
 }

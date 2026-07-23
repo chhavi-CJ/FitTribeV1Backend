@@ -13,6 +13,7 @@ import com.fittribe.api.repository.UserRepository;
 import com.fittribe.api.repository.WorkoutSessionRepository;
 import com.fittribe.api.service.RecoveryGateService;
 import com.fittribe.api.service.RecoveryGateService.RecoveryState;
+import static com.fittribe.api.util.Zones.APP_ZONE;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -113,9 +114,9 @@ public class BonusSessionService {
 
         // Weekly goal hit gate — users cannot bonus before completing their weekly commitment
         int weeklyGoal = user.getWeeklyGoal() != null ? user.getWeeklyGoal() : 3;
-        LocalDate today = LocalDate.now(ZoneOffset.UTC);
+        LocalDate today = LocalDate.now(APP_ZONE);
         LocalDate weekStart = today.with(TemporalAdjusters.previousOrSame(DayOfWeek.MONDAY));
-        Instant weekStartInstant = weekStart.atStartOfDay(ZoneOffset.UTC).toInstant();
+        Instant weekStartInstant = weekStart.atStartOfDay(APP_ZONE).toInstant();
         Instant nowInstant = Instant.now();
         int completedThisWeek = sessionRepo.countByUserIdAndStatusAndSourceNotAndFinishedAtBetween(
                 userId, "COMPLETED", "BONUS", weekStartInstant, nowInstant);
@@ -326,11 +327,11 @@ public class BonusSessionService {
 
     private List<Map<String, Object>> stubExercisesForArchetype(Archetype archetype) {
         List<String> ids = switch (archetype) {
-            case PUSH              -> List.of("bench-press", "shoulder-press", "tricep-pushdowns", "lateral-raises");
-            case PULL              -> List.of("lat-pulldown", "seated-cable-row", "bicep-curl", "face-pulls");
-            case LEGS              -> List.of("leg-press", "leg-curl", "glute-bridge", "standing-calf-raises");
-            case WEAK_POINT_FOCUS  -> List.of("cable-flyes", "hammer-curl", "tricep-kickback", "lateral-raises");
-            case ACCESSORY_CORE    -> List.of("bicep-curl", "face-pulls", "dead-bug", "russian-twist");
+            case PUSH              -> List.of("bench-press", "shoulder-press", "tricep-pushdowns", "lateral-raises", "incline-db-press", "cable-flyes");
+            case PULL              -> List.of("lat-pulldown", "seated-cable-row", "bicep-curl", "face-pulls", "pull-ups", "hammer-curl");
+            case LEGS              -> List.of("leg-press", "leg-curl", "glute-bridge", "standing-calf-raises", "bulgarian-split-squat", "lunges");
+            case WEAK_POINT_FOCUS  -> List.of("cable-flyes", "hammer-curl", "tricep-kickback", "lateral-raises", "face-pulls", "glute-bridge");
+            case ACCESSORY_CORE    -> List.of("bicep-curl", "face-pulls", "dead-bug", "russian-twist", "glute-bridge", "mountain-climbers");
         };
         List<Map<String, Object>> out = new ArrayList<>();
         for (String id : ids) {

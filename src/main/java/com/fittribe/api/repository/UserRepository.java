@@ -1,6 +1,7 @@
 package com.fittribe.api.repository;
 
 import com.fittribe.api.entity.User;
+import com.fittribe.api.entity.UserMatchingStatus;
 import jakarta.persistence.LockModeType;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Lock;
@@ -18,9 +19,30 @@ import java.util.UUID;
 @Repository
 public interface UserRepository extends JpaRepository<User, UUID> {
 
+    /** Eligible-pool query for Conscious Matching batch runs. */
+    List<User> findByUserMatchingStatus(UserMatchingStatus status);
+
     Optional<User> findByFirebaseUid(String firebaseUid);
 
     Optional<User> findByPhone(String phone);
+
+    Optional<User> findByEmailIgnoreCase(String email);
+
+    // Native query with explicit CAST(:param AS text) on every reference to
+    // the bound parameter. The JPQL version emitted untyped placeholders;
+    // when :email was null Postgres inferred LOWER(?) as LOWER(bytea), which
+    // has no matching overload and raised "function lower(bytea) does not
+    // exist". Casting forces the planner to resolve LOWER(text) regardless
+    // of whether the bound value is null or a string.
+    @Query(value = """
+            SELECT * FROM users u
+            WHERE (CAST(:email AS text) IS NOT NULL
+                   AND LOWER(u.email) = LOWER(CAST(:email AS text)))
+               OR (CAST(:phone AS text) IS NOT NULL
+                   AND u.phone = CAST(:phone AS text))
+            """, nativeQuery = true)
+    Optional<User> findByEmailOrPhone(@Param("email") String email,
+                                      @Param("phone") String phone);
 
     /**
      * Fetches the user row with a PESSIMISTIC_WRITE lock (SELECT ... FOR UPDATE).
@@ -43,8 +65,16 @@ public interface UserRepository extends JpaRepository<User, UUID> {
     /** Batch load: fetch multiple users by ID in one query. */
     List<User> findByIdIn(Collection<UUID> ids);
 
+    /** Batch load only active (non-deleted) users — used in feed reads so deleted accounts
+     *  don't surface their real display name. */
+    @Query("SELECT u FROM User u WHERE u.id IN :ids AND u.isActive = true")
+    List<User> findActiveByIdIn(@Param("ids") Collection<UUID> ids);
+
     /** All users with an active streak — used by the daily streak reset job. */
     List<User> findAllByStreakGreaterThan(int streak);
+
+    /** Users with exactly the given streak value — used by comeback-nudge job (streak == 0). */
+    List<User> findAllByStreak(int streak);
 
     /** All users with a pending weekly goal — used by the Monday promotion scheduler. */
     List<User> findAllByPendingWeeklyGoalIsNotNull();
@@ -59,6 +89,20 @@ public interface UserRepository extends JpaRepository<User, UUID> {
      */
     @Query("SELECT u.id FROM User u WHERE u.isActive = true AND u.deletionRequestedAt IS NULL")
     List<UUID> findActiveUserIds();
+
+    /**
+     * IDs of users who never finished onboarding and have been stale for a
+     * while — fed to {@code IncompleteUserCleanupScheduler}. Backed by the
+     * partial index idx_users_onboarding_complete_created_at (V68).
+     */
+    @Query("SELECT u.id FROM User u WHERE u.onboardingComplete = false AND u.createdAt < :cutoff")
+    List<UUID> findIncompleteUserIdsCreatedBefore(@Param("cutoff") java.time.Instant cutoff);
+
+    /** IDs of users eligible for the leaderboard: active, not deleting, leaderboard_eligible=true,
+     *  and pause_until is null or in the past. */
+    @Query("SELECT u.id FROM User u WHERE u.isActive = true AND u.deletionRequestedAt IS NULL " +
+           "AND u.leaderboardEligible = true AND (u.pauseUntil IS NULL OR u.pauseUntil < :now)")
+    List<UUID> findLeaderboardEligibleUserIds(@Param("now") java.time.Instant now);
 
     /**
      * Atomically updates max_streak_ever only when the new streak beats the stored value.

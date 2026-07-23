@@ -8,10 +8,13 @@ import com.fittribe.api.prv2.detector.LoggedSet;
 import com.fittribe.api.prv2.detector.PRDetector;
 import com.fittribe.api.prv2.detector.PRResult;
 import com.fittribe.api.prv2.detector.PrCategory;
+import com.fittribe.api.repository.ExerciseRepository;
 import com.fittribe.api.repository.PrEventRepository;
 import com.fittribe.api.repository.UserExerciseBestsRepository;
 import com.fittribe.api.repository.WeeklyPrCountRepository;
+import com.fittribe.api.repository.WorkoutSessionRepository;
 import com.fittribe.api.service.CoinService;
+import com.fittribe.api.service.FeedEventWriter;
 
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Disabled;
@@ -53,6 +56,9 @@ class PrWritePathServiceTest {
     @Mock private WeeklyPrCountRepository weeklyPrCountRepo;
     @Mock private CoinService coinService;
     @Mock private PlatformTransactionManager transactionManager;
+    @Mock private ExerciseRepository exerciseRepo;
+    @Mock private FeedEventWriter feedEventWriter;
+    @Mock private WorkoutSessionRepository sessionRepo;
 
     private TransactionTemplate transactionTemplate;
     private PrWritePathService service;
@@ -72,7 +78,10 @@ class PrWritePathServiceTest {
                 prEventRepo,
                 weeklyPrCountRepo,
                 coinService,
-                transactionManager);
+                transactionManager,
+                exerciseRepo,
+                feedEventWriter,
+                sessionRepo);
 
         userId = UUID.randomUUID();
         sessionId = UUID.randomUUID();

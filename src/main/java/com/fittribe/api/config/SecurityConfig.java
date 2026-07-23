@@ -65,6 +65,10 @@ public class SecurityConfig {
             .authorizeHttpRequests(auth -> {
                 auth.requestMatchers("/api/v1/health").permitAll()
                     .requestMatchers("/api/v1/auth/**").permitAll()
+                    // Per-user endpoint — must be authenticated. Ordered
+                    // BEFORE the public exercises permitAll so it isn't
+                    // swallowed by the /api/v1/exercises/** wildcard.
+                    .requestMatchers("/api/v1/exercises/last-logged").authenticated()
                     .requestMatchers("/api/v1/exercises", "/api/v1/exercises/**").permitAll()
                     // Admin job-trigger endpoints have their own shared-secret
                     // check via the X-Admin-Secret header inside the controller
@@ -73,6 +77,10 @@ public class SecurityConfig {
                     // secret check could run. The empty-secret deny-by-default
                     // posture lives in the controller itself.
                     .requestMatchers("/api/v1/admin/jobs/**").permitAll()
+                    // Conscious Matching admin trigger — same rationale as
+                    // /api/v1/admin/jobs/**: its own X-Admin-Key shared-secret
+                    // (deny-by-default) check lives inside the controller.
+                    .requestMatchers("/api/admin/matching/**").permitAll()
                     .requestMatchers("/api/waitlist", "/api/waitlist/**").permitAll();
                 // Dev endpoints are only permitted when running in dev/test mode.
                 // In production (real FIREBASE_PROJECT_ID set), the DevController bean

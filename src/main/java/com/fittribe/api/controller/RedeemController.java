@@ -4,6 +4,9 @@ import com.fittribe.api.dto.ApiResponse;
 import com.fittribe.api.exception.ApiException;
 import com.fittribe.api.repository.CoinTransactionRepository;
 import com.fittribe.api.service.CoinService;
+import com.fittribe.api.service.FreezeTransactionService;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.jdbc.core.JdbcTemplate;
@@ -22,20 +25,24 @@ import java.util.UUID;
 @RequestMapping("/api/v1/coins")
 public class RedeemController {
 
-    private static final int    STREAK_FREEZE_COST = 80;
-    private static final int    GROUP_CROWN_COST   = 30;
-    private static final ZoneId IST                = ZoneId.of("Asia/Kolkata");
+    private static final Logger  log                = LoggerFactory.getLogger(RedeemController.class);
+    private static final int     STREAK_FREEZE_COST = 80;
+    private static final int     GROUP_CROWN_COST   = 30;
+    private static final ZoneId  IST                = ZoneId.of("Asia/Kolkata");
 
-    private final JdbcTemplate             jdbcTemplate;
-    private final CoinService              coinService;
+    private final JdbcTemplate              jdbcTemplate;
+    private final CoinService               coinService;
     private final CoinTransactionRepository coinRepo;
+    private final FreezeTransactionService  freezeTransactionService;
 
     public RedeemController(JdbcTemplate jdbcTemplate,
                             CoinService coinService,
-                            CoinTransactionRepository coinRepo) {
-        this.jdbcTemplate = jdbcTemplate;
-        this.coinService  = coinService;
-        this.coinRepo     = coinRepo;
+                            CoinTransactionRepository coinRepo,
+                            FreezeTransactionService freezeTransactionService) {
+        this.jdbcTemplate            = jdbcTemplate;
+        this.coinService             = coinService;
+        this.coinRepo                = coinRepo;
+        this.freezeTransactionService = freezeTransactionService;
     }
 
     // ── POST /api/v1/coins/redeem ─────────────────────────────────────
@@ -80,16 +87,23 @@ public class RedeemController {
 
         // Bank the freeze day
         jdbcTemplate.update(
-                "UPDATE users SET streak_freeze_balance = streak_freeze_balance + 1 WHERE id = ?",
+                "UPDATE users SET purchased_freeze_balance = purchased_freeze_balance + 1 WHERE id = ?",
                 userId);
+
+        try {
+            freezeTransactionService.record(userId, "PURCHASED", 1,
+                    Map.of("coinsCost", 80));
+        } catch (Exception e) {
+            log.warn("Failed to record freeze tx for user={}", userId, e);
+        }
 
         int newBalance    = currentCoins(userId);
         int freezeBalance = jdbcTemplate.queryForObject(
-                "SELECT streak_freeze_balance FROM users WHERE id = ?", Integer.class, userId);
+                "SELECT purchased_freeze_balance FROM users WHERE id = ?", Integer.class, userId);
 
         Map<String, Object> result = new LinkedHashMap<>();
         result.put("newBalance",          newBalance);
-        result.put("streakFreezeBalance", freezeBalance);
+        result.put("purchasedFreezeBalance", freezeBalance);
         return ResponseEntity.ok(ApiResponse.success(result));
     }
 

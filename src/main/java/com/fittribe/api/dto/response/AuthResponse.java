@@ -6,5 +6,6 @@ public record AuthResponse(
         String token,
         UUID userId,
         boolean isNewUser,
+        boolean onboardingComplete,
         String displayName
 ) {}

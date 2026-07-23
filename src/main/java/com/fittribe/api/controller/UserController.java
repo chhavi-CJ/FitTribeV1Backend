@@ -16,6 +16,7 @@ import com.fittribe.api.repository.UserExerciseBestsRepository;
 import com.fittribe.api.repository.UserPlanRepository;
 import com.fittribe.api.repository.UserRepository;
 import com.fittribe.api.repository.WorkoutSessionRepository;
+import com.fittribe.api.service.UserDeletionService;
 import com.fittribe.api.service.RankService;
 import com.fittribe.api.util.PromptSanitiser;
 import jakarta.validation.Valid;
@@ -25,6 +26,7 @@ import org.springframework.security.core.Authentication;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.bind.annotation.*;
 
+import com.fittribe.api.util.Zones;
 import java.time.DayOfWeek;
 import java.time.Instant;
 import java.time.LocalDate;
@@ -47,22 +49,27 @@ public class UserController {
     private static final Set<String> VALID_LEVELS =
             Set.of("BEGINNER", "INTERMEDIATE", "ADVANCED");
 
-    private final UserRepository            userRepository;
-    private final WorkoutSessionRepository  sessionRepository;
-    private final UserPlanRepository        planRepository;
+    private static final org.slf4j.Logger log = org.slf4j.LoggerFactory.getLogger(UserController.class);
+
+    private final UserRepository              userRepository;
+    private final WorkoutSessionRepository    sessionRepository;
+    private final UserPlanRepository          planRepository;
     private final UserExerciseBestsRepository bestsRepository;
-    private final ObjectMapper              objectMapper;
+    private final ObjectMapper                objectMapper;
+    private final UserDeletionService         userDeletionService;
 
     public UserController(UserRepository userRepository,
                           WorkoutSessionRepository sessionRepository,
                           UserPlanRepository planRepository,
                           UserExerciseBestsRepository bestsRepository,
-                          ObjectMapper objectMapper) {
-        this.userRepository    = userRepository;
-        this.sessionRepository = sessionRepository;
-        this.planRepository    = planRepository;
-        this.bestsRepository   = bestsRepository;
-        this.objectMapper      = objectMapper;
+                          ObjectMapper objectMapper,
+                          UserDeletionService userDeletionService) {
+        this.userRepository       = userRepository;
+        this.sessionRepository    = sessionRepository;
+        this.planRepository       = planRepository;
+        this.bestsRepository      = bestsRepository;
+        this.objectMapper         = objectMapper;
+        this.userDeletionService  = userDeletionService;
     }
 
     // ── GET /api/v1/users/me/exercise-bests ─────────────────────────────
@@ -89,12 +96,19 @@ public class UserController {
         int completedThisWeek          = sessionRepository.countCompletedThisWeekByStartedAt(userId);
         List<String> workoutDatesThisWeek = sessionRepository.findWorkoutDatesThisWeekByStartedAt(userId);
 
+        LocalDate today       = Zones.fitnessDayNow();
+        Instant startOfDay    = Zones.fitnessDayStart(today);
+        Instant endOfDay      = Zones.fitnessDayStart(today.plusDays(1));
+        boolean workoutCompletedToday = sessionRepository.existsByUserIdAndStatusAndFinishedAtBetween(
+                userId, "COMPLETED", startOfDay, endOfDay);
+
         int trainingDaysTotal = sessionRepository.countDistinctTrainingDays(userId);
         String currentRank    = RankService.rankFor(trainingDaysTotal);
 
         Map<String, Object> response = objectMapper.convertValue(user, Map.class);
         response.put("completedThisWeek",    completedThisWeek);
         response.put("workoutDatesThisWeek", workoutDatesThisWeek);
+        response.put("workoutCompletedToday", workoutCompletedToday);
         response.put("trainingDaysTotal",    trainingDaysTotal);
         response.put("currentRank",          currentRank);
         response.put("nextRankName",         RankService.nextRank(currentRank));
@@ -133,6 +147,11 @@ public class UserController {
         if (request.weightKg() != null)    user.setWeightKg(request.weightKg());
         if (request.heightCm() != null)    user.setHeightCm(request.heightCm());
         if (request.weeklyGoal() != null) {
+            int wg = request.weeklyGoal();
+            if (wg < 1 || wg > 6) {
+                throw new ApiException(HttpStatus.BAD_REQUEST, "VALIDATION_ERROR",
+                        "weekly_goal must be between 1 and 6");
+            }
             // Invalidate current week's plan if goal changed — forces regeneration with correct split
             if (!request.weeklyGoal().equals(user.getWeeklyGoal())) {
                 invalidateCurrentWeekPlan(user.getId());
@@ -148,6 +167,22 @@ public class UserController {
                     .replaceAll("(?i)(ignore previous|forget your|you are now|system prompt|jailbreak)", "")
                     .trim();
             user.setAiContext(sanitized);
+        }
+
+        // Onboarding-completion gate. Flip onboarding_complete true ONLY on the
+        // final onboarding submit — i.e. the user is still incomplete AND this
+        // single payload carries all six required onboarding fields. This is
+        // deliberately scoped so that later partial profile edits (e.g. just
+        // changing weeklyGoal or aiContext) never toggle the flag back, and a
+        // user who somehow reaches /users/me with a partial body stays gated.
+        if (!Boolean.TRUE.equals(user.getOnboardingComplete())
+                && request.displayName()  != null
+                && request.gender()       != null
+                && request.goal()         != null
+                && request.fitnessLevel() != null
+                && request.heightCm()     != null
+                && request.weightKg()     != null) {
+            user.setOnboardingComplete(true);
         }
 
         return ResponseEntity.ok(ApiResponse.success(userRepository.save(user)));
@@ -209,13 +244,17 @@ public class UserController {
 
     // ── DELETE /api/v1/users/account ─────────────────────────────────
     @DeleteMapping("/account")
-    @Transactional
     public ResponseEntity<ApiResponse<Map<String, Object>>> deleteAccount(Authentication auth) {
         User user = resolveUser(auth);
+        UUID   userId      = user.getId();
+        String firebaseUid = user.getFirebaseUid();   // capture BEFORE delete
 
-        user.setIsActive(false);
-        user.setDeletionRequestedAt(Instant.now());
-        userRepository.save(user);
+        // 1. Postgres hard-delete in its own transaction (commits on return).
+        userDeletionService.deletePostgresData(user);
+
+        // 2. Firebase delete only AFTER Postgres has committed. Soft-fail
+        //    inside the service: a Firebase failure never 5xxs the user.
+        userDeletionService.deleteFirebaseUser(userId, firebaseUid);
 
         return ResponseEntity.ok(ApiResponse.success(Map.of("deleted", true)));
     }
@@ -259,7 +298,14 @@ public class UserController {
             user.setFitnessLevel(request.fitnessLevel());
         }
         // Weekly goal always goes to pending — promoted to live on Monday by scheduler
-        if (request.weeklyGoal() != null) user.setPendingWeeklyGoal(request.weeklyGoal());
+        if (request.weeklyGoal() != null) {
+            int wg = request.weeklyGoal();
+            if (wg < 1 || wg > 6) {
+                throw new ApiException(HttpStatus.BAD_REQUEST, "VALIDATION_ERROR",
+                        "weekly_goal must be between 1 and 6");
+            }
+            user.setPendingWeeklyGoal(request.weeklyGoal());
+        }
 
         userRepository.save(user);
         return ResponseEntity.ok(ApiResponse.success(buildProfileResponse(userId, user)));
@@ -277,23 +323,23 @@ public class UserController {
      * will regenerate it with the correct split on next app open.
      */
     private void invalidateCurrentWeekPlan(UUID userId) {
-        LocalDate monday = LocalDate.now(ZoneOffset.UTC)
+        LocalDate monday = LocalDate.now(Zones.APP_ZONE)
                 .with(TemporalAdjusters.previousOrSame(DayOfWeek.MONDAY));
         Optional<UserPlan> existing = planRepository.findByUserIdAndWeekStartDate(userId, monday);
         existing.ifPresent(planRepository::delete);
     }
 
     private UserProfileResponse buildProfileResponse(UUID userId, User user) {
-        LocalDate monday         = LocalDate.now(ZoneOffset.UTC).with(DayOfWeek.MONDAY);
-        Instant weekFrom         = monday.atStartOfDay(ZoneOffset.UTC).toInstant();
-        Instant weekTo           = monday.plusDays(7).atStartOfDay(ZoneOffset.UTC).toInstant();
+        LocalDate monday         = LocalDate.now(Zones.APP_ZONE).with(TemporalAdjusters.previousOrSame(DayOfWeek.MONDAY));
+        Instant weekFrom         = monday.atStartOfDay(Zones.APP_ZONE).toInstant();
+        Instant weekTo           = monday.plusDays(7).atStartOfDay(Zones.APP_ZONE).toInstant();
 
-        int completedThisWeek = sessionRepository.countByUserIdAndStatusAndFinishedAtBetween(
-                userId, "COMPLETED", weekFrom, weekTo);
-        int sessionsTotal = sessionRepository.countByUserIdAndStatus(userId, "COMPLETED");
-        int prsTotal      = bestsRepository.countByUserId(userId);
-
-        int trainingDaysTotal = sessionRepository.countDistinctTrainingDays(userId);
+        // Single round-trip for the 3 workout_sessions counts (was 3 separate queries)
+        var counts = sessionRepository.getProfileCounts(userId, weekFrom, weekTo);
+        int completedThisWeek = counts.getCompletedThisWeek();
+        int sessionsTotal     = counts.getSessionsTotal();
+        int trainingDaysTotal = counts.getTrainingDaysTotal();
+        int prsTotal          = bestsRepository.countByUserId(userId);
         String currentRank    = RankService.rankFor(trainingDaysTotal);
         String nextRankName   = RankService.nextRank(currentRank);
         int daysToNextRank    = RankService.daysToNext(trainingDaysTotal);
@@ -312,7 +358,7 @@ public class UserController {
                 sessionsTotal,
                 prsTotal,
                 user.getCoins() != null ? user.getCoins() : 0,
-                user.getStreakFreezeBalance() != null ? user.getStreakFreezeBalance() : 0,
+                user.getPurchasedFreezeBalance() != null ? user.getPurchasedFreezeBalance() : 0,
                 Boolean.TRUE.equals(user.getAutoFreezeEnabled()),
                 currentRank,
                 Boolean.TRUE.equals(user.getNotificationsEnabled()),

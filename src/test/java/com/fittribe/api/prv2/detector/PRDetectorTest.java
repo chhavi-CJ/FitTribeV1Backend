@@ -606,6 +606,63 @@ class PRDetectorTest {
         assertNull(result.valuePayload().get("delta_reps"));
     }
 
+    // ── Zero-zero guard tests ───────────────────────────────────────────
+
+    @Test
+    @DisplayName("0×0 guard: all-null set returns noResult even when bests are null")
+    void zeroGuard_allNullReturnsNoResult() {
+        LoggedSet set = new LoggedSet(null, "bench-press", null, null, null);
+        PRResult result = detector.detect(set, null, ExerciseType.WEIGHTED);
+
+        assertFalse(result.isPR());
+        assertNull(result.category());
+    }
+
+    @Test
+    @DisplayName("0×0 guard: weight=0 reps=0 returns noResult even when bests are null")
+    void zeroGuard_zeroWeightZeroRepsReturnsNoResult() {
+        LoggedSet set = new LoggedSet(null, "bench-press", BigDecimal.ZERO, 0, null);
+        PRResult result = detector.detect(set, null, ExerciseType.WEIGHTED);
+
+        assertFalse(result.isPR());
+        assertNull(result.category());
+    }
+
+    @Test
+    @DisplayName("0×0 guard: weight=0 reps=5 bodyweight first occurrence still fires FIRST_EVER")
+    void zeroGuard_zeroWeightWithRepsFirstEverBodyweight() {
+        LoggedSet set = new LoggedSet(null, "push-ups", BigDecimal.ZERO, 5, null);
+        PRResult result = detector.detect(set, null, ExerciseType.BODYWEIGHT_UNASSISTED);
+
+        assertTrue(result.isPR());
+        assertEquals(PrCategory.FIRST_EVER, result.category());
+    }
+
+    @Test
+    @DisplayName("0×0 guard: weight=10 reps=0 on existing bests returns noResult")
+    void zeroGuard_weightWithZeroRepsReturnsNoResult() {
+        UserExerciseBests bests = new UserExerciseBests();
+        bests.setTotalSessionsWithExercise(5);
+        bests.setBestWtKg(BigDecimal.valueOf(10.0));
+        bests.setRepsAtBestWt(5);
+
+        LoggedSet set = new LoggedSet(null, "bench-press", BigDecimal.valueOf(10.0), 0, null);
+        PRResult result = detector.detect(set, bests, ExerciseType.WEIGHTED);
+
+        assertFalse(result.isPR());
+        assertNull(result.category());
+    }
+
+    @Test
+    @DisplayName("0×0 guard: weight=10 reps=5 first occurrence fires FIRST_EVER")
+    void zeroGuard_weightWithRepsFirstEverWeighted() {
+        LoggedSet set = new LoggedSet(null, "bench-press", BigDecimal.valueOf(10.0), 5, null);
+        PRResult result = detector.detect(set, null, ExerciseType.WEIGHTED);
+
+        assertTrue(result.isPR());
+        assertEquals(PrCategory.FIRST_EVER, result.category());
+    }
+
     @Test
     @DisplayName("Multi-signal: MAX_ATTEMPT without volume (volume best too high)")
     void multiSignal_maxAttemptWithoutVolume() {
