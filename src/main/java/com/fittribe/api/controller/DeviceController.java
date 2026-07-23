@@ -38,6 +38,9 @@ public class DeviceController {
             Authentication auth) {
 
         UUID userId = (UUID) auth.getPrincipal();
+        // If this token is registered to a different account (device switched users),
+        // remove it from the old account so pushes go to the right person.
+        deviceTokenRepo.deleteAllByToken(req.token());
         deviceTokenRepo.upsert(userId, req.token(), req.platform());
         return ResponseEntity.ok(ApiResponse.success(Map.of("registered", true)));
     }

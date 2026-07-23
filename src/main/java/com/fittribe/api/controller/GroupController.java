@@ -643,19 +643,16 @@ public class GroupController {
                 Instant.now());
         int sessionsRemaining = Math.max(0, weeklyGoal - completed);
 
-        // Write notification — no feed item (pokes are private, not in feed)
-        Notification notif = new Notification();
-        notif.setRecipientId(memberId);
-        notif.setActorId(pokerId);
-        notif.setGroupId(id);
-        notif.setType("POKE");
-        notif.setMetadata(Map.of(
-            "title", pokerFirstName + " poked you \uD83D\uDC4B",
-            "body",  pokerFirstName + " poked you in " + groupName
-                    + " \u2014 " + sessionsRemaining
-                    + " session" + (sessionsRemaining != 1 ? "s" : "") + " to go \uD83D\uDCAA"
-        ));
-        notifRepo.save(notif);
+        // Write in-app notification + push — no feed item (pokes are private, not in feed)
+        String pokeTitle = pokerFirstName + " poked you \uD83D\uDC4B";
+        String pokeBody  = pokerFirstName + " poked you in " + groupName
+                + " \u2014 " + sessionsRemaining
+                + " session" + (sessionsRemaining != 1 ? "s" : "") + " to go \uD83D\uDCAA";
+        notificationService.notifyUser(
+                memberId, "POKE", pokeTitle, pokeBody,
+                pokerId, id,
+                Map.of("type", "POKE", "groupId", id.toString()),
+                true);
 
         // Record the poke so rate-limit fires on subsequent attempts
         PokeLog pl = new PokeLog();

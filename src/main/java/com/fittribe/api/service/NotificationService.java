@@ -2,8 +2,10 @@ package com.fittribe.api.service;
 
 import com.fittribe.api.entity.DeviceToken;
 import com.fittribe.api.entity.GroupMember;
+import com.fittribe.api.entity.Notification;
 import com.fittribe.api.repository.DeviceTokenRepository;
 import com.fittribe.api.repository.GroupMemberRepository;
+import com.fittribe.api.repository.NotificationRepository;
 import com.google.firebase.FirebaseApp;
 import com.google.firebase.messaging.FirebaseMessaging;
 import com.google.firebase.messaging.FirebaseMessagingException;
@@ -22,13 +24,16 @@ public class NotificationService {
 
     private static final Logger log = LoggerFactory.getLogger(NotificationService.class);
 
-    private final DeviceTokenRepository deviceTokenRepo;
-    private final GroupMemberRepository groupMemberRepo;
+    private final DeviceTokenRepository  deviceTokenRepo;
+    private final GroupMemberRepository  groupMemberRepo;
+    private final NotificationRepository notificationRepo;
 
     public NotificationService(DeviceTokenRepository deviceTokenRepo,
-                               GroupMemberRepository groupMemberRepo) {
-        this.deviceTokenRepo = deviceTokenRepo;
-        this.groupMemberRepo = groupMemberRepo;
+                               GroupMemberRepository groupMemberRepo,
+                               NotificationRepository notificationRepo) {
+        this.deviceTokenRepo  = deviceTokenRepo;
+        this.groupMemberRepo  = groupMemberRepo;
+        this.notificationRepo = notificationRepo;
     }
 
     /**
@@ -77,6 +82,56 @@ public class NotificationService {
             }
         } catch (Exception e) {
             log.warn("sendPush: unexpected error for user={}: {}", userId, e.getMessage());
+        }
+    }
+
+    /**
+     * Single entry point for creating any in-app notification, with optional push.
+     *
+     * Saves a row to the notifications table so it appears in the user's
+     * notification feed, then (when sendPush=true) fires an FCM push to every
+     * registered device for that user.
+     *
+     * @param actorId  nullable — the user who caused the event (null for system alerts)
+     * @param groupId  nullable — relevant group, if any
+     * @param data     key-value pairs forwarded in the FCM data payload (deep-link info etc.)
+     * @param sendPush whether to also send an FCM push on top of the in-app record
+     */
+    public void notifyUser(UUID recipientId, String type, String title, String body,
+                           UUID actorId, UUID groupId,
+                           Map<String, String> data, boolean sendPush) {
+        try {
+            Notification notif = new Notification();
+            notif.setRecipientId(recipientId);
+            notif.setActorId(actorId);
+            notif.setGroupId(groupId);
+            notif.setType(type);
+            notif.setMetadata(Map.of("title", title, "body", body));
+            notificationRepo.save(notif);
+        } catch (Exception e) {
+            log.warn("notifyUser: failed to save in-app notification type={} for user={}: {}",
+                    type, recipientId, e.getMessage());
+        }
+
+        if (sendPush) {
+            sendPush(recipientId, title, body, data != null ? data : Map.of());
+        }
+    }
+
+    /**
+     * Batch variant of {@link #sendPush}: sends an FCM push to every registered
+     * device for each user in the list. Only sends push — does not create
+     * in-app notification records.
+     */
+    public void sendToUsers(List<UUID> userIds, String title, String body,
+                            Map<String, String> data) {
+        if (userIds == null || userIds.isEmpty()) return;
+        for (UUID userId : userIds) {
+            try {
+                sendPush(userId, title, body, data);
+            } catch (Exception e) {
+                log.warn("sendToUsers: push failed for user={}: {}", userId, e.getMessage());
+            }
         }
     }
 

@@ -21,6 +21,10 @@ public interface DeviceTokenRepository extends JpaRepository<DeviceToken, UUID> 
 
     @Modifying
     @Transactional
+    void deleteAllByToken(String token);
+
+    @Modifying
+    @Transactional
     @Query(value = """
             INSERT INTO device_tokens (user_id, token, platform)
             VALUES (:userId, :token, :platform)
