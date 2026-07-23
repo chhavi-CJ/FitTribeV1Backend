@@ -31,6 +31,10 @@ public interface NotificationRepository extends JpaRepository<Notification, UUID
      *  the given type was already created for this group after a given timestamp. */
     boolean existsByGroupIdAndTypeAndCreatedAtAfter(UUID groupId, String type, java.time.OffsetDateTime after);
 
+    /** Volume-control guard — check whether a notification of the given type was already
+     *  sent to this recipient after a given timestamp (e.g. today's midnight IST). */
+    boolean existsByRecipientIdAndTypeAndCreatedAtAfter(UUID recipientId, String type, java.time.OffsetDateTime after);
+
     @Modifying
     @Transactional
     @Query(value = """

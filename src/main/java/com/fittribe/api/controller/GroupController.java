@@ -194,8 +194,10 @@ public class GroupController {
         // EVENT 5 — GROUP_MEMBER_JOINED: push + in-app to all existing members
         try {
             String notifyName = displayName != null ? displayName : "Someone";
-            String joinTitle  = "👋 " + notifyName + " joined " + group.getName();
-            String joinBody   = "Your accountability crew just got stronger!";
+            com.fittribe.api.service.NotificationCopy.Copy joinCopy =
+                    com.fittribe.api.service.NotificationCopy.groupMemberJoined(notifyName, group.getName());
+            String joinTitle = joinCopy.title();
+            String joinBody  = joinCopy.body();
             Map<String, String> joinData = Map.of(
                     "type",         "GROUP_MEMBER_JOINED",
                     "targetScreen", "/group",
@@ -648,10 +650,10 @@ public class GroupController {
         int sessionsRemaining = Math.max(0, weeklyGoal - completed);
 
         // Write in-app notification + push — no feed item (pokes are private, not in feed)
-        String pokeTitle = pokerFirstName + " poked you \uD83D\uDC4B";
-        String pokeBody  = pokerFirstName + " poked you in " + groupName
-                + " \u2014 " + sessionsRemaining
-                + " session" + (sessionsRemaining != 1 ? "s" : "") + " to go \uD83D\uDCAA";
+        com.fittribe.api.service.NotificationCopy.Copy pokeCopy =
+                com.fittribe.api.service.NotificationCopy.poke(pokerFirstName, groupName, sessionsRemaining);
+        String pokeTitle = pokeCopy.title();
+        String pokeBody  = pokeCopy.body();
         notificationService.notifyUser(
                 memberId, "POKE", pokeTitle, pokeBody,
                 pokerId, id,

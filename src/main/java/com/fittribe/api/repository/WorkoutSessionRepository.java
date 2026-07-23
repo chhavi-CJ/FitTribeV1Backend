@@ -29,6 +29,11 @@ public interface WorkoutSessionRepository extends JpaRepository<WorkoutSession, 
     Optional<WorkoutSession> findFirstByUserIdAndStatusOrderByStartedAtDesc(
             UUID userId, String status);
 
+    /** Most-recent completed session for a user — used by comeback-nudge to check
+     *  how long the user has been inactive. */
+    Optional<WorkoutSession> findFirstByUserIdAndStatusOrderByFinishedAtDesc(
+            UUID userId, String status);
+
     // Used for 8-hour cooldown check: any COMPLETED session finished within the last 8 hours
     Optional<WorkoutSession> findFirstByUserIdAndStatusAndFinishedAtAfter(
             UUID userId, String status, Instant after);

@@ -351,11 +351,11 @@ public class SessionFinishPostProcessor {
     void notifyStreakMilestone(SessionFinishContext ctx) {
         int streak = ctx.currentStreak();
         if (!STREAK_MILESTONES.contains(streak)) return;
+        NotificationCopy.Copy copy = NotificationCopy.streakMilestone(streak);
         notificationService.notifyUser(
                 ctx.userId(),
                 "STREAK_MILESTONE",
-                "🔥 " + streak + " day streak!",
-                "You've trained " + streak + " days in a row. Keep the fire going!",
+                copy.title(), copy.body(),
                 null, null,
                 Map.of("type", "STREAK_MILESTONE", "targetScreen", "/home"),
                 true);
@@ -368,12 +368,11 @@ public class SessionFinishPostProcessor {
      */
     void notifyWeeklyGoalHit(SessionFinishContext ctx) {
         if (ctx.completedThisWeek() != ctx.weeklyGoal()) return;
+        NotificationCopy.Copy copy = NotificationCopy.weeklyGoalHit(ctx.weeklyGoal());
         notificationService.notifyUser(
                 ctx.userId(),
                 "WEEKLY_GOAL_HIT",
-                "🎯 Weekly goal smashed!",
-                "You hit your " + ctx.weeklyGoal()
-                        + "-session goal this week. Consistency wins.",
+                copy.title(), copy.body(),
                 null, null,
                 Map.of("type", "WEEKLY_GOAL_HIT", "targetScreen", "/progress"),
                 true);
@@ -412,9 +411,9 @@ public class SessionFinishPostProcessor {
 
             if (!allHit) continue;
 
-            String title = "🏆 " + group.getName() + " crushed it!";
-            String body  = "Everyone in " + group.getName()
-                    + " hit their weekly goal. Total team effort!";
+            NotificationCopy.Copy copy = NotificationCopy.groupGoalHit(group.getName());
+            String title = copy.title();
+            String body  = copy.body();
             Map<String, String> data = Map.of(
                     "type",         "GROUP_GOAL_HIT",
                     "targetScreen", "/group",
@@ -450,8 +449,9 @@ public class SessionFinishPostProcessor {
 
         for (UUID groupId : groupIds) {
             String groupName = groupNames.getOrDefault(groupId, "your group");
-            String title = "💪 " + displayName + " just trained";
-            String body  = displayName + " logged a workout in " + groupName;
+            NotificationCopy.Copy copy = NotificationCopy.groupMemberLogged(displayName, groupName);
+            String title = copy.title();
+            String body  = copy.body();
             Map<String, String> data = Map.of(
                     "type",           "GROUP_MEMBER_LOGGED",
                     "targetScreen",   "/group",

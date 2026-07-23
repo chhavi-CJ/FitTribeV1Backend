@@ -6,6 +6,8 @@ import com.fittribe.api.repository.UserRepository;
 import com.fittribe.api.repository.WorkoutSessionRepository;
 import com.fittribe.api.service.BonusFreezeGrantService;
 import com.fittribe.api.service.FreezeTransactionService;
+import com.fittribe.api.service.NotificationCopy;
+import com.fittribe.api.service.NotificationService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.scheduling.annotation.Scheduled;
@@ -51,15 +53,18 @@ public class WeeklyStreakEvaluationScheduler {
     private final WorkoutSessionRepository sessionRepo;
     private final BonusFreezeGrantService  bonusFreezeGrantService;
     private final FreezeTransactionService freezeTransactionService;
+    private final NotificationService      notificationService;
 
     public WeeklyStreakEvaluationScheduler(UserRepository userRepo,
                                            WorkoutSessionRepository sessionRepo,
                                            BonusFreezeGrantService bonusFreezeGrantService,
-                                           FreezeTransactionService freezeTransactionService) {
+                                           FreezeTransactionService freezeTransactionService,
+                                           NotificationService notificationService) {
         this.userRepo                = userRepo;
         this.sessionRepo             = sessionRepo;
         this.bonusFreezeGrantService  = bonusFreezeGrantService;
         this.freezeTransactionService = freezeTransactionService;
+        this.notificationService      = notificationService;
     }
 
     /**
@@ -171,9 +176,17 @@ public class WeeklyStreakEvaluationScheduler {
                             log.warn("Failed to record USED_AUTO_APPLY (break branch) freeze tx for user={}", user.getId(), e);
                         }
                     }
-                    // TODO: notify user — "Your streak ended at " + previousStreak +
-                    //       " days. But your lifetime workouts never reset. " +
-                    //       "Comeback starts whenever you're ready."
+                    try {
+                        NotificationCopy.Copy copy = NotificationCopy.streakBroken(previousStreak);
+                        notificationService.notifyUser(
+                                user.getId(), "STREAK_BROKEN",
+                                copy.title(), copy.body(),
+                                null, null,
+                                Map.of("type", "STREAK_BROKEN", "targetScreen", "/home"),
+                                true);
+                    } catch (Exception e) {
+                        log.warn("WeeklyStreakEval: STREAK_BROKEN notify failed userId={}", user.getId(), e);
+                    }
                 } else {
                     // Streak survives via freeze(s)
                     if (purchasedSpent > 0) {
@@ -190,10 +203,20 @@ public class WeeklyStreakEvaluationScheduler {
                     log.info("WeeklyStreakEval: userId={} streak={} SAVED " +
                             "(bonusSpent={}, purchasedSpent={})",
                             user.getId(), user.getStreak(), bonusSpent, purchasedSpent);
-                    // TODO: notify user — "We protected your streak with " +
-                    //       (bonusSpent + purchasedSpent) + " freeze token(s). " +
-                    //       (activeBonus.size() - bonusSpent) + " bonus freezes left, " +
-                    //       user.getPurchasedFreezeBalance() + " purchased."
+                    try {
+                        int remainingFreezes = user.getPurchasedFreezeBalance() != null
+                                ? user.getPurchasedFreezeBalance() : 0;
+                        NotificationCopy.Copy copy =
+                                NotificationCopy.streakFreezeUsed(user.getStreak(), remainingFreezes);
+                        notificationService.notifyUser(
+                                user.getId(), "STREAK_FREEZE_USED",
+                                copy.title(), copy.body(),
+                                null, null,
+                                Map.of("type", "STREAK_FREEZE_USED", "targetScreen", "/streaks"),
+                                true);
+                    } catch (Exception e) {
+                        log.warn("WeeklyStreakEval: STREAK_FREEZE_USED notify failed userId={}", user.getId(), e);
+                    }
                 }
 
             } catch (Exception e) {

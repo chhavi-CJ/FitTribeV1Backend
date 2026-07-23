@@ -73,6 +73,9 @@ public interface UserRepository extends JpaRepository<User, UUID> {
     /** All users with an active streak — used by the daily streak reset job. */
     List<User> findAllByStreakGreaterThan(int streak);
 
+    /** Users with exactly the given streak value — used by comeback-nudge job (streak == 0). */
+    List<User> findAllByStreak(int streak);
+
     /** All users with a pending weekly goal — used by the Monday promotion scheduler. */
     List<User> findAllByPendingWeeklyGoalIsNotNull();
 

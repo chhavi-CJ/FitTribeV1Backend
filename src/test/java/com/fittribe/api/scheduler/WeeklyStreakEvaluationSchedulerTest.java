@@ -5,6 +5,7 @@ import com.fittribe.api.entity.User;
 import com.fittribe.api.repository.UserRepository;
 import com.fittribe.api.repository.WorkoutSessionRepository;
 import com.fittribe.api.service.BonusFreezeGrantService;
+import com.fittribe.api.service.NotificationService;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InjectMocks;
@@ -33,6 +34,9 @@ class WeeklyStreakEvaluationSchedulerTest {
 
     @Mock
     private BonusFreezeGrantService bonusFreezeGrantService;
+
+    @Mock
+    private NotificationService notificationService;
 
     @InjectMocks
     private WeeklyStreakEvaluationScheduler scheduler;
