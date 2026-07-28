@@ -146,14 +146,18 @@ public interface AnalyticsEventRepository extends JpaRepository<AnalyticsEvent, 
               u.id as user_id,
               u.display_name,
               u.streak,
-              MAX(ws.finished_at) as last_workout_date,
-              COUNT(DISTINCT DATE(ws.finished_at AT TIME ZONE 'Asia/Kolkata')) as days_since_last_workout
+              last_session.finished_at as last_workout_date
             FROM users u
-            LEFT JOIN workout_sessions ws ON u.id = ws.user_id AND ws.status = 'COMPLETED'
-            WHERE (CURRENT_TIMESTAMP - MAX(ws.finished_at)) >= INTERVAL '5 days'
-              AND (CURRENT_TIMESTAMP - MAX(ws.finished_at)) < INTERVAL '8 days'
-            GROUP BY u.id, u.display_name, u.streak
-            ORDER BY MAX(ws.finished_at) DESC
+            LEFT JOIN (
+              SELECT DISTINCT ON (user_id) user_id, finished_at
+              FROM workout_sessions
+              WHERE status = 'COMPLETED'
+              ORDER BY user_id, finished_at DESC
+            ) last_session ON u.id = last_session.user_id
+            WHERE last_session.finished_at IS NOT NULL
+              AND (CURRENT_TIMESTAMP - last_session.finished_at) >= INTERVAL '5 days'
+              AND (CURRENT_TIMESTAMP - last_session.finished_at) < INTERVAL '8 days'
+            ORDER BY last_session.finished_at DESC
             """, nativeQuery = true)
     List<Map<String, Object>> getChurnRiskUsers();
 

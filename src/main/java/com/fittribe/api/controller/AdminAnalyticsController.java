@@ -129,7 +129,15 @@ public class AdminAnalyticsController {
 
             List<RetentionCohortRow> result = cohortData.stream()
                     .map(row -> {
-                        LocalDate cohortWeek = ((java.sql.Date) row.get("cohort_week")).toLocalDate();
+                        LocalDate cohortWeek;
+                        Object cohortWeekObj = row.get("cohort_week");
+                        if (cohortWeekObj instanceof Timestamp) {
+                            cohortWeek = ((Timestamp) cohortWeekObj).toLocalDateTime().toLocalDate();
+                        } else if (cohortWeekObj instanceof java.sql.Date) {
+                            cohortWeek = ((java.sql.Date) cohortWeekObj).toLocalDate();
+                        } else {
+                            throw new RuntimeException("Unexpected cohort_week type: " + cohortWeekObj.getClass());
+                        }
                         long cohortSize_ = ((Number) row.get("cohort_size")).longValue();
                         long retained1 = ((Number) row.get("retained_week_1")).longValue();
                         long retained2 = ((Number) row.get("retained_week_2")).longValue();
@@ -181,7 +189,7 @@ public class AdminAnalyticsController {
                         // Optionally fetch group name if user is in a group
                         try {
                             String gname = jdbcTemplate.queryForObject(
-                                    "SELECT g.name FROM groups g " +
+                                    "SELECT g.name FROM \"groups\" g " +
                                     "JOIN group_members gm ON g.id = gm.group_id " +
                                     "WHERE gm.user_id = ? LIMIT 1",
                                     String.class, userId);
