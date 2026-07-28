@@ -61,6 +61,7 @@ public class PrWritePathService {
     private final ExerciseRepository exerciseRepo;
     private final FeedEventWriter feedEventWriter;
     private final WorkoutSessionRepository sessionRepo;
+    private final com.fittribe.api.service.AnalyticsService analyticsService;
 
     public PrWritePathService(
             PRDetector prDetector,
@@ -71,7 +72,8 @@ public class PrWritePathService {
             PlatformTransactionManager transactionManager,
             ExerciseRepository exerciseRepo,
             FeedEventWriter feedEventWriter,
-            WorkoutSessionRepository sessionRepo) {
+            WorkoutSessionRepository sessionRepo,
+            com.fittribe.api.service.AnalyticsService analyticsService) {
         this.prDetector = prDetector;
         this.userExerciseBestsRepo = userExerciseBestsRepo;
         this.prEventRepo = prEventRepo;
@@ -81,6 +83,7 @@ public class PrWritePathService {
         this.exerciseRepo = exerciseRepo;
         this.feedEventWriter = feedEventWriter;
         this.sessionRepo = sessionRepo;
+        this.analyticsService = analyticsService;
     }
 
     /**
@@ -188,6 +191,17 @@ public class PrWritePathService {
                 PrEvent saved = prEventRepo.save(prEvent);
                 log.debug("Saved PR event: id={} category={} coins={}",
                         saved.getId(), saved.getPrCategory(), saved.getCoinsAwarded());
+
+                // Track PR achievement analytics
+                try {
+                    String exerciseName = exercise != null ? exercise.getName() : set.exerciseId();
+                    analyticsService.track(userId, "pr_achieved",
+                            Map.of("exercise_name", exerciseName != null ? exerciseName : set.exerciseId(),
+                                   "pr_type", prResult.category().toString()));
+                } catch (Exception e) {
+                    log.warn("Failed to track pr_achieved analytics for user={} exercise={}: {}",
+                            userId, set.exerciseId(), e.getMessage());
+                }
 
                 // Step 5: Update or create user_exercise_bests
                 updateOrCreateBests(userId, set.exerciseId(), exerciseType, set, prResult, currentBests);

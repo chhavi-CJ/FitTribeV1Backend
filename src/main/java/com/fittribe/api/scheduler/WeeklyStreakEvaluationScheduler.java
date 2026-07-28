@@ -4,6 +4,7 @@ import com.fittribe.api.entity.BonusFreezeGrant;
 import com.fittribe.api.entity.User;
 import com.fittribe.api.repository.UserRepository;
 import com.fittribe.api.repository.WorkoutSessionRepository;
+import com.fittribe.api.service.AnalyticsService;
 import com.fittribe.api.service.BonusFreezeGrantService;
 import com.fittribe.api.service.FreezeTransactionService;
 import com.fittribe.api.service.NotificationCopy;
@@ -54,17 +55,20 @@ public class WeeklyStreakEvaluationScheduler {
     private final BonusFreezeGrantService  bonusFreezeGrantService;
     private final FreezeTransactionService freezeTransactionService;
     private final NotificationService      notificationService;
+    private final AnalyticsService         analyticsService;
 
     public WeeklyStreakEvaluationScheduler(UserRepository userRepo,
                                            WorkoutSessionRepository sessionRepo,
                                            BonusFreezeGrantService bonusFreezeGrantService,
                                            FreezeTransactionService freezeTransactionService,
-                                           NotificationService notificationService) {
+                                           NotificationService notificationService,
+                                           AnalyticsService analyticsService) {
         this.userRepo                = userRepo;
         this.sessionRepo             = sessionRepo;
         this.bonusFreezeGrantService  = bonusFreezeGrantService;
         this.freezeTransactionService = freezeTransactionService;
         this.notificationService      = notificationService;
+        this.analyticsService         = analyticsService;
     }
 
     /**
@@ -186,6 +190,12 @@ public class WeeklyStreakEvaluationScheduler {
                                 true);
                     } catch (Exception e) {
                         log.warn("WeeklyStreakEval: STREAK_BROKEN notify failed userId={}", user.getId(), e);
+                    }
+                    try {
+                        analyticsService.track(user.getId(), "streak_broken",
+                                Map.of("previous_streak_count", previousStreak));
+                    } catch (Exception e) {
+                        log.warn("WeeklyStreakEval: streak_broken analytics failed userId={}", user.getId(), e);
                     }
                 } else {
                     // Streak survives via freeze(s)

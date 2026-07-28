@@ -16,6 +16,7 @@ import com.fittribe.api.repository.UserExerciseBestsRepository;
 import com.fittribe.api.repository.UserPlanRepository;
 import com.fittribe.api.repository.UserRepository;
 import com.fittribe.api.repository.WorkoutSessionRepository;
+import com.fittribe.api.service.AnalyticsService;
 import com.fittribe.api.service.UserDeletionService;
 import com.fittribe.api.service.RankService;
 import com.fittribe.api.util.PromptSanitiser;
@@ -57,19 +58,22 @@ public class UserController {
     private final UserExerciseBestsRepository bestsRepository;
     private final ObjectMapper                objectMapper;
     private final UserDeletionService         userDeletionService;
+    private final AnalyticsService            analyticsService;
 
     public UserController(UserRepository userRepository,
                           WorkoutSessionRepository sessionRepository,
                           UserPlanRepository planRepository,
                           UserExerciseBestsRepository bestsRepository,
                           ObjectMapper objectMapper,
-                          UserDeletionService userDeletionService) {
+                          UserDeletionService userDeletionService,
+                          AnalyticsService analyticsService) {
         this.userRepository       = userRepository;
         this.sessionRepository    = sessionRepository;
         this.planRepository       = planRepository;
         this.bestsRepository      = bestsRepository;
         this.objectMapper         = objectMapper;
         this.userDeletionService  = userDeletionService;
+        this.analyticsService     = analyticsService;
     }
 
     // ── GET /api/v1/users/me/exercise-bests ─────────────────────────────
@@ -175,6 +179,7 @@ public class UserController {
         // deliberately scoped so that later partial profile edits (e.g. just
         // changing weeklyGoal or aiContext) never toggle the flag back, and a
         // user who somehow reaches /users/me with a partial body stays gated.
+        boolean completingOnboarding = false;
         if (!Boolean.TRUE.equals(user.getOnboardingComplete())
                 && request.displayName()  != null
                 && request.gender()       != null
@@ -183,9 +188,21 @@ public class UserController {
                 && request.heightCm()     != null
                 && request.weightKg()     != null) {
             user.setOnboardingComplete(true);
+            completingOnboarding = true;
         }
 
-        return ResponseEntity.ok(ApiResponse.success(userRepository.save(user)));
+        User saved = userRepository.save(user);
+
+        // Track onboarding completion
+        if (completingOnboarding) {
+            analyticsService.track(user.getId(), "onboarding_completed",
+                    Map.of(
+                            "fitness_level", request.fitnessLevel() != null ? request.fitnessLevel() : "",
+                            "gym_days_selected", request.weeklyGoal() != null ? request.weeklyGoal().intValue() : 0
+                    ));
+        }
+
+        return ResponseEntity.ok(ApiResponse.success(saved));
     }
 
     // ── PUT /api/v1/users/settings ────────────────────────────────────

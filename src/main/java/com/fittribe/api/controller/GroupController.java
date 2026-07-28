@@ -10,6 +10,7 @@ import com.fittribe.api.dto.group.LeaderboardResponseDto;
 import com.fittribe.api.dto.group.TopPerformerDto;
 import com.fittribe.api.entity.GroupWeeklyTopPerformer;
 import com.fittribe.api.repository.GroupWeeklyTopPerformerRepository;
+import com.fittribe.api.service.AnalyticsService;
 import com.fittribe.api.service.LeaderboardService;
 import com.fittribe.api.service.NotificationService;
 import com.fittribe.api.service.TopPerformerService;
@@ -70,6 +71,7 @@ public class GroupController {
     private final GroupMemberGoalSnapshotRepository groupMemberGoalSnapshotRepo;
     private final UserDayStatusRepository           userDayStatusRepo;
     private final ObjectMapper                      mapper;
+    private final AnalyticsService                  analyticsService;
 
     public GroupController(GroupRepository groupRepo,
                            GroupMemberRepository memberRepo,
@@ -88,7 +90,8 @@ public class GroupController {
                            NotificationService notificationService,
                            GroupMemberGoalSnapshotRepository groupMemberGoalSnapshotRepo,
                            UserDayStatusRepository userDayStatusRepo,
-                           ObjectMapper mapper) {
+                           ObjectMapper mapper,
+                           AnalyticsService analyticsService) {
         this.groupRepo             = groupRepo;
         this.memberRepo            = memberRepo;
         this.feedRepo              = feedRepo;
@@ -107,6 +110,7 @@ public class GroupController {
         this.groupMemberGoalSnapshotRepo = groupMemberGoalSnapshotRepo;
         this.userDayStatusRepo     = userDayStatusRepo;
         this.mapper                = mapper;
+        this.analyticsService      = analyticsService;
     }
 
     // ── POST /groups ──────────────────────────────────────────────────
@@ -215,6 +219,13 @@ public class GroupController {
         }
 
         long memberCount = memberRepo.findByGroupId(group.getId()).size();
+        try {
+            analyticsService.track(userId, "group_joined",
+                    Map.of("group_id", group.getId().toString(), "group_size", memberCount));
+        } catch (Exception e) {
+            log.warn("Failed to track group_joined analytics for user={}", userId, e);
+        }
+
         return ResponseEntity.ok(ApiResponse.success(toGroupResponse(group, memberCount)));
     }
 
@@ -274,7 +285,16 @@ public class GroupController {
     public ResponseEntity<ApiResponse<?>> leave(
             @PathVariable UUID id, Authentication auth) {
 
-        groupMembershipService.removeMemberFromGroup(id, userId(auth));
+        UUID userId = userId(auth);
+        groupMembershipService.removeMemberFromGroup(id, userId);
+
+        try {
+            analyticsService.track(userId, "group_left",
+                    Map.of("group_id", id.toString()));
+        } catch (Exception e) {
+            log.warn("Failed to track group_left analytics for user={}", userId, e);
+        }
+
         return ResponseEntity.ok(ApiResponse.success(Map.of("success", true)));
     }
 

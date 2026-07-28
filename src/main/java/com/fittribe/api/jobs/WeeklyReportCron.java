@@ -1,6 +1,7 @@
 package com.fittribe.api.jobs;
 
 import com.fittribe.api.repository.UserRepository;
+import com.fittribe.api.service.AnalyticsService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.scheduling.annotation.Scheduled;
@@ -52,10 +53,12 @@ public class WeeklyReportCron {
 
     private final UserRepository userRepo;
     private final JobEnqueuer jobEnqueuer;
+    private final AnalyticsService analyticsService;
 
-    public WeeklyReportCron(UserRepository userRepo, JobEnqueuer jobEnqueuer) {
+    public WeeklyReportCron(UserRepository userRepo, JobEnqueuer jobEnqueuer, AnalyticsService analyticsService) {
         this.userRepo = userRepo;
         this.jobEnqueuer = jobEnqueuer;
+        this.analyticsService = analyticsService;
     }
 
     /**
@@ -111,6 +114,11 @@ public class WeeklyReportCron {
             try {
                 jobEnqueuer.enqueue(JobType.COMPUTE_WEEKLY_REPORT, payload);
                 enqueuedCount++;
+                try {
+                    analyticsService.track(userId, "weekly_report_generated", Map.of());
+                } catch (Exception e) {
+                    log.warn("Failed to track weekly_report_generated analytics for user={}: {}", userId, e.getMessage());
+                }
             } catch (Exception e) {
                 log.error("WeeklyReportCron: failed to enqueue COMPUTE_WEEKLY_REPORT for user {} — continuing",
                         userId, e);

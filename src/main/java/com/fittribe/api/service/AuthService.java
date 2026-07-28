@@ -30,10 +30,13 @@ public class AuthService {
 
     private final UserRepository userRepository;
     private final JwtService     jwtService;
+    private final AnalyticsService analyticsService;
 
-    public AuthService(UserRepository userRepository, JwtService jwtService) {
+    public AuthService(UserRepository userRepository, JwtService jwtService,
+                       AnalyticsService analyticsService) {
         this.userRepository = userRepository;
         this.jwtService     = jwtService;
+        this.analyticsService = analyticsService;
     }
 
     @Transactional
@@ -186,6 +189,16 @@ public class AuthService {
 
             try {
                 user = userRepository.save(user);
+
+                // Track signup event
+                String authMethod = switch (provider) {
+                    case GOOGLE -> "google";
+                    case APPLE -> "apple";
+                    case EMAIL -> "email";
+                    case PHONE -> "phone";
+                };
+                analyticsService.track(user.getId(), "signup_completed",
+                        Map.of("method", authMethod));
             } catch (DataIntegrityViolationException e) {
                 // Could be a duplicate firebase_uid, email, or phone — try all lookups
                 Optional<User> recovered = userRepository.findByFirebaseUid(firebaseUid);

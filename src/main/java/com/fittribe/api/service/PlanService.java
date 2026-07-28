@@ -117,6 +117,7 @@ public class PlanService {
     private final PlanHistoryService           planHistoryService;
     private final ObjectMapper                mapper;
     private final FeedEventWriter             feedEventWriter;
+    private final AnalyticsService            analyticsService;
     private final RestTemplate                restTemplate = new RestTemplate();
 
     public PlanService(UserRepository userRepo,
@@ -132,7 +133,8 @@ public class PlanService {
                        FitnessSummaryService fitnessSummaryService,
                        PlanHistoryService planHistoryService,
                        ObjectMapper mapper,
-                       FeedEventWriter feedEventWriter) {
+                       FeedEventWriter feedEventWriter,
+                       AnalyticsService analyticsService) {
         this.userRepo             = userRepo;
         this.planRepo             = planRepo;
         this.exerciseRepo         = exerciseRepo;
@@ -147,6 +149,7 @@ public class PlanService {
         this.planHistoryService   = planHistoryService;
         this.mapper               = mapper;
         this.feedEventWriter      = feedEventWriter;
+        this.analyticsService     = analyticsService;
     }
 
     // ── Public API ────────────────────────────────────────────────────
@@ -631,6 +634,13 @@ public class PlanService {
                 feedEventWriter.writeStatusChanged(userId, today, status, previousStatus);
             } catch (Exception e) {
                 log.warn("Failed to write STATUS_CHANGED feed for user={}: {}", userId, e.getMessage());
+            }
+            try {
+                analyticsService.track(userId, "status_changed",
+                        Map.of("from_status", previousStatus != null ? previousStatus : "READY",
+                               "to_status", status));
+            } catch (Exception e) {
+                log.warn("Failed to track status_changed analytics for user={}: {}", userId, e.getMessage());
             }
         }
 

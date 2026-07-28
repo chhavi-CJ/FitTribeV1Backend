@@ -34,6 +34,7 @@ import com.fittribe.api.entity.SetLog;
 import com.fittribe.api.entity.User;
 import com.fittribe.api.entity.WorkoutSession;
 import com.fittribe.api.exception.ApiException;
+import com.fittribe.api.service.AnalyticsService;
 import com.fittribe.api.prv2.detector.ExerciseType;
 import com.fittribe.api.prv2.detector.LoggedSet;
 import com.fittribe.api.prv2.detector.PrCategory;
@@ -135,6 +136,7 @@ public class SessionController {
     private final FeedEventWriter            feedEventWriter;
     private final UserDayStatusRepository   dayStatusRepo;
     private final SessionFinishPostProcessor postProcessor;
+    private final AnalyticsService          analyticsService;
     private final BonusFreezeGrantService    bonusFreezeGrantService;
 
     public SessionController(WorkoutSessionRepository sessionRepo,
@@ -164,7 +166,8 @@ public class SessionController {
                              FeedEventWriter feedEventWriter,
                              BonusFreezeGrantService bonusFreezeGrantService,
                              UserDayStatusRepository dayStatusRepo,
-                             SessionFinishPostProcessor postProcessor) {
+                             SessionFinishPostProcessor postProcessor,
+                             AnalyticsService analyticsService) {
         this.sessionRepo         = sessionRepo;
         this.setLogRepo          = setLogRepo;
         this.userRepo            = userRepo;
@@ -193,6 +196,7 @@ public class SessionController {
         this.bonusFreezeGrantService = bonusFreezeGrantService;
         this.dayStatusRepo = dayStatusRepo;
         this.postProcessor = postProcessor;
+        this.analyticsService = analyticsService;
     }
 
     // All-zeros UUID, rejected as a clientId — too easy to send by mistake
@@ -342,6 +346,15 @@ public class SessionController {
             // calls EntityManager.persist (single INSERT) rather than
             // merge (SELECT + INSERT/UPDATE) for these fresh entities.
             WorkoutSession saved = sessionRepo.saveAndFlush(session);
+
+            // Track workout started event
+            long sessionsCompleted = sessionRepo.countByUserIdAndStatus(userId, "COMPLETED");
+            analyticsService.track(userId, "workout_started",
+                    Map.of(
+                            "session_id", saved.getId().toString(),
+                            "is_first_workout", sessionsCompleted == 0
+                    ));
+
             return ResponseEntity.ok(ApiResponse.success(
                     new StartSessionResponse(saved.getId(), saved.getStartedAt())));
         } catch (DataIntegrityViolationException e) {
@@ -1179,6 +1192,14 @@ public class SessionController {
         // Called via the postProcessor bean (not this) so Spring's @Async
         // proxy fires.
         postProcessor.runPostFinishPipeline(postCtx);
+
+        // Track workout completed event
+        analyticsService.trackWithSession(userId, "workout_completed", session.getId().toString(),
+                Map.of(
+                        "streak_count", newStreak,
+                        "exercises_count", exercises != null ? exercises.size() : 0,
+                        "duration_minutes", request.durationMins() != null ? request.durationMins() : 0
+                ));
 
         log.info("finish END T+{}ms response_built sessionId={}",
                 (System.nanoTime() - startNanos) / 1_000_000, id);
