@@ -35,7 +35,7 @@ class WeeklyReportCronTest {
     void setUp() {
         userRepo = mock(UserRepository.class);
         jobEnqueuer = new FakeJobEnqueuer();
-        cron = new WeeklyReportCron(userRepo, jobEnqueuer);
+        cron = new WeeklyReportCron(userRepo, jobEnqueuer, null);
     }
 
     // ── Happy path: both job types per active user ──────────────────────

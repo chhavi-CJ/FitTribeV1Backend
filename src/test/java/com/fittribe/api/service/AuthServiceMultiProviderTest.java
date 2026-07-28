@@ -53,7 +53,7 @@ class AuthServiceMultiProviderTest {
     void setUp() throws Exception {
         userRepo   = mock(UserRepository.class);
         jwtService = mock(JwtService.class);
-        authService = new AuthService(userRepo, jwtService);
+        authService = new AuthService(userRepo, jwtService, null);
         setMockAuthEnabled(authService, true);
 
         when(jwtService.generateToken(any())).thenReturn("test-jwt-token");

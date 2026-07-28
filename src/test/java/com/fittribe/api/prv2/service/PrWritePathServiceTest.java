@@ -81,7 +81,8 @@ class PrWritePathServiceTest {
                 transactionManager,
                 exerciseRepo,
                 feedEventWriter,
-                sessionRepo);
+                sessionRepo,
+                null);
 
         userId = UUID.randomUUID();
         sessionId = UUID.randomUUID();

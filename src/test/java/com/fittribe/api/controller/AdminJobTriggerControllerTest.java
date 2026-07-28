@@ -292,7 +292,7 @@ class AdminJobTriggerControllerTest {
     static final class FakeWeeklyReportCron extends WeeklyReportCron {
         int fanOutResult;
         int fanOutCalls;
-        FakeWeeklyReportCron() { super(null, null); }
+        FakeWeeklyReportCron() { super(null, null, null); }
         @Override
         public int fanOutSundayJobs() {
             fanOutCalls++;

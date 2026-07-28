@@ -31,7 +31,7 @@ class AuthServiceProviderDetectionTest {
     void setUp() {
         UserRepository mockUserRepo = mock(UserRepository.class);
         JwtService     mockJwtService = mock(JwtService.class);
-        authService = new AuthService(mockUserRepo, mockJwtService);
+        authService = new AuthService(mockUserRepo, mockJwtService, null);
         // mockAuthEnabled defaults to false — not needed for detectProvider tests
     }
 
