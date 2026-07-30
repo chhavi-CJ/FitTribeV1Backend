@@ -28,6 +28,11 @@ public class ShareImageService {
             User user,
             MultipartFile photoFile) throws IOException {
 
+        log.info("generateShareImage: sessionId={} hasPhoto={} photoSize={}",
+                session.getId(),
+                (photoFile != null && !photoFile.isEmpty()),
+                (photoFile != null ? photoFile.getSize() : 0));
+
         BufferedImage card = new BufferedImage(CARD_WIDTH, CARD_HEIGHT, BufferedImage.TYPE_INT_ARGB);
         Graphics2D g2d = card.createGraphics();
 

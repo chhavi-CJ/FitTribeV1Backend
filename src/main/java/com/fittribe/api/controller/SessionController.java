@@ -79,6 +79,7 @@ import org.springframework.transaction.annotation.Transactional;
 import org.springframework.transaction.support.TransactionTemplate;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.multipart.MultipartFile;
+import org.springframework.http.MediaType;
 
 import java.io.IOException;
 import java.math.BigDecimal;
@@ -1522,13 +1523,15 @@ public class SessionController {
         return ResponseEntity.ok(ApiResponse.success(items));
     }
 
-    @PostMapping("/{sessionId}/share-image")
+    @PostMapping(value = "/{sessionId}/share-image", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
     public ResponseEntity<byte[]> generateShareImage(
             @PathVariable UUID sessionId,
             @RequestParam(required = false) MultipartFile photo,
             Authentication auth) {
         try {
             UUID userId = userId(auth);
+
+            log.info("share-image called: sessionId={} hasPhoto={}", sessionId, (photo != null && !photo.isEmpty()));
 
             WorkoutSession session = sessionRepo.findById(sessionId)
                     .orElseThrow(() -> new ApiException(HttpStatus.NOT_FOUND,
