@@ -75,8 +75,16 @@ public class ShareImageService {
 
     private void drawUserPhoto(Graphics2D g2d, MultipartFile photoFile) {
         try {
+            log.info("Photo format: contentType={}", photoFile.getContentType());
+
             BufferedImage photo = ImageIO.read(photoFile.getInputStream());
-            if (photo == null) return;
+
+            if (photo == null) {
+                log.error("ImageIO.read returned null — unsupported format? contentType={}", photoFile.getContentType());
+                return;
+            }
+
+            log.info("Photo loaded: {}x{}", photo.getWidth(), photo.getHeight());
 
             // Scale to cover 1080x1920, maintaining aspect ratio
             BufferedImage scaledPhoto = scalePhotoCover(photo, CARD_WIDTH, CARD_HEIGHT);
