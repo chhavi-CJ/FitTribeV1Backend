@@ -11,6 +11,7 @@ import org.springframework.scheduling.annotation.EnableScheduling;
 public class ApiApplication {
 
     public static void main(String[] args) {
+        System.setProperty("java.awt.headless", "true");
         SpringApplication.run(ApiApplication.class, args);
     }
 }

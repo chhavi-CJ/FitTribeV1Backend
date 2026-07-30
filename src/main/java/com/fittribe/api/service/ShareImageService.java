@@ -173,8 +173,8 @@ public class ShareImageService {
                     getClass().getResourceAsStream("/fonts/DMSans-Bold.ttf"))
                     .deriveFont(32f);
         } catch (Exception e) {
-            log.debug("DM Sans font not found, using SansSerif fallback");
-            return new Font("SansSerif", Font.BOLD, 32);
+            log.debug("DM Sans font not found, using DejaVu Sans fallback");
+            return new Font("DejaVu Sans", Font.BOLD, 32);
         }
     }
 
