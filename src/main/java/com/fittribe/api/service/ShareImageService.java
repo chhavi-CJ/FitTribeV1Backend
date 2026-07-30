@@ -129,13 +129,13 @@ public class ShareImageService {
     }
 
     private void drawRightSideGradient(Graphics2D g2d) {
-        // Dark gradient on right side for text readability
-        Color rightDark = new Color(0, 0, 0, 153);   // rgba(0,0,0,0.6)
+        // Dark gradient on right side for text readability — darker and wider
+        Color rightDark = new Color(0, 0, 0, 191);   // rgba(0,0,0,0.75)
         Color middle = new Color(0, 0, 0, 0);        // rgba(0,0,0,0.0)
 
         Paint gradient = new java.awt.GradientPaint(
                 CARD_WIDTH, 0, rightDark,
-                (float) (CARD_WIDTH * 0.45), 0, middle);
+                (float) (CARD_WIDTH * 0.40), 0, middle);
         g2d.setPaint(gradient);
         g2d.fillRect(0, 0, CARD_WIDTH, CARD_HEIGHT);
     }
@@ -143,8 +143,8 @@ public class ShareImageService {
     private void drawTextContent(Graphics2D g2d, WorkoutSession session, User user) {
         Font baseFont = loadDmSansFont();
         Color white = Color.WHITE;
-        Color emerald = new Color(0x1D, 0x9E, 0x75);
-        Color wynnersBrandColor = new Color(255, 255, 255, 102);
+        Color labelEmerald = new Color(93, 202, 165);      // Lighter emerald #5DCAA5
+        Color wynnersWhite = new Color(255, 255, 255, 230); // Nearly full white
 
         // Extract stat values
         Integer duration = session.getDurationMins() != null ? session.getDurationMins() : 0;
@@ -153,27 +153,27 @@ public class ShareImageService {
 
         // Vertically centered layout around y = 960
 
-        // y ~820: "WYNNERS" — 28px, letter-spacing 10, rgba(255,255,255,102), right-aligned
-        drawRightAlignedSpacedText(g2d, "W Y N N E R S", baseFont, 28, Font.PLAIN, wynnersBrandColor, RIGHT_X, 820, 10);
+        // y ~820: "WYNNERS" — 28px, letter-spacing 10, nearly full white, bold, right-aligned
+        drawRightAlignedSpacedText(g2d, "W Y N N E R S", baseFont, 28, Font.BOLD, wynnersWhite, RIGHT_X, 820, 10);
 
-        // y ~850: thin line — 60px wide, 2px tall, right edge at RIGHT_X, rgba(255,255,255,51)
-        drawRightAlignedLine(g2d, 850, 60, 2, new Color(255, 255, 255, 51));
+        // y ~850: thin line — 60px wide, 2px tall, right edge at RIGHT_X, emerald
+        drawRightAlignedLine(g2d, 850, 60, 2, labelEmerald);
 
         // Volume section
-        // y ~910: "Volume" label — 28px, #1D9E75, letter-spacing 6, right-aligned
-        drawRightAlignedSpacedText(g2d, "Volume", baseFont, 28, Font.PLAIN, emerald, RIGHT_X, 910, 6);
+        // y ~910: "VOLUME" label — 28px, lighter emerald #5DCAA5, letter-spacing 6, right-aligned
+        drawRightAlignedSpacedText(g2d, "VOLUME", baseFont, 28, Font.PLAIN, labelEmerald, RIGHT_X, 910, 6);
         // y ~960: "360 kg" value — 48px, white, right-aligned
         drawRightAlignedText(g2d, volume.intValue() + " kg", baseFont, 48, Font.PLAIN, white, RIGHT_X, 960);
 
         // Sets section
-        // y ~1030: "Sets" label — 28px, #1D9E75, letter-spacing 6, right-aligned
-        drawRightAlignedSpacedText(g2d, "Sets", baseFont, 28, Font.PLAIN, emerald, RIGHT_X, 1030, 6);
+        // y ~1030: "SETS" label — 28px, lighter emerald #5DCAA5, letter-spacing 6, right-aligned
+        drawRightAlignedSpacedText(g2d, "SETS", baseFont, 28, Font.PLAIN, labelEmerald, RIGHT_X, 1030, 6);
         // y ~1080: "3" value — 48px, white, right-aligned
         drawRightAlignedText(g2d, String.valueOf(sets), baseFont, 48, Font.PLAIN, white, RIGHT_X, 1080);
 
         // Time section
-        // y ~1150: "Time" label — 28px, #1D9E75, letter-spacing 6, right-aligned
-        drawRightAlignedSpacedText(g2d, "Time", baseFont, 28, Font.PLAIN, emerald, RIGHT_X, 1150, 6);
+        // y ~1150: "TIME" label — 28px, lighter emerald #5DCAA5, letter-spacing 6, right-aligned
+        drawRightAlignedSpacedText(g2d, "TIME", baseFont, 28, Font.PLAIN, labelEmerald, RIGHT_X, 1150, 6);
         // y ~1200: "45 min" value — 48px, white, right-aligned
         drawRightAlignedText(g2d, duration + " min", baseFont, 48, Font.PLAIN, white, RIGHT_X, 1200);
     }
