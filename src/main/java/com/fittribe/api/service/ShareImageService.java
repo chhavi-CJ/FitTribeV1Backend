@@ -10,12 +10,10 @@ import org.springframework.web.multipart.MultipartFile;
 
 import javax.imageio.ImageIO;
 import java.awt.*;
-import java.awt.geom.RoundRectangle2D;
 import java.awt.image.BufferedImage;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.math.BigDecimal;
-import java.util.Map;
 
 @Service
 public class ShareImageService {
@@ -115,55 +113,64 @@ public class ShareImageService {
     }
 
     private void drawPhotoOverlay(Graphics2D g2d) {
-        // Semi-transparent black gradient overlay
-        Color topOverlay = new Color(0, 0, 0, 89);   // rgba(0,0,0,0.35)
-        Color bottomOverlay = new Color(0, 0, 0, 140);  // rgba(0,0,0,0.55)
+        // Multi-stop gradient overlay fading from top to bottom
+        // Top: rgba(0,0,0,0.05) → Middle: rgba(0,0,0,0.0) → 55%: rgba(0,0,0,0.25)
+        // → 85%: rgba(0,0,0,0.6) → Bottom: rgba(0,0,0,0.7)
 
-        Paint overlayGradient = new java.awt.GradientPaint(
-                0, 0, topOverlay,
-                0, CARD_HEIGHT, bottomOverlay);
+        Color[] colors = {
+                new Color(0, 0, 0, 13),    // 0% - rgba(0,0,0,0.05)
+                new Color(0, 0, 0, 0),    // 25% - rgba(0,0,0,0.0)
+                new Color(0, 0, 0, 64),   // 55% - rgba(0,0,0,0.25)
+                new Color(0, 0, 0, 153),  // 85% - rgba(0,0,0,0.6)
+                new Color(0, 0, 0, 179)   // 100% - rgba(0,0,0,0.7)
+        };
+
+        float[] stops = {0.0f, 0.25f, 0.55f, 0.85f, 1.0f};
+
+        Paint overlayGradient = new LinearGradientPaint(
+                0, 0,
+                0, CARD_HEIGHT,
+                stops, colors,
+                MultipleGradientPaint.CycleMethod.NO_CYCLE);
+
         g2d.setPaint(overlayGradient);
         g2d.fillRect(0, 0, CARD_WIDTH, CARD_HEIGHT);
     }
 
     private void drawTextContent(Graphics2D g2d, WorkoutSession session, User user) {
-        Color limeGreen = new Color(0xC8, 0xF1, 0x35);
+        Font baseFont = loadDmSansFont();
         Color white = Color.WHITE;
-        Color lightGray = new Color(255, 255, 255, 127);
+        Color emerald = new Color(0x1D, 0x9E, 0x75);
+        Color veryTransparentWhite = new Color(255, 255, 255, 89);
 
-        // Load font (try DM Sans, fallback to SansSerif)
-        Font dmSans = loadDmSansFont();
-
-        // a. "WORKOUT COMPLETE" — y: ~480px
-        drawCenteredText(g2d, "WORKOUT COMPLETE",
-                dmSans, 32, Font.BOLD, limeGreen, 480);
-
-        // b. Workout name — y: ~560px
-        String workoutName = session.getName() != null ? session.getName() : "Session";
-        drawCenteredText(g2d, workoutName,
-                dmSans, 64, Font.BOLD, white, 560);
-
-        // c. Three stat boxes — y: ~680px
-        BigDecimal volume = session.getTotalVolumeKg() != null ? session.getTotalVolumeKg() : BigDecimal.ZERO;
-        Integer sets = session.getTotalSets() != null ? session.getTotalSets() : 0;
+        // Extract stat values
         Integer duration = session.getDurationMins() != null ? session.getDurationMins() : 0;
+        Integer sets = session.getTotalSets() != null ? session.getTotalSets() : 0;
+        BigDecimal volume = session.getTotalVolumeKg() != null ? session.getTotalVolumeKg() : BigDecimal.ZERO;
 
-        drawStatBox(g2d, dmSans, limeGreen, lightGray,
-                volume.intValue(), "KG VOL", 120, 680);
-        drawStatBox(g2d, dmSans, limeGreen, lightGray,
-                sets, "SETS", 390, 680);
-        drawStatBox(g2d, dmSans, limeGreen, lightGray,
-                duration, "MIN", 660, 680);
+        // y ~1650: "45 min" (48px, white)
+        drawCenteredText(g2d, duration + " min", baseFont, 48, Font.PLAIN, white, 1650);
 
-        // d. Streak line — y: ~940px
-        Integer streak = user.getStreak() != null ? user.getStreak() : 0;
-        String streakText = "🔥 Day " + streak + " streak";
-        drawCenteredText(g2d, streakText,
-                dmSans, 36, Font.PLAIN, limeGreen, 940);
+        // y ~1610: "Time" (28px, emerald, letter-spaced)
+        drawSpacedText(g2d, "Time", baseFont, 28, Font.PLAIN, emerald, 1610, 6);
 
-        // e. "WYNNERS" watermark — y: ~1050px
-        drawCenteredText(g2d, "W Y N N E R S",
-                dmSans, 28, Font.PLAIN, new Color(255, 255, 255, 63), 1050);
+        // y ~1560: "3" (48px, white)
+        drawCenteredText(g2d, String.valueOf(sets), baseFont, 48, Font.PLAIN, white, 1560);
+
+        // y ~1520: "Sets" (28px, emerald, letter-spaced)
+        drawSpacedText(g2d, "Sets", baseFont, 28, Font.PLAIN, emerald, 1520, 6);
+
+        // y ~1470: "360 kg" (48px, white)
+        drawCenteredText(g2d, volume.intValue() + " kg", baseFont, 48, Font.PLAIN, white, 1470);
+
+        // y ~1430: "Volume" (28px, emerald, letter-spaced)
+        drawSpacedText(g2d, "Volume", baseFont, 28, Font.PLAIN, emerald, 1430, 6);
+
+        // y ~1390: thin horizontal line (80px wide, 2px tall, centered, rgba(255,255,255,51))
+        drawHorizontalLine(g2d, 1390, 80, 2, new Color(255, 255, 255, 51));
+
+        // y ~1365: "W Y N N E R S" (28px, very transparent white, letter-spaced with 10px)
+        drawSpacedText(g2d, "W Y N N E R S", baseFont, 28, Font.PLAIN, veryTransparentWhite, 1365, 10);
     }
 
     private Font loadDmSansFont() {
@@ -196,41 +203,39 @@ public class ShareImageService {
         g2d.drawString(text, x, yPosition);
     }
 
-    private void drawStatBox(Graphics2D g2d, Font baseFont,
-                            Color numberColor, Color labelColor,
-                            int value, String label, int xPosition, int yPosition) {
-        int boxWidth = 300;
-        int boxHeight = 180;
-        int cornerRadius = 20;
+    private void drawSpacedText(Graphics2D g2d, String text, Font baseFont,
+                               int sizeInPixels, int style, Color color,
+                               int yPosition, int letterSpacing) {
+        Font font = baseFont.deriveFont((float) sizeInPixels);
+        if (style != Font.PLAIN) {
+            font = font.deriveFont(style);
+        }
 
-        // Draw box background with transparency
-        g2d.setColor(new Color(255, 255, 255, 25));
-        RoundRectangle2D.Double rect = new RoundRectangle2D.Double(
-                xPosition, yPosition, boxWidth, boxHeight, cornerRadius, cornerRadius);
-        g2d.fill(rect);
+        g2d.setFont(font);
+        g2d.setColor(color);
+        FontMetrics fm = g2d.getFontMetrics();
 
-        // Draw box border
-        g2d.setColor(new Color(255, 255, 255, 20));
-        g2d.setStroke(new BasicStroke(1f));
-        g2d.draw(rect);
+        // Calculate total width with letter spacing
+        int totalWidth = 0;
+        for (char c : text.toCharArray()) {
+            totalWidth += fm.charWidth(c) + letterSpacing;
+        }
+        totalWidth -= letterSpacing;
 
-        // Draw stat number
-        Font numberFont = baseFont.deriveFont(56f).deriveFont(Font.BOLD);
-        g2d.setFont(numberFont);
-        g2d.setColor(numberColor);
-        FontMetrics fm = g2d.getFontMetrics(numberFont);
-        String valueStr = String.valueOf(value);
-        int numberX = xPosition + (boxWidth - fm.stringWidth(valueStr)) / 2;
-        int numberY = yPosition + 110;
-        g2d.drawString(valueStr, numberX, numberY);
+        // Start x position to center
+        int x = (CARD_WIDTH - totalWidth) / 2;
 
-        // Draw label below
-        Font labelFont = baseFont.deriveFont(24f).deriveFont(Font.PLAIN);
-        g2d.setFont(labelFont);
-        g2d.setColor(labelColor);
-        fm = g2d.getFontMetrics(labelFont);
-        int labelX = xPosition + (boxWidth - fm.stringWidth(label)) / 2;
-        int labelY = numberY + 35;
-        g2d.drawString(label, labelX, labelY);
+        // Draw each character with spacing
+        for (char c : text.toCharArray()) {
+            g2d.drawString(String.valueOf(c), x, yPosition);
+            x += fm.charWidth(c) + letterSpacing;
+        }
+    }
+
+    private void drawHorizontalLine(Graphics2D g2d, int yPosition, int width,
+                                   int height, Color color) {
+        g2d.setColor(color);
+        int x = (CARD_WIDTH - width) / 2;
+        g2d.fillRect(x, yPosition - height / 2, width, height);
     }
 }
