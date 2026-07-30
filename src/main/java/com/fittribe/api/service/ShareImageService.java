@@ -21,6 +21,8 @@ public class ShareImageService {
 
     private static final int CARD_WIDTH = 1080;
     private static final int CARD_HEIGHT = 1920;
+    private static final int RIGHT_MARGIN = 72;
+    private static final int RIGHT_X = CARD_WIDTH - RIGHT_MARGIN;
     private static final ObjectMapper objectMapper = new ObjectMapper();
 
     public byte[] generateShareImage(
@@ -45,11 +47,14 @@ public class ShareImageService {
             drawGradientBackground(g2d);
 
             // 2. Draw user photo if provided
-            if (photoFile != null && !photoFile.isEmpty()) {
+            boolean hasPhoto = photoFile != null && !photoFile.isEmpty();
+            if (hasPhoto) {
                 drawUserPhoto(g2d, photoFile);
+                // 3. Draw right-side gradient overlay for text readability
+                drawRightSideGradient(g2d);
             }
 
-            // 3. Draw text content on top
+            // 4. Draw text content on right side
             drawTextContent(g2d, session, user);
 
             // Convert to PNG bytes
@@ -90,8 +95,6 @@ public class ShareImageService {
             BufferedImage scaledPhoto = scalePhotoCover(photo, CARD_WIDTH, CARD_HEIGHT);
             g2d.drawImage(scaledPhoto, 0, 0, null);
 
-            // Draw dark overlay gradient
-            drawPhotoOverlay(g2d);
         } catch (IOException e) {
             log.warn("Failed to load/process user photo", e);
         }
@@ -125,28 +128,15 @@ public class ShareImageService {
         return scaled;
     }
 
-    private void drawPhotoOverlay(Graphics2D g2d) {
-        // Multi-stop gradient overlay fading from top to bottom
-        // Top: rgba(0,0,0,0.05) → Middle: rgba(0,0,0,0.0) → 55%: rgba(0,0,0,0.25)
-        // → 85%: rgba(0,0,0,0.6) → Bottom: rgba(0,0,0,0.7)
+    private void drawRightSideGradient(Graphics2D g2d) {
+        // Dark gradient on right side for text readability
+        Color rightDark = new Color(0, 0, 0, 153);   // rgba(0,0,0,0.6)
+        Color middle = new Color(0, 0, 0, 0);        // rgba(0,0,0,0.0)
 
-        Color[] colors = {
-                new Color(0, 0, 0, 13),    // 0% - rgba(0,0,0,0.05)
-                new Color(0, 0, 0, 0),    // 25% - rgba(0,0,0,0.0)
-                new Color(0, 0, 0, 64),   // 55% - rgba(0,0,0,0.25)
-                new Color(0, 0, 0, 153),  // 85% - rgba(0,0,0,0.6)
-                new Color(0, 0, 0, 179)   // 100% - rgba(0,0,0,0.7)
-        };
-
-        float[] stops = {0.0f, 0.25f, 0.55f, 0.85f, 1.0f};
-
-        Paint overlayGradient = new LinearGradientPaint(
-                0, 0,
-                0, CARD_HEIGHT,
-                stops, colors,
-                MultipleGradientPaint.CycleMethod.NO_CYCLE);
-
-        g2d.setPaint(overlayGradient);
+        Paint gradient = new java.awt.GradientPaint(
+                CARD_WIDTH, 0, rightDark,
+                (float) (CARD_WIDTH * 0.45), 0, middle);
+        g2d.setPaint(gradient);
         g2d.fillRect(0, 0, CARD_WIDTH, CARD_HEIGHT);
     }
 
@@ -154,36 +144,38 @@ public class ShareImageService {
         Font baseFont = loadDmSansFont();
         Color white = Color.WHITE;
         Color emerald = new Color(0x1D, 0x9E, 0x75);
-        Color veryTransparentWhite = new Color(255, 255, 255, 89);
+        Color wynnersBrandColor = new Color(255, 255, 255, 102);
 
         // Extract stat values
         Integer duration = session.getDurationMins() != null ? session.getDurationMins() : 0;
         Integer sets = session.getTotalSets() != null ? session.getTotalSets() : 0;
         BigDecimal volume = session.getTotalVolumeKg() != null ? session.getTotalVolumeKg() : BigDecimal.ZERO;
 
-        // y ~1650: "45 min" (48px, white)
-        drawCenteredText(g2d, duration + " min", baseFont, 48, Font.PLAIN, white, 1650);
+        // Vertically centered layout around y = 960
 
-        // y ~1610: "Time" (28px, emerald, letter-spaced)
-        drawSpacedText(g2d, "Time", baseFont, 28, Font.PLAIN, emerald, 1610, 6);
+        // y ~820: "WYNNERS" — 28px, letter-spacing 10, rgba(255,255,255,102), right-aligned
+        drawRightAlignedSpacedText(g2d, "W Y N N E R S", baseFont, 28, Font.PLAIN, wynnersBrandColor, RIGHT_X, 820, 10);
 
-        // y ~1560: "3" (48px, white)
-        drawCenteredText(g2d, String.valueOf(sets), baseFont, 48, Font.PLAIN, white, 1560);
+        // y ~850: thin line — 60px wide, 2px tall, right edge at RIGHT_X, rgba(255,255,255,51)
+        drawRightAlignedLine(g2d, 850, 60, 2, new Color(255, 255, 255, 51));
 
-        // y ~1520: "Sets" (28px, emerald, letter-spaced)
-        drawSpacedText(g2d, "Sets", baseFont, 28, Font.PLAIN, emerald, 1520, 6);
+        // Volume section
+        // y ~910: "Volume" label — 28px, #1D9E75, letter-spacing 6, right-aligned
+        drawRightAlignedSpacedText(g2d, "Volume", baseFont, 28, Font.PLAIN, emerald, RIGHT_X, 910, 6);
+        // y ~960: "360 kg" value — 48px, white, right-aligned
+        drawRightAlignedText(g2d, volume.intValue() + " kg", baseFont, 48, Font.PLAIN, white, RIGHT_X, 960);
 
-        // y ~1470: "360 kg" (48px, white)
-        drawCenteredText(g2d, volume.intValue() + " kg", baseFont, 48, Font.PLAIN, white, 1470);
+        // Sets section
+        // y ~1030: "Sets" label — 28px, #1D9E75, letter-spacing 6, right-aligned
+        drawRightAlignedSpacedText(g2d, "Sets", baseFont, 28, Font.PLAIN, emerald, RIGHT_X, 1030, 6);
+        // y ~1080: "3" value — 48px, white, right-aligned
+        drawRightAlignedText(g2d, String.valueOf(sets), baseFont, 48, Font.PLAIN, white, RIGHT_X, 1080);
 
-        // y ~1430: "Volume" (28px, emerald, letter-spaced)
-        drawSpacedText(g2d, "Volume", baseFont, 28, Font.PLAIN, emerald, 1430, 6);
-
-        // y ~1390: thin horizontal line (80px wide, 2px tall, centered, rgba(255,255,255,51))
-        drawHorizontalLine(g2d, 1390, 80, 2, new Color(255, 255, 255, 51));
-
-        // y ~1365: "W Y N N E R S" (28px, very transparent white, letter-spaced with 10px)
-        drawSpacedText(g2d, "W Y N N E R S", baseFont, 28, Font.PLAIN, veryTransparentWhite, 1365, 10);
+        // Time section
+        // y ~1150: "Time" label — 28px, #1D9E75, letter-spacing 6, right-aligned
+        drawRightAlignedSpacedText(g2d, "Time", baseFont, 28, Font.PLAIN, emerald, RIGHT_X, 1150, 6);
+        // y ~1200: "45 min" value — 48px, white, right-aligned
+        drawRightAlignedText(g2d, duration + " min", baseFont, 48, Font.PLAIN, white, RIGHT_X, 1200);
     }
 
     private Font loadDmSansFont() {
@@ -198,9 +190,8 @@ public class ShareImageService {
         }
     }
 
-    private void drawCenteredText(Graphics2D g2d, String text,
-                                 Font baseFont, int sizeInPixels, int style,
-                                 Color color, int yPosition) {
+    private void drawRightAlignedText(Graphics2D g2d, String text, Font baseFont,
+                                     int sizeInPixels, int style, Color color, int rightX, int y) {
         Font font = baseFont.deriveFont((float) sizeInPixels);
         if (style != Font.PLAIN) {
             font = font.deriveFont(style);
@@ -211,14 +202,14 @@ public class ShareImageService {
 
         FontMetrics fm = g2d.getFontMetrics(font);
         int textWidth = fm.stringWidth(text);
-        int x = (CARD_WIDTH - textWidth) / 2;
+        int x = rightX - textWidth;
 
-        g2d.drawString(text, x, yPosition);
+        g2d.drawString(text, x, y);
     }
 
-    private void drawSpacedText(Graphics2D g2d, String text, Font baseFont,
-                               int sizeInPixels, int style, Color color,
-                               int yPosition, int letterSpacing) {
+    private void drawRightAlignedSpacedText(Graphics2D g2d, String text, Font baseFont,
+                                           int sizeInPixels, int style, Color color,
+                                           int rightX, int y, int letterSpacing) {
         Font font = baseFont.deriveFont((float) sizeInPixels);
         if (style != Font.PLAIN) {
             font = font.deriveFont(style);
@@ -235,20 +226,20 @@ public class ShareImageService {
         }
         totalWidth -= letterSpacing;
 
-        // Start x position to center
-        int x = (CARD_WIDTH - totalWidth) / 2;
+        // Start from right and draw leftward
+        int x = rightX - totalWidth;
 
         // Draw each character with spacing
         for (char c : text.toCharArray()) {
-            g2d.drawString(String.valueOf(c), x, yPosition);
+            g2d.drawString(String.valueOf(c), x, y);
             x += fm.charWidth(c) + letterSpacing;
         }
     }
 
-    private void drawHorizontalLine(Graphics2D g2d, int yPosition, int width,
-                                   int height, Color color) {
+    private void drawRightAlignedLine(Graphics2D g2d, int yPosition, int lineWidth,
+                                     int lineHeight, Color color) {
         g2d.setColor(color);
-        int x = (CARD_WIDTH - width) / 2;
-        g2d.fillRect(x, yPosition - height / 2, width, height);
+        int x = RIGHT_X - lineWidth;
+        g2d.fillRect(x, yPosition - lineHeight / 2, lineWidth, lineHeight);
     }
 }
