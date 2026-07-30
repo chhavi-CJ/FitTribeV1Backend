@@ -14,6 +14,7 @@ import java.awt.image.BufferedImage;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.math.BigDecimal;
+import java.awt.RenderingHints;
 
 @Service
 public class ShareImageService {
@@ -62,6 +63,12 @@ public class ShareImageService {
             ImageIO.write(card, "png", baos);
             return baos.toByteArray();
 
+        } catch (OutOfMemoryError e) {
+            log.error("OutOfMemoryError generating share image: {}", e.getMessage(), e);
+            throw new IOException("Insufficient memory to generate share image (photo too large)", e);
+        } catch (Exception e) {
+            log.error("Error generating share image: {}", e.getMessage(), e);
+            throw new IOException("Failed to generate share image: " + e.getMessage(), e);
         } finally {
             g2d.dispose();
         }
@@ -91,13 +98,31 @@ public class ShareImageService {
 
             log.info("Photo loaded: {}x{}", photo.getWidth(), photo.getHeight());
 
+            // Downscale if photo is very large (>2000px width) to reduce memory usage
+            if (photo.getWidth() > 2000) {
+                log.info("Downscaling large photo from {}x{}", photo.getWidth(), photo.getHeight());
+                photo = downscaleImage(photo, 2000);
+                log.info("Downscaled to {}x{}", photo.getWidth(), photo.getHeight());
+            }
+
             // Scale to cover 1080x1920, maintaining aspect ratio
             BufferedImage scaledPhoto = scalePhotoCover(photo, CARD_WIDTH, CARD_HEIGHT);
             g2d.drawImage(scaledPhoto, 0, 0, null);
 
         } catch (IOException e) {
-            log.warn("Failed to load/process user photo", e);
+            log.error("Failed to load/process user photo: {}", e.getMessage(), e);
         }
+    }
+
+    private BufferedImage downscaleImage(BufferedImage src, int maxWidth) {
+        int newWidth = maxWidth;
+        int newHeight = (int) (src.getHeight() * (double) maxWidth / src.getWidth());
+        BufferedImage scaled = new BufferedImage(newWidth, newHeight, BufferedImage.TYPE_INT_RGB);
+        Graphics2D g2d = scaled.createGraphics();
+        g2d.setRenderingHint(RenderingHints.KEY_INTERPOLATION, RenderingHints.VALUE_INTERPOLATION_BICUBIC);
+        g2d.drawImage(src, 0, 0, newWidth, newHeight, null);
+        g2d.dispose();
+        return scaled;
     }
 
     private BufferedImage scalePhotoCover(BufferedImage src, int targetWidth, int targetHeight) {

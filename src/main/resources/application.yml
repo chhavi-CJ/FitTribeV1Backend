@@ -53,6 +53,12 @@ spring:
     resources:
       add-mappings: false
 
+  # ── Multipart uploads (share image photos) ────────────────────────────
+  servlet:
+    multipart:
+      max-file-size: 10MB
+      max-request-size: 10MB
+
 # ── JWT ───────────────────────────────────────────────────────────────
 jwt:
   secret: ${JWT_SECRET}
