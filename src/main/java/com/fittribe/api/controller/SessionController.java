@@ -65,6 +65,7 @@ import com.fittribe.api.service.CoinService;
 import com.fittribe.api.service.GroupProgressService;
 import com.fittribe.api.service.PlanService;
 import com.fittribe.api.service.RankService;
+import com.fittribe.api.service.ShareImageService;
 import com.fittribe.api.strengthscore.ProgressSnapshotService;
 import jakarta.validation.Valid;
 import org.slf4j.Logger;
@@ -77,7 +78,9 @@ import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.transaction.support.TransactionTemplate;
 import org.springframework.web.bind.annotation.*;
+import org.springframework.web.multipart.MultipartFile;
 
+import java.io.IOException;
 import java.math.BigDecimal;
 import java.util.Collection;
 import java.util.Comparator;
@@ -138,6 +141,7 @@ public class SessionController {
     private final SessionFinishPostProcessor postProcessor;
     private final AnalyticsService          analyticsService;
     private final BonusFreezeGrantService    bonusFreezeGrantService;
+    private final ShareImageService         shareImageService;
 
     public SessionController(WorkoutSessionRepository sessionRepo,
                              SetLogRepository setLogRepo,
@@ -167,7 +171,8 @@ public class SessionController {
                              BonusFreezeGrantService bonusFreezeGrantService,
                              UserDayStatusRepository dayStatusRepo,
                              SessionFinishPostProcessor postProcessor,
-                             AnalyticsService analyticsService) {
+                             AnalyticsService analyticsService,
+                             ShareImageService shareImageService) {
         this.sessionRepo         = sessionRepo;
         this.setLogRepo          = setLogRepo;
         this.userRepo            = userRepo;
@@ -197,6 +202,7 @@ public class SessionController {
         this.dayStatusRepo = dayStatusRepo;
         this.postProcessor = postProcessor;
         this.analyticsService = analyticsService;
+        this.shareImageService = shareImageService;
     }
 
     // All-zeros UUID, rejected as a clientId — too easy to send by mistake
@@ -1514,6 +1520,41 @@ public class SessionController {
         }
 
         return ResponseEntity.ok(ApiResponse.success(items));
+    }
+
+    @PostMapping("/{sessionId}/share-image")
+    public ResponseEntity<byte[]> generateShareImage(
+            @PathVariable UUID sessionId,
+            @RequestParam(required = false) MultipartFile photo,
+            Authentication auth) {
+        try {
+            UUID userId = userId(auth);
+
+            WorkoutSession session = sessionRepo.findById(sessionId)
+                    .orElseThrow(() -> new ApiException(HttpStatus.NOT_FOUND,
+                            "SESSION_NOT_FOUND", "Session not found"));
+
+            if (!session.getUserId().equals(userId)) {
+                throw new ApiException(HttpStatus.FORBIDDEN,
+                        "FORBIDDEN", "Cannot generate share image for another user's session");
+            }
+
+            User user = userRepo.findById(userId)
+                    .orElseThrow(() -> new ApiException(HttpStatus.NOT_FOUND,
+                            "USER_NOT_FOUND", "User not found"));
+
+            byte[] imageBytes = shareImageService.generateShareImage(session, user, photo);
+
+            return ResponseEntity.ok()
+                    .header("Content-Type", "image/png")
+                    .header("Content-Disposition", "inline; filename=\"share-card.png\"")
+                    .body(imageBytes);
+
+        } catch (IOException e) {
+            log.error("Failed to generate share image", e);
+            throw new ApiException(HttpStatus.INTERNAL_SERVER_ERROR,
+                    "IMAGE_GENERATION_FAILED", "Failed to generate share image");
+        }
     }
 
     // ── Helpers ───────────────────────────────────────────────────────
