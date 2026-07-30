@@ -2,12 +2,8 @@ spring:
   application:
     name: fittribe-api
 
-  # ── AWT/Graphics (for server-side image generation) ──────────────────
-  main:
-    # Disable GUI support in headless environments (Railway, etc.)
-    # java.awt.headless=true is set in ApiApplication.java @PostConstruct
-
   # ── Database ──────────────────────────────────────────────────────────
+  # Note: java.awt.headless=true is set in ApiApplication.java for server-side graphics
   datasource:
     url: ${DB_URL}
     username: ${DB_USERNAME}
