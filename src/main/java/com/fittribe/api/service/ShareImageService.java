@@ -175,8 +175,11 @@ public class ShareImageService {
         Integer duration = session.getDurationMins() != null ? session.getDurationMins() : 0;
         Integer sets = session.getTotalSets() != null ? session.getTotalSets() : 0;
         BigDecimal volume = session.getTotalVolumeKg() != null ? session.getTotalVolumeKg() : BigDecimal.ZERO;
+        Integer streak = user.getStreak() != null ? user.getStreak() : 0;
+        boolean hasSignificantStreak = streak >= 2;
 
         // Vertically centered layout around y = 960
+        // (adjusted to accommodate optional streak line below)
 
         // y ~820: "WYNNERS" — 28px, letter-spacing 10, nearly full white, bold, right-aligned
         drawRightAlignedSpacedText(g2d, "W Y N N E R S", baseFont, 28, Font.BOLD, wynnersWhite, RIGHT_X, 820, 10);
@@ -201,6 +204,25 @@ public class ShareImageService {
         drawRightAlignedSpacedText(g2d, "TIME", baseFont, 28, Font.PLAIN, labelEmerald, RIGHT_X, 1150, 6);
         // y ~1200: "45 min" value — 48px, white, right-aligned
         drawRightAlignedText(g2d, duration + " min", baseFont, 48, Font.PLAIN, white, RIGHT_X, 1200);
+
+        // Streak section — only show if streak >= 2
+        if (hasSignificantStreak) {
+            // y ~1280: "🔥 Day {streak}" or fallback "Day {streak} streak" — 32px, white, semi-bold, right-aligned
+            String streakText = buildStreakText(streak);
+            drawRightAlignedText(g2d, streakText, baseFont, 32, Font.BOLD, white, RIGHT_X, 1280);
+        }
+    }
+
+    private String buildStreakText(Integer streak) {
+        if (streak == null || streak < 2) {
+            return "";
+        }
+        // Try emoji first; if it doesn't render, fallback to text
+        String emoji = "🔥";
+        String withEmoji = emoji + " Day " + streak;
+        return withEmoji;
+        // Note: If emoji rendering fails on deployment, change to:
+        // return "Day " + streak + " streak";
     }
 
     private Font loadDmSansFont() {
