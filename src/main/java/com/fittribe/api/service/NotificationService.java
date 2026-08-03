@@ -65,12 +65,16 @@ public class NotificationService {
     }
 
     /**
-     * Send a push notification to every registered device for the given user.
+     * Send a push notification to the most recently used device for the given user.
      *
      * Never throws — push failures are logged at WARN and swallowed so callers
      * are never blocked by FCM outages or stale tokens.
      *
      * Stale tokens (UNREGISTERED / INVALID_ARGUMENT) are deleted automatically.
+     *
+     * Device selection: Prefers the device with the most recent lastSeenAt.
+     * If lastSeenAt is null (old tokens), falls back to createdAt.
+     * This ensures only one push per user, targeting their most active device.
      */
     public void sendPush(UUID userId, String title, String body, Map<String, String> data) {
         try {
@@ -85,10 +89,19 @@ public class NotificationService {
                 return;
             }
 
+            DeviceToken mostRecentToken = tokens.stream()
+                    .max((a, b) -> {
+                        var aTime = a.getLastSeenAt() != null ? a.getLastSeenAt() : a.getCreatedAt();
+                        var bTime = b.getLastSeenAt() != null ? b.getLastSeenAt() : b.getCreatedAt();
+                        return aTime.compareTo(bTime);
+                    })
+                    .orElse(tokens.get(0));
+
+            log.debug("sendPush: user={} has {} device(s), sending to most recent: {}",
+                    userId, tokens.size(), mostRecentToken.getId());
+
             FirebaseMessaging fcm = FirebaseMessaging.getInstance();
-            for (DeviceToken dt : tokens) {
-                sendToToken(fcm, dt, userId, title, body, data);
-            }
+            sendToToken(fcm, mostRecentToken, userId, title, body, data);
         } catch (Exception e) {
             log.warn("sendPush: unexpected error for user={}: {}", userId, e.getMessage());
         }

@@ -35,4 +35,13 @@ public interface DeviceTokenRepository extends JpaRepository<DeviceToken, UUID> 
     void upsert(@Param("userId") UUID userId,
                 @Param("token") String token,
                 @Param("platform") String platform);
+
+    @Modifying
+    @Transactional
+    @Query(value = """
+            DELETE FROM device_tokens
+            WHERE user_id = :userId AND token != :token
+            """, nativeQuery = true)
+    void deleteAllOtherTokensForUser(@Param("userId") UUID userId,
+                                     @Param("token") String token);
 }
