@@ -31,6 +31,9 @@ public class DailyPlanGenerated {
     @JdbcTypeCode(SqlTypes.JSON)
     private String cardioSuggestion;
 
+    @Column(name = "status", length = 16)
+    private String status;  // PENDING (async in flight), READY (generated), FAILED (retry)
+
     @Column(name = "generated_at", insertable = false, updatable = false)
     private Instant generatedAt;
 
@@ -53,6 +56,9 @@ public class DailyPlanGenerated {
 
     public String getCardioSuggestion()              { return cardioSuggestion; }
     public void setCardioSuggestion(String v)        { this.cardioSuggestion = v; }
+
+    public String getStatus()                        { return status; }
+    public void setStatus(String status)             { this.status = status; }
 
     public Instant getGeneratedAt()                  { return generatedAt; }
 }

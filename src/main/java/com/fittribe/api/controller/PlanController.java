@@ -57,11 +57,19 @@ public class PlanController {
         return ResponseEntity.ok(ApiResponse.success(result));
     }
 
-    /** POST /api/v1/plan/today/generate — generate today's AI workout */
+    /** POST /api/v1/plan/today/generate — generate today's AI workout (async) */
     @PostMapping("/today/generate")
     public ResponseEntity<ApiResponse<Map<String, Object>>> generateToday(Authentication auth) {
         UUID userId = (UUID) auth.getPrincipal();
         Map<String, Object> result = planService.generateTodaysPlan(userId);
+
+        // If plan is being generated asynchronously, return 202 Accepted
+        String status = (String) result.get("status");
+        if ("GENERATING".equals(status)) {
+            return ResponseEntity.accepted().body(ApiResponse.success(result));
+        }
+
+        // If plan is ready (cache hit) or failed, return 200 OK
         return ResponseEntity.ok(ApiResponse.success(result));
     }
 

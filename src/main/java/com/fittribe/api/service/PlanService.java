@@ -35,6 +35,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.*;
+import org.springframework.scheduling.annotation.Async;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.client.RestTemplate;
@@ -119,6 +120,7 @@ public class PlanService {
     private final FeedEventWriter             feedEventWriter;
     private final AnalyticsService            analyticsService;
     private final RestTemplate                restTemplate = new RestTemplate();
+    private final PlanGenerationWorker        planGenerationWorker;
 
     public PlanService(UserRepository userRepo,
                        UserPlanRepository planRepo,
@@ -134,7 +136,8 @@ public class PlanService {
                        PlanHistoryService planHistoryService,
                        ObjectMapper mapper,
                        FeedEventWriter feedEventWriter,
-                       AnalyticsService analyticsService) {
+                       AnalyticsService analyticsService,
+                       PlanGenerationWorker planGenerationWorker) {
         this.userRepo             = userRepo;
         this.planRepo             = planRepo;
         this.exerciseRepo         = exerciseRepo;
@@ -150,6 +153,7 @@ public class PlanService {
         this.mapper               = mapper;
         this.feedEventWriter      = feedEventWriter;
         this.analyticsService     = analyticsService;
+        this.planGenerationWorker = planGenerationWorker;
     }
 
     // ── Public API ────────────────────────────────────────────────────
@@ -240,6 +244,23 @@ public class PlanService {
             response.put("sessionId",             inProgress.get().getId());
             response.put("workoutCompletedToday", workoutCompletedToday);
             return response;
+        }
+
+        // Check DailyPlanGenerated status — if plan is being generated or failed
+        Optional<DailyPlanGenerated> dailyPlan = dailyPlanRepo.findByIdUserIdAndIdDate(userId, today);
+        if (dailyPlan.isPresent()) {
+            DailyPlanGenerated generatedPlan = dailyPlan.get();
+            String planStatus = generatedPlan.getStatus() != null ? generatedPlan.getStatus() : "READY";
+
+            if ("PENDING".equals(planStatus)) {
+                return Map.of("status", "GENERATING");
+            }
+
+            if ("FAILED".equals(planStatus)) {
+                return Map.of("status", "FAILED", "message", "Plan generation failed. Please try again.");
+            }
+
+            // If READY, fall through to return the exercises below
         }
 
         // Weekly goal hit check
@@ -336,6 +357,11 @@ public class PlanService {
         }
     }
 
+    /**
+     * POST /api/v1/plan/today/generate — generate today's AI workout (ASYNC).
+     * Returns immediately with status: "GENERATING".
+     * Actual OpenAI call runs asynchronously via PlanGenerationWorker.
+     */
     public Map<String, Object> generateTodaysPlan(UUID userId) {
         User user = userRepo.findById(userId)
                 .orElseThrow(() -> ApiException.notFound("User"));
@@ -407,35 +433,71 @@ public class PlanService {
         String guidanceText   = (String) templateDay.get("guidanceText");
         Integer estimatedMins = (Integer) templateDay.get("estimatedMins");
 
-        // Gate 4 — already generated today (return cached with full fields)
+        // Gate 4 — check if already generated today
         Optional<DailyPlanGenerated> existing = dailyPlanRepo
                 .findByIdUserIdAndIdDate(userId, today);
+
+        DailyPlanGenerated planToUse = null;
+
         if (existing.isPresent()) {
-            try {
-                List<Map<String, Object>> exercises = mapper.readValue(
-                        existing.get().getExercises(), new TypeReference<>() {});
-                Map<String, Object> response = new LinkedHashMap<>();
-                response.put("status",           "GENERATED");
-                response.put("weekNumber",        weekPlan.getWeekNumber());
-                response.put("dayType",           existing.get().getDayType());
-                response.put("dayLabel",          dayLabel);
-                response.put("muscleGroups",      muscleGroups);
-                response.put("estimatedMins",     estimatedMins);
-                response.put("fitnessLevel",      user.getFitnessLevel());
-                response.put("exercises",         exercises);
-                response.put("sessionNote",       existing.get().getSessionNote());
-                response.put("dayCoachTip",       existing.get().getDayCoachTip());
-                response.put("cardioSuggestion",  existing.get().getCardioSuggestion() != null
-                        ? mapper.readValue(existing.get().getCardioSuggestion(),
-                                new TypeReference<Map<String, Object>>() {})
-                        : null);
-                return response;
-            } catch (Exception e) {
-                log.error("Failed to parse existing daily plan: {}", e.getMessage());
+            DailyPlanGenerated plan = existing.get();
+            String planStatus = plan.getStatus() != null ? plan.getStatus() : "READY";
+
+            // If generation is still in progress, return immediately
+            if ("PENDING".equals(planStatus)) {
+                log.info("generateTodaysPlan: plan already PENDING for userId={}, returning GENERATING", userId);
+                return Map.of("status", "GENERATING");
+            }
+
+            // Status is READY — return cached plan with full fields
+            if ("READY".equals(planStatus)) {
+                try {
+                    List<Map<String, Object>> exercises = mapper.readValue(
+                            plan.getExercises(), new TypeReference<>() {});
+                    Map<String, Object> response = new LinkedHashMap<>();
+                    response.put("status",           "GENERATED");
+                    response.put("weekNumber",        weekPlan.getWeekNumber());
+                    response.put("dayType",           plan.getDayType());
+                    response.put("dayLabel",          dayLabel);
+                    response.put("muscleGroups",      muscleGroups);
+                    response.put("estimatedMins",     estimatedMins);
+                    response.put("fitnessLevel",      user.getFitnessLevel());
+                    response.put("exercises",         exercises);
+                    response.put("sessionNote",       plan.getSessionNote());
+                    response.put("dayCoachTip",       plan.getDayCoachTip());
+                    response.put("cardioSuggestion",  plan.getCardioSuggestion() != null
+                            ? mapper.readValue(plan.getCardioSuggestion(),
+                                    new TypeReference<Map<String, Object>>() {})
+                            : null);
+                    return response;
+                } catch (Exception e) {
+                    log.error("Failed to parse existing daily plan: {}", e.getMessage());
+                }
+            }
+
+            // If generation failed, user is retrying — update to PENDING and restart async
+            if ("FAILED".equals(planStatus)) {
+                log.info("generateTodaysPlan: plan was FAILED for userId={}, restarting async generation", userId);
+                plan.setStatus("PENDING");
+                plan.setExercises(null);  // Clear old data
+                dailyPlanRepo.save(plan);
+                planToUse = plan;
             }
         }
 
-        // Build context for AI
+        // If we don't have a PENDING row yet (first time or will be created), create one
+        if (planToUse == null) {
+            DailyPlanGenerated pendingPlan = new DailyPlanGenerated();
+            pendingPlan.setId(new DailyPlanGeneratedId(userId, today));
+            pendingPlan.setDayType(dayType);
+            pendingPlan.setStatus("PENDING");
+            pendingPlan.setExercises(null);
+            dailyPlanRepo.save(pendingPlan);
+            planToUse = pendingPlan;
+            log.info("generateTodaysPlan: created PENDING plan for userId={}, starting async generation", userId);
+        }
+
+        // Build context for AI (for both new and retried FAILED cases)
         Instant since4Days  = today.minusDays(4).atStartOfDay(APP_ZONE).toInstant();
         Instant since14Days = today.minusDays(14).atStartOfDay(APP_ZONE).toInstant();
 
@@ -499,95 +561,17 @@ public class PlanService {
                 .replace("{historyBlock}",         historyBlock + "\n" + recentExBlock)
                 .replace("{feedbackBlock}",        feedbackBlock);
 
-        // Call AI or fallback
-        String exercises;
-        String sessionNote      = null;
-        String dayCoachTip      = null;
-        String cardioSuggestion = null;
+        // Start async generation (OpenAI call runs on separate thread)
+        log.info("[PROMPT_DEBUG_META] userId={} dayType={} muscleCount={} perMuscle={} exerciseCount={} muscleGroupsRaw={} muscleGroupsCanonical={}",
+                userId, dayType, muscleCount, perMuscle, exerciseCount, muscleGroups, canonicalMuscles);
+        log.info("[PROMPT_DEBUG_BODY] userId={} fullPrompt=\n{}", userId, userPrompt);
 
-        if (openAiKey != null && !openAiKey.isBlank()) {
-            log.info("[PROMPT_DEBUG_META] userId={} dayType={} muscleCount={} perMuscle={} exerciseCount={} muscleGroupsRaw={} muscleGroupsCanonical={}",
-                    userId, dayType, muscleCount, perMuscle, exerciseCount, muscleGroups, canonicalMuscles);
-            log.info("[PROMPT_DEBUG_BODY] userId={} fullPrompt=\n{}", userId, userPrompt);
-            String aiResponse = callDailyOpenAi(userPrompt);
-            if (aiResponse != null) {
-                try {
-                    String json = aiResponse.trim();
-                    if (json.startsWith("```")) {
-                        json = json.replaceAll("^```[a-z]*\\n?", "").replaceAll("```$", "").trim();
-                    }
-                    Map<String, Object> parsed = mapper.readValue(json, new TypeReference<>() {});
-                    exercises        = mapper.writeValueAsString(parsed.get("exercises"));
-                    sessionNote      = (String) parsed.get("sessionNote");
-                    dayCoachTip      = (String) parsed.get("dayCoachTip");
-                    Object cardio    = parsed.get("cardioSuggestion");
-                    cardioSuggestion = cardio != null ? mapper.writeValueAsString(cardio) : null;
-                } catch (Exception e) {
-                    log.warn("Failed to parse daily AI response: {}", e.getMessage());
-                    exercises = buildFallbackExercisesJson(dayType, exMap, analysis, bw, level);
-                }
-            } else {
-                exercises = buildFallbackExercisesJson(dayType, exMap, analysis, bw, level);
-            }
-        } else {
-            exercises = buildFallbackExercisesJson(dayType, exMap, analysis, bw, level);
-        }
+        planGenerationWorker.generateTodaysPlanAsync(
+                userId, today, dayType, dayLabel, weekNumber,
+                muscleGroups, estimatedMins, level, bw, userPrompt);
 
-        // Build response + enrich BEFORE saving to DB
-        try {
-            List<Map<String, Object>> exerciseList = mapper.readValue(
-                    exercises, new TypeReference<>() {});
-
-            // Build full plan exercise ID list to exclude from swap suggestions
-            List<String> allExerciseIdsInPlan = exerciseList.stream()
-                    .map(ex -> (String) ex.getOrDefault("exerciseId", ""))
-                    .filter(id -> id != null && !id.isBlank())
-                    .collect(Collectors.toList());
-
-            // Enrich with swap alternatives
-            List<Map<String, Object>> enriched = new ArrayList<>();
-            for (Map<String, Object> ex : exerciseList) {
-                Map<String, Object> copy = new LinkedHashMap<>(ex);
-                String exId = (String) copy.getOrDefault("exerciseId", "");
-                Exercise entity = exMap.get(exId);
-                String muscleGrp = entity != null
-                        ? entity.getMuscleGroup() : (String) copy.get("muscleGroup");
-                copy.put("equipment",    entity != null ? entity.getEquipment() : null);
-                copy.put("isBodyweight", entity != null && entity.isBodyweight());
-                copy.put("swapAlternatives", getSwapsFromDb(exId, muscleGrp, allExerciseIdsInPlan));
-                enriched.add(copy);
-            }
-
-            // Store enriched plan (with swapAlternatives) in daily_plan_generated
-            DailyPlanGenerated plan = new DailyPlanGenerated();
-            plan.setId(new DailyPlanGeneratedId(userId, today));
-            plan.setDayType(dayType);
-            plan.setExercises(mapper.writeValueAsString(enriched));
-            plan.setSessionNote(sessionNote);
-            plan.setDayCoachTip(dayCoachTip);
-            plan.setCardioSuggestion(cardioSuggestion);
-            dailyPlanRepo.save(plan);
-
-            Map<String, Object> response = new LinkedHashMap<>();
-            response.put("status",          "GENERATED");
-            response.put("weekNumber",       weekNumber);
-            response.put("dayType",          dayType);
-            response.put("dayLabel",         dayLabel);
-            response.put("muscleGroups",     muscleGroups);
-            response.put("includesCore",     includesCore);
-            response.put("estimatedMins",    estimatedMins);
-            response.put("fitnessLevel",     user.getFitnessLevel());
-            response.put("exercises",        enriched);
-            response.put("sessionNote",      sessionNote);
-            response.put("dayCoachTip",      dayCoachTip);
-            response.put("cardioSuggestion", cardioSuggestion != null
-                    ? mapper.readValue(cardioSuggestion, new TypeReference<Map<String, Object>>() {})
-                    : null);
-            return response;
-        } catch (Exception e) {
-            log.error("Failed to build daily plan response: {}", e.getMessage());
-            throw new RuntimeException("Could not build today's plan", e);
-        }
+        log.info("generateTodaysPlan: async generation started for userId={}, returning GENERATING", userId);
+        return Map.of("status", "GENERATING");
     }
 
     public Map<String, Object> setTodayStatus(UUID userId, String status, LocalDate targetDate) {
@@ -1229,7 +1213,7 @@ When you change a weight from last week, explain why in that exercise's whyThisE
         return sb.toString().trim();
     }
 
-    private String buildRecoveryBlock(List<HistoricalSet> logs, Map<String, Exercise> exMap) {
+    public String buildRecoveryBlock(List<HistoricalSet> logs, Map<String, Exercise> exMap) {
         if (logs.isEmpty()) return "RECOVERY STATUS: No recent sessions — all muscle groups fully recovered.";
 
         Map<String, Instant> lastTrainedPerMuscle = new LinkedHashMap<>();
@@ -1256,7 +1240,7 @@ When you change a weight from last week, explain why in that exercise's whyThisE
         return sb.toString().trim();
     }
 
-    private String buildDailyHistoryBlock(HistoryAnalysis analysis, Map<String, Exercise> exMap) {
+    public String buildDailyHistoryBlock(HistoryAnalysis analysis, Map<String, Exercise> exMap) {
         if (analysis.totalSessionsInHistory() == 0)
             return "HISTORY: No training history — first session. Use conservative starting weights.";
 
@@ -1271,7 +1255,7 @@ When you change a weight from last week, explain why in that exercise's whyThisE
         return sb.toString().trim();
     }
 
-    private String buildRecentExercisesBlock(List<HistoricalSet> logs, Instant since) {
+    public String buildRecentExercisesBlock(List<HistoricalSet> logs, Instant since) {
         List<String> recentExercises = logs.stream()
                 .filter(hs -> hs.finishedAt() != null && hs.finishedAt().isAfter(since))
                 .map(HistoricalSet::exerciseId)
@@ -1286,7 +1270,7 @@ When you change a weight from last week, explain why in that exercise's whyThisE
                 + String.join(", ", recentExercises);
     }
 
-    private String buildDailyFeedbackBlock(List<SessionFeedback> feedback) {
+    public String buildDailyFeedbackBlock(List<SessionFeedback> feedback) {
         if (feedback.isEmpty()) return "";
         DateTimeFormatter fmt = DateTimeFormatter
                 .ofPattern("EEE dd MMM").withZone(ZoneId.of("Asia/Kolkata"));
@@ -1419,7 +1403,7 @@ When you change a weight from last week, explain why in that exercise's whyThisE
         return sb.toString().trim();
     }
 
-    private String buildFallbackExercisesJson(String dayType, Map<String, Exercise> exMap,
+    public String buildFallbackExercisesJson(String dayType, Map<String, Exercise> exMap,
                                                HistoryAnalysis analysis, double bw, String level) {
         try {
             List<Map<String, Object>> exercises = buildExercisesFromTemplate(
@@ -1478,7 +1462,7 @@ When you change a weight from last week, explain why in that exercise's whyThisE
 
     // ── Plan reading helpers ──────────────────────────────────────────
 
-    private List<Map<String, Object>> getSwapsFromDb(String exerciseId, String muscleGroup,
+    public List<Map<String, Object>> getSwapsFromDb(String exerciseId, String muscleGroup,
                                                       List<String> allExerciseIdsInPlan) {
         if (muscleGroup == null || muscleGroup.isBlank()) {
             log.info("Swap lookup skipped — no muscleGroup for exerciseId={}", exerciseId);
@@ -1681,7 +1665,7 @@ When you change a weight from last week, explain why in that exercise's whyThisE
         return (int) ChronoUnit.WEEKS.between(createdMonday, targetMonday) + 1;
     }
 
-    private Map<String, Exercise> exerciseMap() {
+    public Map<String, Exercise> exerciseMap() {
         return exerciseRepo.findAll().stream()
                 .collect(Collectors.toMap(Exercise::getId, e -> e));
     }
