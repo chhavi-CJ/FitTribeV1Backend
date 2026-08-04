@@ -48,7 +48,7 @@ class PlanServiceSetStatusTest {
                 userRepo, planRepo, exerciseRepo, sessionRepo, setLogRepo,
                 insightRepo, feedbackRepo, splitTemplateDayRepo, dailyPlanRepo,
                 dayStatusRepo, fitnessSummaryService, planHistoryService,
-                new ObjectMapper(), feedEventWriter, null);
+                new ObjectMapper(), feedEventWriter, null, null);
     }
 
     // ── READY ────────────────────────────────────────────────────────────

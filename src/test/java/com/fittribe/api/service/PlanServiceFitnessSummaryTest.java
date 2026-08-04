@@ -65,7 +65,7 @@ class PlanServiceFitnessSummaryTest {
                 userRepo, planRepo, exerciseRepo, sessionRepo, setLogRepo,
                 insightRepo, feedbackRepo, splitTemplateDayRepo, dailyPlanRepo,
                 dayStatusRepo, fitnessSummaryService, planHistoryService, mapper,
-                feedEventWriter, null);
+                feedEventWriter, null, null);
     }
 
     // ═══════════════════════════════════════════════════════════════════
