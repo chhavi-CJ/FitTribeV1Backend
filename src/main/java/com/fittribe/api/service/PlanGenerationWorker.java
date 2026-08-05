@@ -13,6 +13,7 @@ import com.fittribe.api.repository.UserRepository;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.context.annotation.Lazy;
 import org.springframework.http.HttpEntity;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
@@ -51,7 +52,7 @@ public class PlanGenerationWorker {
             DailyPlanGeneratedRepository dailyPlanRepo,
             ExerciseRepository exerciseRepo,
             ObjectMapper mapper,
-            PlanService planService) {
+            @Lazy PlanService planService) {
         this.userRepo = userRepo;
         this.dailyPlanRepo = dailyPlanRepo;
         this.exerciseRepo = exerciseRepo;
