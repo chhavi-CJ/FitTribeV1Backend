@@ -39,7 +39,7 @@ public class PlanGenerationWorker {
     private final UserRepository userRepo;
     private final DailyPlanGeneratedRepository dailyPlanRepo;
     private final ExerciseRepository exerciseRepo;
-    private final RestTemplate restTemplate;
+    private final RestTemplate restTemplate = new RestTemplate();
     private final ObjectMapper mapper;
     private final PlanService planService;  // For helper methods
 
@@ -50,13 +50,11 @@ public class PlanGenerationWorker {
             UserRepository userRepo,
             DailyPlanGeneratedRepository dailyPlanRepo,
             ExerciseRepository exerciseRepo,
-            RestTemplate restTemplate,
             ObjectMapper mapper,
             PlanService planService) {
         this.userRepo = userRepo;
         this.dailyPlanRepo = dailyPlanRepo;
         this.exerciseRepo = exerciseRepo;
-        this.restTemplate = restTemplate;
         this.mapper = mapper;
         this.planService = planService;
     }
