@@ -146,6 +146,24 @@ public class GroupController {
         return ResponseEntity.ok(ApiResponse.success(toGroupResponse(saved, 1)));
     }
 
+    // ── GET /groups/preview/{inviteCode} ──────────────────────────────
+    @GetMapping("/preview/{inviteCode}")
+    public ResponseEntity<ApiResponse<Map<String, Object>>> previewGroup(
+            @PathVariable String inviteCode) {
+        Group group = groupRepo.findByInviteCode(inviteCode)
+                .orElseThrow(() -> ApiException.notFound("Invalid invite code"));
+
+        long memberCount = memberRepo.countByGroupId(group.getId());
+
+        Map<String, Object> preview = new LinkedHashMap<>();
+        preview.put("name", group.getName());
+        preview.put("icon", group.getIcon());
+        preview.put("color", group.getColor());
+        preview.put("memberCount", memberCount);
+
+        return ResponseEntity.ok(ApiResponse.success(preview));
+    }
+
     // ── POST /groups/join ─────────────────────────────────────────────
     @PostMapping("/join")
     @Transactional
