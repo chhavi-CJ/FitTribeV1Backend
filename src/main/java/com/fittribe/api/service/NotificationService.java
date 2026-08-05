@@ -85,7 +85,7 @@ public class NotificationService {
 
             List<DeviceToken> tokens = deviceTokenRepo.findByUserId(userId);
             if (tokens.isEmpty()) {
-                log.debug("sendPush: no registered devices for user={}", userId);
+                log.warn("sendPush: no device tokens found for userId={}", userId);
                 return;
             }
 
@@ -100,6 +100,7 @@ public class NotificationService {
             log.debug("sendPush: user={} has {} device(s), sending to most recent: {}",
                     userId, tokens.size(), mostRecentToken.getId());
 
+            log.info("sendPush: attempting push to userId={} title={}", userId, title);
             FirebaseMessaging fcm = FirebaseMessaging.getInstance();
             sendToToken(fcm, mostRecentToken, userId, title, body, data);
         } catch (Exception e) {
@@ -218,7 +219,7 @@ public class NotificationService {
             }
 
             String messageId = fcm.send(builder.build());
-            log.debug("sendPush: delivered user={} token={}... messageId={}", userId, tokenPrefix, messageId);
+            log.info("sendPush: push delivered to userId={} token={}... messageId={}", userId, tokenPrefix, messageId);
 
         } catch (FirebaseMessagingException e) {
             MessagingErrorCode code = e.getMessagingErrorCode();
@@ -230,8 +231,7 @@ public class NotificationService {
                     log.warn("sendPush: could not delete stale token for user={}: {}", userId, del.getMessage());
                 }
             } else {
-                log.warn("sendPush: FCM error for user={} token={}... code={}: {}",
-                        userId, tokenPrefix, code, e.getMessage());
+                log.error("sendToToken: FCM push failed for userId={} token={}... code={}: {}", userId, tokenPrefix, code, e.getMessage(), e);
             }
         }
     }
