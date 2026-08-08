@@ -35,6 +35,7 @@ import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.bind.annotation.*;
 
 import com.fittribe.api.util.Zones;
+import com.fittribe.api.service.NotificationCopy;
 import java.time.DayOfWeek;
 import java.time.Instant;
 import java.time.LocalDate;
@@ -551,7 +552,7 @@ public class GroupController {
 
                 // Send push notification to feed item author
                 String reactorName = userRepo.findById(userId)
-                        .map(u -> u.getName() != null ? u.getName() : "Someone")
+                        .map(u -> u.getDisplayName() != null ? u.getDisplayName() : "Someone")
                         .orElse("Someone");
                 notificationService.sendPush(
                         fi.getUserId(),
