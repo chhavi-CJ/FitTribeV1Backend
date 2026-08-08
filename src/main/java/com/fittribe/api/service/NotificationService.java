@@ -131,7 +131,7 @@ public class NotificationService {
                     -> prefs.getGroupActivityEnabled();
             case "WEEKLY_REPORT_READY", "WEEKLY_GOAL_HIT"
                     -> prefs.getWeeklyReportEnabled();
-            case "POKE" -> prefs.getSocialEnabled();
+            case "POKE", "REACTION" -> prefs.getSocialEnabled();
             case "COMEBACK_NUDGE" -> prefs.getComebackEnabled();
             default -> true;  // Unknown types always send
         };

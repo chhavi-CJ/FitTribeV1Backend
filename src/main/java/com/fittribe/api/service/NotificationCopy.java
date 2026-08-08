@@ -163,4 +163,14 @@ public final class NotificationCopy {
                 + " session" + (sessionsRemaining != 1 ? "s" : "") + " to go 💪"
         );
     }
+
+    public static String reactionPush(String reactionType) {
+        return switch (reactionType) {
+            case "STRONG" -> "💪";
+            case "RESPECT" -> "🫡";
+            case "KEEP_GOING" -> "🔥";
+            case "COMMENDABLE" -> "👏";
+            default -> "❤️";
+        };
+    }
 }

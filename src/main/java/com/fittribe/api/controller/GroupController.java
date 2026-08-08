@@ -548,6 +548,20 @@ public class GroupController {
                 String metadataJson = mapper.writeValueAsString(Map.of("kind", request.type()));
                 notifRepo.upsertReactionNotification(
                         fi.getUserId(), userId, feedItemId, fi.getGroupId(), metadataJson);
+
+                // Send push notification to feed item author
+                String reactorName = userRepo.findById(userId)
+                        .map(u -> u.getName() != null ? u.getName() : "Someone")
+                        .orElse("Someone");
+                notificationService.sendPush(
+                        fi.getUserId(),
+                        reactorName + " reacted to your workout",
+                        NotificationCopy.reactionPush(request.type()),
+                        Map.of("type", "REACTION",
+                               "targetScreen", "/group",
+                               "groupId", fi.getGroupId().toString(),
+                               "feedItemId", feedItemId.toString())
+                );
             } catch (com.fasterxml.jackson.core.JsonProcessingException e) {
                 throw new RuntimeException("Failed to serialize reaction notification metadata", e);
             }
