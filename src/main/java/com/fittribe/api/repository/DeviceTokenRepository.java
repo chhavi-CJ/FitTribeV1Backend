@@ -19,7 +19,7 @@ public interface DeviceTokenRepository extends JpaRepository<DeviceToken, UUID> 
     @Transactional
     void deleteByUserIdAndToken(UUID userId, String token);
 
-    @Modifying
+    @Modifying(flushAutomatically = true, clearAutomatically = true)
     @Transactional
     void deleteAllByToken(String token);
 
@@ -36,7 +36,7 @@ public interface DeviceTokenRepository extends JpaRepository<DeviceToken, UUID> 
                 @Param("token") String token,
                 @Param("platform") String platform);
 
-    @Modifying
+    @Modifying(flushAutomatically = true, clearAutomatically = true)
     @Transactional
     @Query(value = """
             DELETE FROM device_tokens
