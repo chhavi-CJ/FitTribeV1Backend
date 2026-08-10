@@ -12,6 +12,7 @@ import com.fittribe.api.entity.User;
 import com.fittribe.api.entity.UserPlan;
 import com.fittribe.api.exception.ApiException;
 import com.fittribe.api.healthcondition.HealthConditionNormalizer;
+import com.fittribe.api.repository.PrEventRepository;
 import com.fittribe.api.repository.UserExerciseBestsRepository;
 import com.fittribe.api.repository.UserPlanRepository;
 import com.fittribe.api.repository.UserRepository;
@@ -59,6 +60,7 @@ public class UserController {
     private final WorkoutSessionRepository    sessionRepository;
     private final UserPlanRepository          planRepository;
     private final UserExerciseBestsRepository bestsRepository;
+    private final PrEventRepository           prEventRepository;
     private final ObjectMapper                objectMapper;
     private final UserDeletionService         userDeletionService;
     private final AnalyticsService            analyticsService;
@@ -68,6 +70,7 @@ public class UserController {
                           WorkoutSessionRepository sessionRepository,
                           UserPlanRepository planRepository,
                           UserExerciseBestsRepository bestsRepository,
+                          PrEventRepository prEventRepository,
                           ObjectMapper objectMapper,
                           UserDeletionService userDeletionService,
                           AnalyticsService analyticsService,
@@ -76,6 +79,7 @@ public class UserController {
         this.sessionRepository    = sessionRepository;
         this.planRepository       = planRepository;
         this.bestsRepository      = bestsRepository;
+        this.prEventRepository    = prEventRepository;
         this.objectMapper         = objectMapper;
         this.userDeletionService  = userDeletionService;
         this.analyticsService     = analyticsService;
@@ -386,7 +390,7 @@ public class UserController {
         int completedThisWeek = counts.getCompletedThisWeek();
         int sessionsTotal     = counts.getSessionsTotal();
         int trainingDaysTotal = counts.getTrainingDaysTotal();
-        int prsTotal          = bestsRepository.countByUserId(userId);
+        int prsTotal          = (int) prEventRepository.countDistinctPrExercisesByUserId(userId);
         String currentRank    = RankService.rankFor(trainingDaysTotal);
         String nextRankName   = RankService.nextRank(currentRank);
         int daysToNextRank    = RankService.daysToNext(trainingDaysTotal);
