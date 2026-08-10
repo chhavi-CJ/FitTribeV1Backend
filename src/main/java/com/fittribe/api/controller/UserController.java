@@ -13,6 +13,7 @@ import com.fittribe.api.entity.UserPlan;
 import com.fittribe.api.exception.ApiException;
 import com.fittribe.api.healthcondition.HealthConditionNormalizer;
 import com.fittribe.api.repository.PrEventRepository;
+import com.fittribe.api.repository.UserDayStatusRepository;
 import com.fittribe.api.repository.UserExerciseBestsRepository;
 import com.fittribe.api.repository.UserPlanRepository;
 import com.fittribe.api.repository.UserRepository;
@@ -61,6 +62,7 @@ public class UserController {
     private final UserPlanRepository          planRepository;
     private final UserExerciseBestsRepository bestsRepository;
     private final PrEventRepository           prEventRepository;
+    private final UserDayStatusRepository     userDayStatusRepository;
     private final ObjectMapper                objectMapper;
     private final UserDeletionService         userDeletionService;
     private final AnalyticsService            analyticsService;
@@ -71,6 +73,7 @@ public class UserController {
                           UserPlanRepository planRepository,
                           UserExerciseBestsRepository bestsRepository,
                           PrEventRepository prEventRepository,
+                          UserDayStatusRepository userDayStatusRepository,
                           ObjectMapper objectMapper,
                           UserDeletionService userDeletionService,
                           AnalyticsService analyticsService,
@@ -80,6 +83,7 @@ public class UserController {
         this.planRepository       = planRepository;
         this.bestsRepository      = bestsRepository;
         this.prEventRepository    = prEventRepository;
+        this.userDayStatusRepository = userDayStatusRepository;
         this.objectMapper         = objectMapper;
         this.userDeletionService  = userDeletionService;
         this.analyticsService     = analyticsService;
@@ -111,6 +115,18 @@ public class UserController {
         List<String> workoutDatesThisWeek = sessionRepository.findWorkoutDatesThisWeekByStartedAt(userId);
 
         LocalDate today       = Zones.fitnessDayNow();
+
+        // Get day statuses (REST, SICK, TRAVELLING, BUSY) for this week
+        LocalDate mondayOfThisWeek = today.with(TemporalAdjusters.previousOrSame(DayOfWeek.MONDAY));
+        LocalDate sundayOfThisWeek = today.with(TemporalAdjusters.nextOrSame(DayOfWeek.SUNDAY));
+        List<com.fittribe.api.entity.UserDayStatus> weekStatuses = userDayStatusRepository.findByIdUserIdAndIdDateBetween(userId, mondayOfThisWeek, sundayOfThisWeek);
+        Map<String, String> dayStatusesThisWeek = weekStatuses.stream()
+                .filter(s -> !"READY".equals(s.getStatus()))
+                .collect(Collectors.toMap(
+                        s -> s.getId().getDate().toString(),
+                        com.fittribe.api.entity.UserDayStatus::getStatus
+                ));
+
         Instant startOfDay    = Zones.fitnessDayStart(today);
         Instant endOfDay      = Zones.fitnessDayStart(today.plusDays(1));
         boolean workoutCompletedToday = sessionRepository.existsByUserIdAndStatusAndFinishedAtBetween(
@@ -122,6 +138,7 @@ public class UserController {
         Map<String, Object> response = objectMapper.convertValue(user, Map.class);
         response.put("completedThisWeek",    completedThisWeek);
         response.put("workoutDatesThisWeek", workoutDatesThisWeek);
+        response.put("dayStatusesThisWeek",  dayStatusesThisWeek);
         response.put("workoutCompletedToday", workoutCompletedToday);
         response.put("trainingDaysTotal",    trainingDaysTotal);
         response.put("currentRank",          currentRank);

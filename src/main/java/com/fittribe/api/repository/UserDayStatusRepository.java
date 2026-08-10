@@ -18,4 +18,7 @@ public interface UserDayStatusRepository extends JpaRepository<UserDayStatus, Us
 
     /** Batch variant — all status rows for a set of users on a given date. */
     List<UserDayStatus> findByIdUserIdInAndIdDate(Collection<UUID> userIds, LocalDate date);
+
+    /** All status rows for a user within a date range (inclusive). Used by profile to show REST/SICK/TRAVELLING statuses for the week. */
+    List<UserDayStatus> findByIdUserIdAndIdDateBetween(UUID userId, LocalDate dateStart, LocalDate dateEnd);
 }
