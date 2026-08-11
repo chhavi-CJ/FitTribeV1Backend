@@ -517,8 +517,10 @@ public class GroupController {
 
         // Toggle logic: same type → remove, different type → update, none → insert
         boolean wasUnreact = false;
+        boolean isFirstReaction = false;
         try {
             Optional<Reaction> existing = reactionRepo.findByFeedItemIdAndUserId(feedItemId, userId);
+            isFirstReaction = existing.isEmpty();
             if (existing.isPresent()) {
                 if (existing.get().getKind().equals(request.type())) {
                     reactionRepo.delete(existing.get());
@@ -550,19 +552,22 @@ public class GroupController {
                 notifRepo.upsertReactionNotification(
                         fi.getUserId(), userId, feedItemId, fi.getGroupId(), metadataJson);
 
-                // Send push notification to feed item author
-                String reactorName = userRepo.findById(userId)
-                        .map(u -> u.getDisplayName() != null ? u.getDisplayName() : "Someone")
-                        .orElse("Someone");
-                notificationService.sendPush(
-                        fi.getUserId(),
-                        reactorName + " reacted to your workout",
-                        NotificationCopy.reactionPush(request.type()),
-                        Map.of("type", "REACTION",
-                               "targetScreen", "/group",
-                               "groupId", fi.getGroupId().toString(),
-                               "feedItemId", feedItemId.toString())
-                );
+                // Push only on first reaction from this user on this feed item
+                // (not on reaction type changes or re-reactions after unreact)
+                if (isFirstReaction) {
+                    String reactorName = userRepo.findById(userId)
+                            .map(u -> u.getDisplayName() != null ? u.getDisplayName() : "Someone")
+                            .orElse("Someone");
+                    notificationService.sendPush(
+                            fi.getUserId(),
+                            reactorName + " reacted to your workout",
+                            NotificationCopy.reactionPush(request.type()),
+                            Map.of("type", "REACTION",
+                                   "targetScreen", "/group",
+                                   "groupId", fi.getGroupId().toString(),
+                                   "feedItemId", feedItemId.toString())
+                    );
+                }
             } catch (com.fasterxml.jackson.core.JsonProcessingException e) {
                 throw new RuntimeException("Failed to serialize reaction notification metadata", e);
             }
