@@ -167,7 +167,7 @@ public final class NotificationCopy {
     public static String reactionPush(String reactionType) {
         return switch (reactionType) {
             case "STRONG" -> "💪";
-            case "RESPECT" -> "🫡";
+            case "RESPECT" -> "🙌";
             case "KEEP_GOING" -> "🔥";
             case "COMMENDABLE" -> "👏";
             default -> "❤️";
