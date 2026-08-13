@@ -136,7 +136,10 @@ public class NotificationService {
             default -> true;  // Unknown types always send
         };
 
-        if (!categoryEnabled) return false;
+        if (!categoryEnabled) {
+            log.debug("shouldSendPush suppressed: userId={} type={} reason=preference_disabled", userId, type);
+            return false;
+        }
 
         // Check quiet hours
         if (!prefs.getQuietHoursEnabled()) return true;
@@ -146,11 +149,19 @@ public class NotificationService {
         LocalTime end = prefs.getQuietEnd();
 
         // Quiet hours spanning midnight (e.g., 22:00 → 07:00)
+        boolean inQuietHours;
         if (start.isAfter(end)) {
-            return !(now.isAfter(start) || now.isBefore(end));
+            inQuietHours = now.isAfter(start) || now.isBefore(end);
         } else {
-            return !(now.isAfter(start) && now.isBefore(end));
+            inQuietHours = now.isAfter(start) && now.isBefore(end);
         }
+
+        if (inQuietHours) {
+            log.debug("shouldSendPush suppressed: userId={} type={} reason=quiet_hours [{}-{}]", userId, type, start, end);
+            return false;
+        }
+
+        return true;
     }
 
     /**

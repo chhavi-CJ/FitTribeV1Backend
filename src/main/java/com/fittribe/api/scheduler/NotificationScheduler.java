@@ -117,7 +117,7 @@ public class NotificationScheduler {
             }
         }
 
-        log.info("dailyWorkoutReminderJob: candidates={}", candidates.size());
+        log.info("dailyWorkoutReminderJob: candidates={} userIds={}", candidates.size(), candidates);
 
         for (UUID userId : candidates) {
             try {
@@ -184,15 +184,24 @@ public class NotificationScheduler {
 
                 if (trained.isEmpty()) continue; // nobody trained today in this group
 
+                // Filter candidates: not already notified, no prior push, status permits
+                List<UUID> candidates = new ArrayList<>();
                 for (UUID userId : notTrained) {
                     if (notifiedUsers.contains(userId)) continue;
-
                     if (hasReceivedPushToday(userId, "STREAK_RISK", "DAILY_REMINDER")) continue;
 
                     Optional<UserDayStatus> ds =
                             userDayStatusRepo.findByIdUserIdAndIdDate(userId, today);
                     if (ds.isPresent() && EXEMPT_STATUSES.contains(ds.get().getStatus())) continue;
 
+                    candidates.add(userId);
+                }
+
+                if (!candidates.isEmpty()) {
+                    log.debug("groupTrainedWithoutYouJob: group={} candidates={} userIds={}", group.getId(), candidates.size(), candidates);
+                }
+
+                for (UUID userId : candidates) {
                     try {
                         NotificationCopy.Copy copy =
                                 NotificationCopy.groupTrainedWithoutYou(group.getName(), trained.size());
@@ -256,10 +265,12 @@ public class NotificationScheduler {
         Instant   fortyEightHoAgo = Instant.now().minus(48, ChronoUnit.HOURS);
         Instant   threeDaysAgo    = Instant.now().minus(3, ChronoUnit.DAYS);
 
-        List<User> candidates = userRepo.findAllByStreak(0);
-        log.info("comebackNudgeJob: candidates={}", candidates.size());
+        List<User> allCandidates = userRepo.findAllByStreak(0);
+        log.info("comebackNudgeJob: initialCandidates={}", allCandidates.size());
 
-        for (User user : candidates) {
+        List<UUID> finalCandidates = new ArrayList<>();
+
+        for (User user : allCandidates) {
             try {
                 Optional<WorkoutSession> last = sessionRepo
                         .findFirstByUserIdAndStatusOrderByFinishedAtDesc(user.getId(), "COMPLETED");
@@ -279,18 +290,38 @@ public class NotificationScheduler {
                         userDayStatusRepo.findByIdUserIdAndIdDate(user.getId(), today);
                 if (ds.isPresent() && EXEMPT_STATUSES.contains(ds.get().getStatus())) continue;
 
+                finalCandidates.add(user.getId());
+            } catch (Exception e) {
+                log.error("comebackNudgeJob: filter failed for userId={}", user.getId(), e);
+            }
+        }
+
+        if (!finalCandidates.isEmpty()) {
+            log.debug("comebackNudgeJob: finalCandidates={} userIds={}", finalCandidates.size(), finalCandidates);
+        }
+
+        for (UUID userId : finalCandidates) {
+            try {
+                User user = userRepo.findById(userId).orElse(null);
+                if (user == null) continue;
+
+                Optional<WorkoutSession> last = sessionRepo
+                        .findFirstByUserIdAndStatusOrderByFinishedAtDesc(userId, "COMPLETED");
+                if (last.isEmpty()) continue;
+
+                Instant lastFinished = last.get().getFinishedAt();
                 long daysSince = ChronoUnit.DAYS.between(
                         lastFinished.atZone(IST).toLocalDate(), today);
 
                 NotificationCopy.Copy copy = NotificationCopy.comebackNudge((int) daysSince);
                 notificationService.notifyUser(
-                        user.getId(), "COMEBACK_NUDGE",
+                        userId, "COMEBACK_NUDGE",
                         copy.title(), copy.body(),
                         null, null,
                         Map.of("type", "COMEBACK_NUDGE", "targetScreen", "/home"),
                         true);
             } catch (Exception e) {
-                log.error("comebackNudgeJob: failed for userId={}", user.getId(), e);
+                log.error("comebackNudgeJob: notify failed for userId={}", userId, e);
             }
         }
     }

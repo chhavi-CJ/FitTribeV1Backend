@@ -198,7 +198,7 @@ public class FitnessSummaryService {
                         rs.getTimestamp("finished_at"),
                         rs.getString("muscle_group")
                 },
-                userId, from, to);
+                userId, java.sql.Timestamp.from(from), java.sql.Timestamp.from(to));
 
         List<FitnessSummary.MainLiftEntry> entries = new ArrayList<>();
         for (Object[] row : rows) {
@@ -243,7 +243,7 @@ public class FitnessSummaryService {
                 GROUP BY e.muscle_group
                 """,
                 (rs, row) -> new Object[]{ rs.getString("muscle_group"), rs.getInt("set_count") },
-                userId, from, to);
+                userId, java.sql.Timestamp.from(from), java.sql.Timestamp.from(to));
 
         // Accumulate into canonical groups (multiple DB values → same canonical group)
         Map<String, Integer> rawCounts = new LinkedHashMap<>();
@@ -331,7 +331,7 @@ public class FitnessSummaryService {
                   AND created_at <  ?
                   AND superseded_at IS NULL
                 """,
-                Integer.class, userId, from, to);
+                Integer.class, userId, java.sql.Timestamp.from(from), java.sql.Timestamp.from(to));
         int prCount = count != null ? count : 0;
 
         // Days since most recent PR ever (all-time)
@@ -435,7 +435,7 @@ public class FitnessSummaryService {
                 WHERE status = 'COMPLETED'
                   AND finished_at >= ?
                 """,
-                UUID.class, since60d);
+                UUID.class, java.sql.Timestamp.from(since60d));
     }
 
     /**
