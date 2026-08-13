@@ -18,12 +18,14 @@ import org.slf4j.LoggerFactory;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 
+import java.time.DayOfWeek;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.time.OffsetDateTime;
 import java.time.ZoneId;
 import java.time.ZoneOffset;
 import java.time.temporal.ChronoUnit;
+import java.time.temporal.TemporalAdjusters;
 import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
@@ -82,8 +84,11 @@ public class NotificationScheduler {
     /**
      * All users who haven't logged a COMPLETED session today (6 AM IST fitness-day
      * rollover) get a reminder. Respects day status (REST/SICK/TRAVELLING/BUSY
-     * suppress). Copy selection: streak ≥ 3 uses "don't break streak" urgency;
-     * streak 0-2 uses general "log today" reminder. Fires at 8 PM IST.
+     * suppress). Copy selection: three-tier
+     *   a. CRUNCH (remaining > 0 AND remaining >= daysLeft): goal-crunch urgency
+     *   b. STREAK_RISK (streak >= 3): don't-break-streak urgency
+     *   c. DAILY_REMINDER (else): general log-today reminder
+     * Fires at 8 PM IST.
      */
     @Scheduled(cron = "0 0 20 * * *", zone = "Asia/Kolkata")
     public void dailyWorkoutReminderJob() {
@@ -94,6 +99,10 @@ public class NotificationScheduler {
         // Load all users (no streak threshold)
         List<User> allUsers = userRepo.findAll();
         log.info("dailyWorkoutReminderJob: totalUsers={}", allUsers.size());
+
+        // ISO week bounds for daysLeft calculation
+        LocalDate weekStart = today.with(TemporalAdjusters.previousOrSame(DayOfWeek.MONDAY));
+        LocalDate weekEnd   = weekStart.plusDays(6); // Sunday
 
         List<UUID> candidates = new ArrayList<>();
 
@@ -124,14 +133,30 @@ public class NotificationScheduler {
                 User user = userRepo.findById(userId).orElse(null);
                 if (user == null) continue;
 
+                // Compute remaining workouts for the week
+                int weeklyGoal = user.getWeeklyGoal() != null ? user.getWeeklyGoal() : 4;
+                int completedThisWeek = sessionRepo.countCompletedThisWeekByStartedAt(userId);
+                int remaining = Math.max(0, weeklyGoal - completedThisWeek);
+
+                // Compute daysLeft INCLUDING today (Monday-Sunday, ISO week)
+                long daysLeft = ChronoUnit.DAYS.between(today, weekEnd) + 1;
+
                 String notificationType;
                 NotificationCopy.Copy copy;
 
-                // Copy selection based on streak
-                if (user.getStreak() != null && user.getStreak() >= 3) {
+                // Three-tier copy selection
+                if (remaining > 0 && remaining >= daysLeft) {
+                    // Tier A: CRUNCH (goal achievable or mathematically missed)
+                    boolean canMakeBudget = remaining <= daysLeft;
+                    boolean hasStreak = user.getStreak() != null && user.getStreak() > 0;
+                    notificationType = "GOAL_CRUNCH";
+                    copy = NotificationCopy.goalCrunch(remaining, (int) daysLeft, canMakeBudget, hasStreak);
+                } else if (user.getStreak() != null && user.getStreak() >= 3) {
+                    // Tier B: STREAK_RISK
                     notificationType = "STREAK_RISK";
                     copy = NotificationCopy.streakRisk(user.getStreak());
                 } else {
+                    // Tier C: DAILY_REMINDER
                     notificationType = "DAILY_REMINDER";
                     copy = NotificationCopy.dailyWorkoutReminder();
                 }
@@ -188,7 +213,7 @@ public class NotificationScheduler {
                 List<UUID> candidates = new ArrayList<>();
                 for (UUID userId : notTrained) {
                     if (notifiedUsers.contains(userId)) continue;
-                    if (hasReceivedPushToday(userId, "STREAK_RISK", "DAILY_REMINDER")) continue;
+                    if (hasReceivedPushToday(userId, "STREAK_RISK", "DAILY_REMINDER", "GOAL_CRUNCH")) continue;
 
                     Optional<UserDayStatus> ds =
                             userDayStatusRepo.findByIdUserIdAndIdDate(userId, today);
@@ -279,7 +304,7 @@ public class NotificationScheduler {
                 Instant lastFinished = last.get().getFinishedAt();
                 if (lastFinished == null || lastFinished.isAfter(fortyEightHoAgo)) continue;
 
-                if (hasReceivedPushToday(user.getId(), "STREAK_RISK", "DAILY_REMINDER", "GROUP_TRAINED_WITHOUT_YOU"))
+                if (hasReceivedPushToday(user.getId(), "STREAK_RISK", "DAILY_REMINDER", "GOAL_CRUNCH", "GROUP_TRAINED_WITHOUT_YOU"))
                     continue;
 
                 OffsetDateTime cooldownStart = threeDaysAgo.atOffset(ZoneOffset.UTC);

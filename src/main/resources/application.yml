@@ -115,3 +115,14 @@ fittribe:
 # empty/missing key as "reject all requests" (deny-by-default).
 matching:
   admin-key: ${ADMIN_KEY:}
+
+# ── App versioning ────────────────────────────────────────────────────
+# Used for version-gating: if installed < minVersion, force update;
+# if installed < latestVersion, show optional update banner.
+app-version:
+  min-version-ios: ${APP_MIN_VERSION_IOS:1.0.0}
+  latest-version-ios: ${APP_LATEST_VERSION_IOS:1.0.0}
+  min-version-android: ${APP_MIN_VERSION_ANDROID:1.0.0}
+  latest-version-android: ${APP_LATEST_VERSION_ANDROID:1.0.0}
+  store-url-ios: ${APP_STORE_URL_IOS:https://apps.apple.com/app/fittribe}
+  store-url-android: ${APP_STORE_URL_ANDROID:https://play.google.com/store/apps/details?id=com.fittribe}

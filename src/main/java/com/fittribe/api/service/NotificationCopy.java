@@ -186,4 +186,25 @@ public final class NotificationCopy {
                      "Grab your gear and log a session tonight. You got this.")
         ));
     }
+
+    public static Copy goalCrunch(int remaining, int daysLeft, boolean canMakeBudget, boolean hasStreak) {
+        String baseTitle, baseBody;
+
+        if (canMakeBudget) {
+            // Goal is mathematically achievable
+            baseTitle = remaining + " workout" + (remaining != 1 ? "s" : "") + " in " + daysLeft + " day" + (daysLeft != 1 ? "s" : "") + " 🎯";
+            baseBody = "You need to hit your weekly goal. " + remaining + " session" + (remaining != 1 ? "s" : "") +
+                      " in the next " + daysLeft + " day" + (daysLeft != 1 ? "s" : "") + " — you got this.";
+        } else {
+            // Goal is mathematically missed (remaining > daysLeft), soften phrasing
+            baseTitle = "Get in what you can 💪";
+            baseBody = "The weekly goal's out of reach, but every session counts. Log what you can before Sunday.";
+        }
+
+        if (hasStreak) {
+            baseBody += " Don't break your streak.";
+        }
+
+        return new Copy(baseTitle, baseBody);
+    }
 }

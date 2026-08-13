@@ -425,6 +425,8 @@ public class GroupController {
                             && gm.getCrownExpiresAt().isAfter(Instant.now()));
                     m.put("pokedToday",  pokedTodayIds.contains(gm.getUserId()));
                     m.put("status",              status);
+                    m.put("weeklyGoal",         weeklyGoal);
+                    m.put("completedThisWeek",  sessionsContributed);
                     m.put("sessionsRemaining",   sessionsRemaining);
                     m.put("daysRemainingInWeek", daysRemainingInWeek);
                     return m;

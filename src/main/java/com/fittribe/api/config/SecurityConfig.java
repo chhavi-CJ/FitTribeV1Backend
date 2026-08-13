@@ -81,7 +81,9 @@ public class SecurityConfig {
                     // /api/v1/admin/jobs/**: its own X-Admin-Key shared-secret
                     // (deny-by-default) check lives inside the controller.
                     .requestMatchers("/api/admin/matching/**").permitAll()
-                    .requestMatchers("/api/waitlist", "/api/waitlist/**").permitAll();
+                    .requestMatchers("/api/waitlist", "/api/waitlist/**").permitAll()
+                    // App version config — public, needed before login for version gating
+                    .requestMatchers("/api/v1/config/app-version").permitAll();
                 // Dev endpoints are only permitted when running in dev/test mode.
                 // In production (real FIREBASE_PROJECT_ID set), the DevController bean
                 // is not registered at all — this is a second layer of protection.

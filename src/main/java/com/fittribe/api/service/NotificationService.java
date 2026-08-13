@@ -125,7 +125,7 @@ public class NotificationService {
 
         // Check if category is enabled
         boolean categoryEnabled = switch (type) {
-            case "STREAK_RISK", "STREAK_MILESTONE", "STREAK_BROKEN", "STREAK_FREEZE_USED", "DAILY_REMINDER"
+            case "STREAK_RISK", "STREAK_MILESTONE", "STREAK_BROKEN", "STREAK_FREEZE_USED", "DAILY_REMINDER", "GOAL_CRUNCH"
                     -> prefs.getStreakEnabled();
             case "GROUP_GOAL_HIT", "GROUP_MEMBER_LOGGED", "GROUP_MEMBER_JOINED", "GROUP_TRAINED_WITHOUT_YOU"
                     -> prefs.getGroupActivityEnabled();
