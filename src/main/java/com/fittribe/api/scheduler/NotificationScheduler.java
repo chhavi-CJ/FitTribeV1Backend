@@ -51,7 +51,7 @@ public class NotificationScheduler {
 
     private static final Logger log = LoggerFactory.getLogger(NotificationScheduler.class);
     private static final ZoneId IST = ZoneId.of("Asia/Kolkata");
-    private static final Set<String> EXEMPT_STATUSES = Set.of("REST", "SICK", "TRAVELLING");
+    private static final Set<String> EXEMPT_STATUSES = Set.of("REST", "SICK", "TRAVELLING", "BUSY");
 
     private final NotificationService      notificationService;
     private final UserRepository           userRepo;
@@ -77,36 +77,73 @@ public class NotificationScheduler {
         this.userDayStatusRepo   = userDayStatusRepo;
     }
 
-    // ── JOB 1: Streak Risk — 8 PM IST ────────────────────────────────────────
+    // ── JOB 1: Daily Workout Reminder — 8 PM IST ─────────────────────────────
 
     /**
-     * Users with streak ≥ 3 who haven't trained today get a push reminding
-     * them not to break their streak. Fires at 8 PM IST.
+     * All users who haven't logged a COMPLETED session today (6 AM IST fitness-day
+     * rollover) get a reminder. Respects day status (REST/SICK/TRAVELLING/BUSY
+     * suppress). Copy selection: streak ≥ 3 uses "don't break streak" urgency;
+     * streak 0-2 uses general "log today" reminder. Fires at 8 PM IST.
      */
     @Scheduled(cron = "0 0 20 * * *", zone = "Asia/Kolkata")
-    public void streakRiskJob() {
+    public void dailyWorkoutReminderJob() {
         LocalDate today    = LocalDate.now(IST);
         Instant   dayStart = today.atStartOfDay(IST).toInstant();
         Instant   dayEnd   = today.plusDays(1).atStartOfDay(IST).toInstant();
 
-        List<User> candidates = userRepo.findAllByStreakGreaterThan(2); // streak >= 3
-        log.info("streakRiskJob: candidates={}", candidates.size());
+        // Load all users (no streak threshold)
+        List<User> allUsers = userRepo.findAll();
+        log.info("dailyWorkoutReminderJob: totalUsers={}", allUsers.size());
 
-        for (User user : candidates) {
+        List<UUID> candidates = new ArrayList<>();
+
+        for (User user : allUsers) {
             try {
+                // Skip if already trained today
                 boolean trainedToday = sessionRepo.existsByUserIdAndStatusAndFinishedAtBetween(
                         user.getId(), "COMPLETED", dayStart, dayEnd);
                 if (trainedToday) continue;
 
-                NotificationCopy.Copy copy = NotificationCopy.streakRisk(user.getStreak());
+                // Skip if status is exempt (REST, SICK, TRAVELLING, BUSY) or unset → OK
+                Optional<com.fittribe.api.entity.UserDayStatus> dayStatus =
+                        userDayStatusRepo.findByIdUserIdAndIdDate(user.getId(), today);
+                if (dayStatus.isPresent() && EXEMPT_STATUSES.contains(dayStatus.get().getStatus())) {
+                    continue;
+                }
+
+                candidates.add(user.getId());
+            } catch (Exception e) {
+                log.error("dailyWorkoutReminderJob: filter failed for userId={}", user.getId(), e);
+            }
+        }
+
+        log.info("dailyWorkoutReminderJob: candidates={}", candidates.size());
+
+        for (UUID userId : candidates) {
+            try {
+                User user = userRepo.findById(userId).orElse(null);
+                if (user == null) continue;
+
+                String notificationType;
+                NotificationCopy.Copy copy;
+
+                // Copy selection based on streak
+                if (user.getStreak() != null && user.getStreak() >= 3) {
+                    notificationType = "STREAK_RISK";
+                    copy = NotificationCopy.streakRisk(user.getStreak());
+                } else {
+                    notificationType = "DAILY_REMINDER";
+                    copy = NotificationCopy.dailyWorkoutReminder();
+                }
+
                 notificationService.notifyUser(
-                        user.getId(), "STREAK_RISK",
+                        userId, notificationType,
                         copy.title(), copy.body(),
                         null, null,
-                        Map.of("type", "STREAK_RISK", "targetScreen", "/home"),
+                        Map.of("type", notificationType, "targetScreen", "/home"),
                         true);
             } catch (Exception e) {
-                log.error("streakRiskJob: failed for userId={}", user.getId(), e);
+                log.error("dailyWorkoutReminderJob: failed for userId={}", userId, e);
             }
         }
     }
@@ -150,7 +187,7 @@ public class NotificationScheduler {
                 for (UUID userId : notTrained) {
                     if (notifiedUsers.contains(userId)) continue;
 
-                    if (hasReceivedPushToday(userId, "STREAK_RISK")) continue;
+                    if (hasReceivedPushToday(userId, "STREAK_RISK", "DAILY_REMINDER")) continue;
 
                     Optional<UserDayStatus> ds =
                             userDayStatusRepo.findByIdUserIdAndIdDate(userId, today);
@@ -231,7 +268,7 @@ public class NotificationScheduler {
                 Instant lastFinished = last.get().getFinishedAt();
                 if (lastFinished == null || lastFinished.isAfter(fortyEightHoAgo)) continue;
 
-                if (hasReceivedPushToday(user.getId(), "STREAK_RISK", "GROUP_TRAINED_WITHOUT_YOU"))
+                if (hasReceivedPushToday(user.getId(), "STREAK_RISK", "DAILY_REMINDER", "GROUP_TRAINED_WITHOUT_YOU"))
                     continue;
 
                 OffsetDateTime cooldownStart = threeDaysAgo.atOffset(ZoneOffset.UTC);

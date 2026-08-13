@@ -173,4 +173,17 @@ public final class NotificationCopy {
             default -> "❤️";
         };
     }
+
+    public static Copy dailyWorkoutReminder() {
+        return pick(List.of(
+            new Copy("Time to hit the gym 💪",
+                     "Another day, another chance to crush it. Your fitness awaits."),
+            new Copy("Ready to train? 🏋️",
+                     "The gym's calling. Log your workout before the day ends."),
+            new Copy("Don't skip today 🔥",
+                     "One session = one step closer to your goals. Let's go."),
+            new Copy("Your body is waiting ⚡",
+                     "Grab your gear and log a session tonight. You got this.")
+        ));
+    }
 }
