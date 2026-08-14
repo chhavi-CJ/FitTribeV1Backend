@@ -31,6 +31,9 @@ public class Exercise {
     @Column(name = "demo_video_url")
     private String demoVideoUrl;
 
+    @Column(name = "demo_video_url", insertable = false, updatable = false)
+    private String videoId;
+
     @Column(name = "muscle_diagram_url")
     private String muscleDiagramUrl;
 
@@ -66,6 +69,7 @@ public class Exercise {
     public String getEquipment()        { return equipment; }
     public String getIcon()             { return icon; }
     public String getDemoVideoUrl()     { return demoVideoUrl; }
+    public String getVideoId()          { return videoId; }
     public String getMuscleDiagramUrl() { return muscleDiagramUrl; }
     public String[] getSteps()          { return steps; }
     public String[] getCommonMistakes() { return commonMistakes; }
