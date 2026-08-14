@@ -3,6 +3,7 @@ package com.fittribe.api.scheduler;
 import com.fittribe.api.entity.Group;
 import com.fittribe.api.entity.GroupMember;
 import com.fittribe.api.entity.User;
+import com.fittribe.api.entity.UserDayStatus;
 import com.fittribe.api.entity.WorkoutSession;
 import com.fittribe.api.repository.GroupMemberRepository;
 import com.fittribe.api.repository.GroupRepository;
@@ -15,7 +16,9 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
 import java.time.Instant;
+import java.time.LocalDate;
 import java.time.OffsetDateTime;
+import java.time.ZoneId;
 import java.time.temporal.ChronoUnit;
 import java.util.List;
 import java.util.Optional;
@@ -92,15 +95,33 @@ class NotificationSchedulerTest {
         return g;
     }
 
-    // ── STREAK_RISK ───────────────────────────────────────────────────────────
+    // ── DAILY_WORKOUT_REMINDER (three tiers) ───────────────────────────────────
 
     @Test
-    void streakRisk_notifies_when_no_session_today() {
-        when(userRepo.findAllByStreakGreaterThan(2)).thenReturn(List.of(user(5, USER_ID)));
+    void dailyReminder_notifies_with_daily_reminder_when_no_crunch() {
+        // User has streak=1 (< 3), not behind on goal → DAILY_REMINDER tier
+        when(userRepo.findAll()).thenReturn(List.of(user(1, USER_ID)));
         when(sessionRepo.existsByUserIdAndStatusAndFinishedAtBetween(
                 eq(USER_ID), eq("COMPLETED"), any(), any())).thenReturn(false);
+        when(userDayStatusRepo.findByIdUserIdAndIdDate(eq(USER_ID), any())).thenReturn(Optional.empty());
 
-        scheduler.streakRiskJob();
+        scheduler.dailyWorkoutReminderJob();
+
+        verify(notificationService).notifyUser(
+                eq(USER_ID), eq("DAILY_REMINDER"),
+                anyString(), anyString(),
+                isNull(), isNull(), anyMap(), eq(true));
+    }
+
+    @Test
+    void dailyReminder_notifies_with_streak_risk_when_streak_gte_3() {
+        // User has streak=5 (>= 3), not behind → STREAK_RISK tier
+        when(userRepo.findAll()).thenReturn(List.of(user(5, USER_ID)));
+        when(sessionRepo.existsByUserIdAndStatusAndFinishedAtBetween(
+                eq(USER_ID), eq("COMPLETED"), any(), any())).thenReturn(false);
+        when(userDayStatusRepo.findByIdUserIdAndIdDate(eq(USER_ID), any())).thenReturn(Optional.empty());
+
+        scheduler.dailyWorkoutReminderJob();
 
         verify(notificationService).notifyUser(
                 eq(USER_ID), eq("STREAK_RISK"),
@@ -109,22 +130,29 @@ class NotificationSchedulerTest {
     }
 
     @Test
-    void streakRisk_skips_when_trained_today() {
-        when(userRepo.findAllByStreakGreaterThan(2)).thenReturn(List.of(user(5, USER_ID)));
+    void dailyReminder_skips_when_trained_today() {
+        // User already logged today → skip
+        when(userRepo.findAll()).thenReturn(List.of(user(5, USER_ID)));
         when(sessionRepo.existsByUserIdAndStatusAndFinishedAtBetween(
                 eq(USER_ID), eq("COMPLETED"), any(), any())).thenReturn(true);
 
-        scheduler.streakRiskJob();
+        scheduler.dailyWorkoutReminderJob();
 
         verifyNoInteractions(notificationService);
     }
 
     @Test
-    void streakRisk_skips_streak_below_3() {
-        // findAllByStreakGreaterThan(2) returns nobody with streak < 3
-        when(userRepo.findAllByStreakGreaterThan(2)).thenReturn(List.of());
+    void dailyReminder_skips_when_exempt_status_set() {
+        // User has REST/SICK/TRAVELLING/BUSY status → skip
+        UserDayStatus status = new UserDayStatus();
+        status.setStatus("REST");
+        when(userRepo.findAll()).thenReturn(List.of(user(5, USER_ID)));
+        when(sessionRepo.existsByUserIdAndStatusAndFinishedAtBetween(
+                eq(USER_ID), eq("COMPLETED"), any(), any())).thenReturn(false);
+        when(userDayStatusRepo.findByIdUserIdAndIdDate(eq(USER_ID), any()))
+                .thenReturn(Optional.of(status));
 
-        scheduler.streakRiskJob();
+        scheduler.dailyWorkoutReminderJob();
 
         verifyNoInteractions(notificationService);
     }
