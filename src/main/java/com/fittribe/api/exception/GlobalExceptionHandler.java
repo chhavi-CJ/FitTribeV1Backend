@@ -13,6 +13,7 @@ import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 import org.springframework.web.method.annotation.MethodArgumentTypeMismatchException;
 import org.springframework.web.servlet.NoHandlerFoundException;
+import org.springframework.web.server.ResponseStatusException;
 
 import java.util.stream.Collectors;
 
@@ -96,6 +97,21 @@ public class GlobalExceptionHandler {
         return ResponseEntity
                 .badRequest()
                 .body(ApiResponse.error("Request contains invalid data.", "BAD_REQUEST"));
+    }
+
+    /**
+     * Responses with explicit status codes set in controllers (e.g., 403 FORBIDDEN for invalid admin key).
+     * Maps the exception's status code and reason phrase to the API response.
+     */
+    @ExceptionHandler(ResponseStatusException.class)
+    public ResponseEntity<ApiResponse<Void>> handleResponseStatus(ResponseStatusException ex) {
+        String reason = ex.getReason() != null ? ex.getReason() : ex.getStatusCode().toString();
+        log.debug("ResponseStatusException [{}]: {}", ex.getStatusCode(), reason);
+        // Use the HTTP status code value (e.g., 403) as the error code
+        String errorCode = "HTTP_" + ex.getStatusCode().value();
+        return ResponseEntity
+                .status(ex.getStatusCode())
+                .body(ApiResponse.error(reason, errorCode));
     }
 
     /**
