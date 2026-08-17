@@ -81,6 +81,8 @@ public class SecurityConfig {
                     // /api/v1/admin/jobs/**: its own X-Admin-Key shared-secret
                     // (deny-by-default) check lives inside the controller.
                     .requestMatchers("/api/admin/matching/**").permitAll()
+                    // Admin analytics — query parameter auth (?key=secret) checked in controller
+                    .requestMatchers("/api/admin/analytics/**").permitAll()
                     .requestMatchers("/api/waitlist", "/api/waitlist/**").permitAll()
                     // App version config — public, needed before login for version gating
                     .requestMatchers("/api/v1/config/app-version").permitAll();

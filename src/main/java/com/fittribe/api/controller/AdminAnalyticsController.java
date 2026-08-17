@@ -10,11 +10,15 @@ import com.fittribe.api.dto.response.NotificationHealthResponse;
 import com.fittribe.api.repository.AnalyticsEventRepository;
 import com.fittribe.api.repository.UserRepository;
 import com.fittribe.api.repository.DeviceTokenRepository;
+import jakarta.servlet.http.HttpServletRequest;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.web.bind.annotation.*;
+import org.springframework.web.server.ResponseStatusException;
 
 import java.math.BigDecimal;
 import java.math.RoundingMode;
@@ -38,20 +42,31 @@ public class AdminAnalyticsController {
     private final UserRepository userRepo;
     private final JdbcTemplate jdbcTemplate;
     private final DeviceTokenRepository deviceTokenRepo;
+    private final String adminSecret;
 
     public AdminAnalyticsController(AnalyticsEventRepository analyticsEventRepo,
                                     UserRepository userRepo,
                                     JdbcTemplate jdbcTemplate,
-                                    DeviceTokenRepository deviceTokenRepo) {
+                                    DeviceTokenRepository deviceTokenRepo,
+                                    @Value("${fittribe.admin.secret:}") String configuredSecret) {
         this.analyticsEventRepo = analyticsEventRepo;
         this.userRepo = userRepo;
         this.jdbcTemplate = jdbcTemplate;
         this.deviceTokenRepo = deviceTokenRepo;
+        this.adminSecret = configuredSecret;
+    }
+
+    private void requireAuth(HttpServletRequest request) {
+        String key = request.getParameter("key");
+        if (adminSecret == null || adminSecret.isBlank()) return; // no secret configured, allow
+        if (key != null && !key.isEmpty() && adminSecret.equals(key)) return; // valid key
+        throw new ResponseStatusException(HttpStatus.FORBIDDEN, "Invalid admin key");
     }
 
     // ── GET /api/admin/analytics/overview ──────────────────────────────
     @GetMapping("/overview")
-    public ResponseEntity<ApiResponse<?>> getOverview() {
+    public ResponseEntity<ApiResponse<?>> getOverview(HttpServletRequest request) {
+        requireAuth(request);
         try {
             long totalUsers = userRepo.count();
             long newUsersToday = analyticsEventRepo.countNewUsersToday();
@@ -78,7 +93,9 @@ public class AdminAnalyticsController {
     @GetMapping("/funnel")
     public ResponseEntity<ApiResponse<?>> getFunnel(
             @RequestParam(required = false) String from,
-            @RequestParam(required = false) String to) {
+            @RequestParam(required = false) String to,
+            HttpServletRequest request) {
+        requireAuth(request);
         try {
             Instant fromDate = from != null ? LocalDate.parse(from).atStartOfDay(IST).toInstant()
                     : LocalDate.now(IST).minusDays(30).atStartOfDay(IST).toInstant();
@@ -128,7 +145,9 @@ public class AdminAnalyticsController {
     // ── GET /api/admin/analytics/retention?cohort_size=week ─────────────
     @GetMapping("/retention")
     public ResponseEntity<ApiResponse<?>> getRetention(
-            @RequestParam(defaultValue = "week") String cohortSize) {
+            @RequestParam(defaultValue = "week") String cohortSize,
+            HttpServletRequest request) {
+        requireAuth(request);
         try {
             List<Map<String, Object>> cohortData = analyticsEventRepo.getRetentionCohort();
 
@@ -178,7 +197,8 @@ public class AdminAnalyticsController {
 
     // ── GET /api/admin/analytics/churn-risk ───────────────────────────
     @GetMapping("/churn-risk")
-    public ResponseEntity<ApiResponse<?>> getChurnRisk() {
+    public ResponseEntity<ApiResponse<?>> getChurnRisk(HttpServletRequest request) {
+        requireAuth(request);
         try {
             List<Map<String, Object>> churnUsers = analyticsEventRepo.getChurnRiskUsers();
 
@@ -220,7 +240,9 @@ public class AdminAnalyticsController {
     @GetMapping("/events/daily")
     public ResponseEntity<ApiResponse<?>> getDailyEventCounts(
             @RequestParam String event,
-            @RequestParam(defaultValue = "30") int days) {
+            @RequestParam(defaultValue = "30") int days,
+            HttpServletRequest request) {
+        requireAuth(request);
         try {
             if (event == null || event.trim().isEmpty()) {
                 return ResponseEntity.badRequest()
@@ -253,7 +275,8 @@ public class AdminAnalyticsController {
 
     // ── GET /api/admin/analytics/notifications/health ────────────────────
     @GetMapping("/notifications/health")
-    public ResponseEntity<ApiResponse<?>> getNotificationHealth() {
+    public ResponseEntity<ApiResponse<?>> getNotificationHealth(HttpServletRequest request) {
+        requireAuth(request);
         try {
             long totalTokens = deviceTokenRepo.count();
 
