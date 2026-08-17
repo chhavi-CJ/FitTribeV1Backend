@@ -6,8 +6,10 @@ import com.fittribe.api.dto.response.AnalyticsFunnelResponse;
 import com.fittribe.api.dto.response.RetentionCohortRow;
 import com.fittribe.api.dto.response.ChurnRiskUserRow;
 import com.fittribe.api.dto.response.DailyEventCountRow;
+import com.fittribe.api.dto.response.NotificationHealthResponse;
 import com.fittribe.api.repository.AnalyticsEventRepository;
 import com.fittribe.api.repository.UserRepository;
+import com.fittribe.api.repository.DeviceTokenRepository;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.http.ResponseEntity;
@@ -35,13 +37,16 @@ public class AdminAnalyticsController {
     private final AnalyticsEventRepository analyticsEventRepo;
     private final UserRepository userRepo;
     private final JdbcTemplate jdbcTemplate;
+    private final DeviceTokenRepository deviceTokenRepo;
 
     public AdminAnalyticsController(AnalyticsEventRepository analyticsEventRepo,
                                     UserRepository userRepo,
-                                    JdbcTemplate jdbcTemplate) {
+                                    JdbcTemplate jdbcTemplate,
+                                    DeviceTokenRepository deviceTokenRepo) {
         this.analyticsEventRepo = analyticsEventRepo;
         this.userRepo = userRepo;
         this.jdbcTemplate = jdbcTemplate;
+        this.deviceTokenRepo = deviceTokenRepo;
     }
 
     // ── GET /api/admin/analytics/overview ──────────────────────────────
@@ -243,6 +248,44 @@ public class AdminAnalyticsController {
             log.error("Error fetching daily event counts for event={}", event, e);
             return ResponseEntity.internalServerError()
                     .body(ApiResponse.error("Failed to fetch event counts", "ANALYTICS_ERROR"));
+        }
+    }
+
+    // ── GET /api/admin/analytics/notifications/health ────────────────────
+    @GetMapping("/notifications/health")
+    public ResponseEntity<ApiResponse<?>> getNotificationHealth() {
+        try {
+            long totalTokens = deviceTokenRepo.count();
+
+            // Count tokens by platform
+            long iosTokens = jdbcTemplate.queryForObject(
+                    "SELECT COUNT(*) FROM device_tokens WHERE platform = 'IOS'",
+                    Long.class
+            );
+            long androidTokens = jdbcTemplate.queryForObject(
+                    "SELECT COUNT(*) FROM device_tokens WHERE platform = 'ANDROID'",
+                    Long.class
+            );
+            long webTokens = jdbcTemplate.queryForObject(
+                    "SELECT COUNT(*) FROM device_tokens WHERE platform = 'WEB'",
+                    Long.class
+            );
+
+            NotificationHealthResponse health = new NotificationHealthResponse(
+                    totalTokens,
+                    iosTokens,
+                    androidTokens,
+                    webTokens,
+                    Instant.now()
+            );
+
+            log.info("Notification health: {} total tokens (iOS: {}, Android: {}, Web: {})",
+                    totalTokens, iosTokens, androidTokens, webTokens);
+            return ResponseEntity.ok(ApiResponse.success(health));
+        } catch (Exception e) {
+            log.error("Error fetching notification health", e);
+            return ResponseEntity.internalServerError()
+                    .body(ApiResponse.error("Failed to fetch notification health", "ANALYTICS_ERROR"));
         }
     }
 }
