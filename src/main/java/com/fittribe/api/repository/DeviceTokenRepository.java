@@ -44,4 +44,10 @@ public interface DeviceTokenRepository extends JpaRepository<DeviceToken, UUID> 
             """, nativeQuery = true)
     void deleteAllOtherTokensForUser(@Param("userId") UUID userId,
                                      @Param("token") String token);
+
+    @Query("SELECT COUNT(d) FROM DeviceToken d WHERE d.platform = :platform")
+    long countByPlatform(@Param("platform") String platform);
+
+    @Query("SELECT COUNT(DISTINCT d.userId) FROM DeviceToken d")
+    long countDistinctUserId();
 }

@@ -31,7 +31,7 @@ public class JwtAuthFilter extends OncePerRequestFilter {
 
     @Override
     protected boolean shouldNotFilter(HttpServletRequest request) {
-        String path = request.getRequestURI();
+        String path = request.getServletPath();
         return path.startsWith("/api/v1/auth/")
                 || path.equals("/api/v1/health")
                 // The public exercise list/detail need no auth, but
@@ -40,9 +40,17 @@ public class JwtAuthFilter extends OncePerRequestFilter {
                 || (path.startsWith("/api/v1/exercises")
                         && !path.equals("/api/v1/exercises/last-logged"))
                 // Admin analytics use query param auth (?key=secret), not JWT
-                || path.startsWith("/api/admin/analytics/")
+                || path.startsWith("/api/admin/analytics")
                 // Admin jobs use X-Admin-Secret header, not JWT
-                || path.startsWith("/api/v1/admin/jobs/");
+                || path.startsWith("/api/v1/admin/jobs")
+                // Conscious Matching uses X-Admin-Key header, not JWT
+                || path.startsWith("/api/admin/matching")
+                // Waitlist uses its own rate limiting, not JWT
+                || path.startsWith("/api/waitlist")
+                // App version config is public
+                || path.equals("/api/v1/config/app-version")
+                // Dev endpoints when in dev mode (handled elsewhere)
+                || path.startsWith("/api/v1/dev/");
     }
 
     @Override

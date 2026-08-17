@@ -14,6 +14,7 @@ import org.springframework.security.config.annotation.web.configurers.AbstractHt
 import org.springframework.security.config.http.SessionCreationPolicy;
 import org.springframework.security.web.SecurityFilterChain;
 import org.springframework.security.web.authentication.UsernamePasswordAuthenticationFilter;
+import org.springframework.boot.web.servlet.FilterRegistrationBean;
 import org.springframework.web.cors.CorsConfiguration;
 import org.springframework.web.cors.CorsConfigurationSource;
 import org.springframework.web.cors.UrlBasedCorsConfigurationSource;
@@ -36,6 +37,21 @@ public class SecurityConfig {
     @Bean
     public JwtAuthFilter jwtAuthFilter(JwtService jwtService, UserRepository userRepository) {
         return new JwtAuthFilter(jwtService, userRepository);
+    }
+
+    /**
+     * Disable auto-registration of JwtAuthFilter as a servlet filter.
+     * Spring Boot automatically registers all Filter-typed @Beans, but we only
+     * want JwtAuthFilter to run inside the Spring Security filter chain via
+     * addFilterBefore(). This FilterRegistrationBean wrapper with setEnabled(false)
+     * prevents Spring Boot's auto-registration, allowing it to run only in the
+     * security chain where authorization rules can be applied first.
+     */
+    @Bean
+    public FilterRegistrationBean<JwtAuthFilter> jwtAuthFilterRegistration(JwtAuthFilter jwtAuthFilter) {
+        FilterRegistrationBean<JwtAuthFilter> registration = new FilterRegistrationBean<>(jwtAuthFilter);
+        registration.setEnabled(false);
+        return registration;
     }
 
     @Bean
