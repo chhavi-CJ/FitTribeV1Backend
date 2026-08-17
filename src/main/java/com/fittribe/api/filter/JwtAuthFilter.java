@@ -8,14 +8,17 @@ import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.security.core.context.SecurityContextHolder;
-import org.springframework.stereotype.Component;
 import org.springframework.web.filter.OncePerRequestFilter;
 
 import java.io.IOException;
 import java.util.List;
 import java.util.UUID;
 
-@Component
+/**
+ * JWT authentication filter — runs only within Spring Security filter chain.
+ * NOT annotated with @Component to avoid double-registration as a servlet filter.
+ * Registered via addFilterBefore in SecurityConfig instead.
+ */
 public class JwtAuthFilter extends OncePerRequestFilter {
 
     private final JwtService     jwtService;
@@ -35,7 +38,11 @@ public class JwtAuthFilter extends OncePerRequestFilter {
                 // /api/v1/exercises/last-logged is per-user — let the JWT
                 // filter run so the principal is populated for it.
                 || (path.startsWith("/api/v1/exercises")
-                        && !path.equals("/api/v1/exercises/last-logged"));
+                        && !path.equals("/api/v1/exercises/last-logged"))
+                // Admin analytics use query param auth (?key=secret), not JWT
+                || path.startsWith("/api/admin/analytics/")
+                // Admin jobs use X-Admin-Secret header, not JWT
+                || path.startsWith("/api/v1/admin/jobs/");
     }
 
     @Override

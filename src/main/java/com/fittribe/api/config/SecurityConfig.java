@@ -1,6 +1,8 @@
 package com.fittribe.api.config;
 
 import com.fittribe.api.filter.JwtAuthFilter;
+import com.fittribe.api.repository.UserRepository;
+import com.fittribe.api.service.JwtService;
 import com.fittribe.api.waitlist.WaitlistRateLimitFilter;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
@@ -22,16 +24,18 @@ import java.util.List;
 @EnableWebSecurity
 public class SecurityConfig {
 
-    private final JwtAuthFilter jwtAuthFilter;
     private final WaitlistRateLimitFilter waitlistRateLimitFilter;
 
     @Value("${firebase.project-id:placeholder}")
     private String firebaseProjectId;
 
-    public SecurityConfig(JwtAuthFilter jwtAuthFilter,
-                          WaitlistRateLimitFilter waitlistRateLimitFilter) {
-        this.jwtAuthFilter = jwtAuthFilter;
+    public SecurityConfig(WaitlistRateLimitFilter waitlistRateLimitFilter) {
         this.waitlistRateLimitFilter = waitlistRateLimitFilter;
+    }
+
+    @Bean
+    public JwtAuthFilter jwtAuthFilter(JwtService jwtService, UserRepository userRepository) {
+        return new JwtAuthFilter(jwtService, userRepository);
     }
 
     @Bean
@@ -57,7 +61,7 @@ public class SecurityConfig {
     }
 
     @Bean
-    public SecurityFilterChain filterChain(HttpSecurity http) throws Exception {
+    public SecurityFilterChain filterChain(HttpSecurity http, JwtAuthFilter jwtAuthFilter) throws Exception {
         http
             .cors(cors -> cors.configurationSource(corsConfigurationSource()))
             .csrf(AbstractHttpConfigurer::disable)

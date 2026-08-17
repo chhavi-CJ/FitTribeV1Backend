@@ -58,7 +58,11 @@ public class AdminAnalyticsController {
 
     private void requireAuth(HttpServletRequest request) {
         String key = request.getParameter("key");
-        if (adminSecret == null || adminSecret.isBlank()) return; // no secret configured, allow
+        if (adminSecret == null || adminSecret.isBlank()) {
+            // No secret configured — allow access in dev mode. Log warning for production awareness.
+            log.warn("AdminAnalytics: request served without auth (ADMIN_SECRET not configured)");
+            return;
+        }
         if (key != null && !key.isEmpty() && adminSecret.equals(key)) return; // valid key
         throw new ResponseStatusException(HttpStatus.FORBIDDEN, "Invalid admin key");
     }
