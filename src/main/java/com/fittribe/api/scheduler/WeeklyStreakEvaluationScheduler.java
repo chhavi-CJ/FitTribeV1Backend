@@ -72,7 +72,7 @@ public class WeeklyStreakEvaluationScheduler {
     }
 
     /**
-     * Fires Sunday 23:59:00 IST (cron zone = Asia/Kolkata).
+     * Fires Monday 09:00:00 IST (cron zone = Asia/Kolkata).
      *
      * ISO week bounds:
      *   weekStart = Monday 00:00 IST of the current week
@@ -85,7 +85,7 @@ public class WeeklyStreakEvaluationScheduler {
      * in java.time.temporal.WeekFields. If the cron ever fires on a Monday
      * (it won't), with(DayOfWeek.MONDAY) would return Monday itself — still correct.
      */
-    @Scheduled(cron = "0 59 23 * * SUN", zone = "Asia/Kolkata")
+    @Scheduled(cron = "0 0 9 * * MON", zone = "Asia/Kolkata")
     @Transactional
     public void evaluateWeeklyStreaks() {
 
