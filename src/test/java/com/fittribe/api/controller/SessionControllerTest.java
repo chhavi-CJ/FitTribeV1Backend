@@ -86,7 +86,7 @@ class SessionControllerTest {
                 sessionRepo, null, null, null, null, null, null, null,
                 objectMapper, null, null, routineRepo, null, null,
                 null, null, null, null, null, null, null, null, null,
-                null, null, null, null, null, null, null
+                null, null, null, null, null, null, null, null
         );
     }
 

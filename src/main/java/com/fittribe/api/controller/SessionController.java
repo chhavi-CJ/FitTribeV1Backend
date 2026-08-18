@@ -105,6 +105,9 @@ import java.util.UUID;
 import java.util.stream.Collectors;
 import java.util.HashSet;
 import java.util.HashMap;
+import com.fittribe.api.repository.DailyPlanGeneratedRepository;
+import com.fittribe.api.entity.DailyPlanGenerated;
+import com.fittribe.api.entity.DailyPlanGeneratedId;
 
 @RestController
 @RequestMapping("/api/v1/sessions")
@@ -145,6 +148,7 @@ public class SessionController {
     private final AnalyticsService          analyticsService;
     private final BonusFreezeGrantService    bonusFreezeGrantService;
     private final ShareImageService         shareImageService;
+    private final DailyPlanGeneratedRepository dailyPlanRepo;
 
     public SessionController(WorkoutSessionRepository sessionRepo,
                              SetLogRepository setLogRepo,
@@ -175,7 +179,8 @@ public class SessionController {
                              UserDayStatusRepository dayStatusRepo,
                              SessionFinishPostProcessor postProcessor,
                              AnalyticsService analyticsService,
-                             ShareImageService shareImageService) {
+                             ShareImageService shareImageService,
+                             DailyPlanGeneratedRepository dailyPlanRepo) {
         this.sessionRepo         = sessionRepo;
         this.setLogRepo          = setLogRepo;
         this.userRepo            = userRepo;
@@ -206,6 +211,7 @@ public class SessionController {
         this.postProcessor = postProcessor;
         this.analyticsService = analyticsService;
         this.shareImageService = shareImageService;
+        this.dailyPlanRepo = dailyPlanRepo;
     }
 
     // All-zeros UUID, rejected as a clientId — too easy to send by mistake
@@ -340,9 +346,30 @@ public class SessionController {
         // Store planned exercises for ALL sources (AI_PLAN, CUSTOM, SAVED_ROUTINE, BONUS)
         // This enables session reconstruction on resume — unlogged planned exercises
         // are merged with set_logs to restore the full exercise list on app restart.
-        if (request.plannedExercises() != null && !request.plannedExercises().isEmpty()) {
+        List<?> plannedExercises = request.plannedExercises();
+
+        // For AI_PLAN sessions, if plannedExercises not in payload, load from today's DailyPlanGenerated
+        if (("AI_PLAN".equals(source) || "BONUS".equals(source)) &&
+            (plannedExercises == null || plannedExercises.isEmpty())) {
             try {
-                session.setPlannedExercises(objectMapper.writeValueAsString(request.plannedExercises()));
+                LocalDate today = Zones.fitnessDayNow();
+                Optional<DailyPlanGenerated> dailyPlan = dailyPlanRepo.findByIdUserIdAndIdDate(userId, today);
+                if (dailyPlan.isPresent()) {
+                    String exercisesJson = dailyPlan.get().getExercises();
+                    if (exercisesJson != null && !exercisesJson.isBlank()) {
+                        plannedExercises = objectMapper.readValue(exercisesJson, List.class);
+                        log.debug("AI_PLAN session: loaded plannedExercises from DailyPlanGenerated for userId={}", userId);
+                    }
+                }
+            } catch (Exception e) {
+                log.warn("Failed to load plannedExercises from DailyPlanGenerated for AI_PLAN session, userId={}", userId, e);
+                // Fall through — continue without plannedExercises
+            }
+        }
+
+        if (plannedExercises != null && !plannedExercises.isEmpty()) {
+            try {
+                session.setPlannedExercises(objectMapper.writeValueAsString(plannedExercises));
             } catch (Exception e) {
                 log.error("Failed to serialize planned exercises", e);
                 throw new RuntimeException("Could not serialize planned exercises", e);
