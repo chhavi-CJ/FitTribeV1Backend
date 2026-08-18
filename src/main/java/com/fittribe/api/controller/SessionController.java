@@ -337,7 +337,9 @@ public class SessionController {
             routineRepo.save(routine);
         }
 
-        // Store planned exercises for CUSTOM and SAVED_ROUTINE
+        // Store planned exercises for ALL sources (AI_PLAN, CUSTOM, SAVED_ROUTINE, BONUS)
+        // This enables session reconstruction on resume — unlogged planned exercises
+        // are merged with set_logs to restore the full exercise list on app restart.
         if (request.plannedExercises() != null && !request.plannedExercises().isEmpty()) {
             try {
                 session.setPlannedExercises(objectMapper.writeValueAsString(request.plannedExercises()));
