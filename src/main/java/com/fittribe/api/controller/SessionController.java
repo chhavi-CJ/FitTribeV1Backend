@@ -103,6 +103,8 @@ import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 import java.util.stream.Collectors;
+import java.util.HashSet;
+import java.util.HashMap;
 
 @RestController
 @RequestMapping("/api/v1/sessions")
@@ -1710,6 +1712,7 @@ public class SessionController {
                 .orElse(null);
 
         // Parse exercises JSONB and enrich with set-level PR flags from pr_events.
+        // For IN_PROGRESS sessions with null exercises, reconstruct from set_logs.
         List<Map<String, Object>> exercises;
         try {
             String rawEx = session.getExercises();
@@ -1835,6 +1838,18 @@ public class SessionController {
                             bodyweightById.getOrDefault((String) ex.get("exerciseId"), false));
                     exercises.add(enrichedEx);
                 }
+            } else if ("IN_PROGRESS".equals(session.getStatus())) {
+                // For IN_PROGRESS sessions with no persisted exercises JSONB,
+                // reconstruct from set_logs + plannedExercises.
+                List<SetLog> sessionLogs = setLogRepo.findBySessionId(session.getId());
+                exercises = reconstructExercisesFromSetLogs(
+                        session.getId(),
+                        session.getPlannedExercises(),
+                        sessionLogs,
+                        userId,
+                        isPrOverrides);
+                log.debug("Reconstructed {} exercises from set_logs for IN_PROGRESS session {}",
+                        exercises.size(), session.getId());
             } else {
                 exercises = List.of();
             }
@@ -1864,6 +1879,172 @@ public class SessionController {
                 exercises,
                 feedback,
                 prDetectionComplete);
+    }
+
+    /**
+     * Reconstruct exercises array from set_logs for IN_PROGRESS sessions.
+     * Returns UNION of: all plannedExercises (with logged sets + suggested unlogged)
+     * plus any exerciseIds in set_logs but not in plan (mid-session additions).
+     *
+     * Preserves plannedExercises order; appends mid-session additions in order of
+     * their first set_log created_at.
+     */
+    private List<Map<String, Object>> reconstructExercisesFromSetLogs(
+            UUID sessionId,
+            String plannedExercisesJson,
+            List<SetLog> setLogs,
+            UUID userId,
+            Map<UUID, Boolean> isPrOverrides) {
+
+        // Parse plannedExercises
+        List<Map<String, Object>> planned = new ArrayList<>();
+        Set<String> plannedExIds = new HashSet<>();
+        try {
+            if (plannedExercisesJson != null && !plannedExercisesJson.isBlank()) {
+                planned = objectMapper.readValue(plannedExercisesJson,
+                        new TypeReference<List<Map<String, Object>>>() {});
+                for (Map<String, Object> ex : planned) {
+                    String exId = (String) ex.get("exerciseId");
+                    if (exId != null) plannedExIds.add(exId);
+                }
+            }
+        } catch (Exception e) {
+            log.warn("Failed to parse plannedExercises for reconstruction, sessionId={}", sessionId, e);
+        }
+
+        // Group set_logs by exerciseId, preserving order of first set_log per exercise
+        Map<String, List<SetLog>> logsByExercise = new LinkedHashMap<>();
+        Map<String, Instant> exerciseFirstLogTime = new HashMap<>();
+        for (SetLog log : setLogs) {
+            logsByExercise.computeIfAbsent(log.getExerciseId(), k -> new ArrayList<>())
+                    .add(log);
+            exerciseFirstLogTime.putIfAbsent(log.getExerciseId(), log.getLoggedAt());
+        }
+
+        // Batch-fetch isBodyweight for all exercises (planned + logged)
+        Set<String> allExerciseIds = new HashSet<>(plannedExIds);
+        allExerciseIds.addAll(logsByExercise.keySet());
+        Map<String, Boolean> bodyweightById = allExerciseIds.isEmpty()
+                ? Map.of()
+                : exerciseRepo.findAllById(allExerciseIds).stream()
+                        .collect(Collectors.toMap(Exercise::getId, Exercise::isBodyweight));
+
+        // Fetch PR events for this session
+        java.util.Set<UUID> prSetIds = prEventRepo
+                .findBySessionIdAndSupersededAtIsNull(sessionId)
+                .stream()
+                .filter(pe -> !"FIRST_EVER".equals(pe.getPrCategory()))
+                .map(pe -> pe.getSetId())
+                .collect(java.util.stream.Collectors.toSet());
+
+        List<Map<String, Object>> result = new ArrayList<>();
+
+        // 1. Add all plannedExercises in order, with logged sets enriched
+        for (Map<String, Object> plannedEx : planned) {
+            Map<String, Object> enrichedEx = new LinkedHashMap<>(plannedEx);
+            String exId = (String) enrichedEx.get("exerciseId");
+            List<SetLog> logsForEx = logsByExercise.getOrDefault(exId, List.of());
+
+            // Build sets array: logged sets (done:true) + remaining suggested (done:false)
+            List<Map<String, Object>> setsArray = new ArrayList<>();
+            @SuppressWarnings("unchecked")
+            List<Map<String, Object>> suggestedSets =
+                    (List<Map<String, Object>>) enrichedEx.get("sets");
+
+            if (suggestedSets != null) {
+                // Create logged sets from set_logs
+                for (SetLog log : logsForEx) {
+                    Map<String, Object> loggedSet = new LinkedHashMap<>();
+                    loggedSet.put("setId", log.getId().toString());
+                    loggedSet.put("setNumber", log.getSetNumber());
+                    loggedSet.put("weightKg", log.getWeightKg());
+                    loggedSet.put("reps", log.getReps());
+                    loggedSet.put("done", true);
+
+                    // Resolve isPr
+                    boolean isPr = false;
+                    if (log.getId() != null && isPrOverrides.containsKey(log.getId())) {
+                        isPr = Boolean.TRUE.equals(isPrOverrides.get(log.getId()));
+                    } else if (log.getId() != null && prSetIds.contains(log.getId())) {
+                        isPr = true;
+                    }
+                    loggedSet.put("isPr", isPr);
+                    setsArray.add(loggedSet);
+                }
+
+                // Add remaining suggested sets as unlogged
+                for (Map<String, Object> suggestedSet : suggestedSets) {
+                    int suggestedSetNum = ((Number) suggestedSet.get("setNumber")).intValue();
+                    // Skip if this set was already logged
+                    boolean alreadyLogged = logsForEx.stream()
+                            .anyMatch(log -> suggestedSetNum == log.getSetNumber());
+                    if (!alreadyLogged) {
+                        Map<String, Object> unloggedSet = new LinkedHashMap<>(suggestedSet);
+                        unloggedSet.put("done", false);
+                        if (!unloggedSet.containsKey("isPr")) {
+                            unloggedSet.put("isPr", false);
+                        }
+                        setsArray.add(unloggedSet);
+                    }
+                }
+            }
+
+            enrichedEx.put("sets", setsArray);
+            enrichedEx.put("isBodyweight",
+                    bodyweightById.getOrDefault(exId, false));
+
+            boolean anySetIsPr = setsArray.stream()
+                    .anyMatch(s -> Boolean.TRUE.equals(s.get("isPr")));
+            enrichedEx.put("prAchieved", anySetIsPr);
+
+            result.add(enrichedEx);
+        }
+
+        // 2. Append mid-session additions (logged but not in plan) in order of first set_log
+        List<String> midSessionExIds = logsByExercise.keySet().stream()
+                .filter(exId -> !plannedExIds.contains(exId))
+                .sorted(Comparator.comparing(exerciseFirstLogTime::get))
+                .toList();
+
+        for (String exId : midSessionExIds) {
+            List<SetLog> logsForEx = logsByExercise.get(exId);
+            Map<String, Object> addedEx = new LinkedHashMap<>();
+
+            // Use first log's exercise name
+            String exName = logsForEx.get(0).getExerciseName();
+            addedEx.put("exerciseId", exId);
+            addedEx.put("exerciseName", exName);
+
+            // Build sets from logs only (no suggested sets for mid-session additions)
+            List<Map<String, Object>> setsArray = new ArrayList<>();
+            for (SetLog log : logsForEx) {
+                Map<String, Object> loggedSet = new LinkedHashMap<>();
+                loggedSet.put("setId", log.getId().toString());
+                loggedSet.put("setNumber", log.getSetNumber());
+                loggedSet.put("weightKg", log.getWeightKg());
+                loggedSet.put("reps", log.getReps());
+                loggedSet.put("done", true);
+
+                boolean isPr = false;
+                if (log.getId() != null && isPrOverrides.containsKey(log.getId())) {
+                    isPr = Boolean.TRUE.equals(isPrOverrides.get(log.getId()));
+                } else if (log.getId() != null && prSetIds.contains(log.getId())) {
+                    isPr = true;
+                }
+                loggedSet.put("isPr", isPr);
+                setsArray.add(loggedSet);
+            }
+
+            addedEx.put("sets", setsArray);
+            addedEx.put("isBodyweight", bodyweightById.getOrDefault(exId, false));
+            boolean anySetIsPr = setsArray.stream()
+                    .anyMatch(s -> Boolean.TRUE.equals(s.get("isPr")));
+            addedEx.put("prAchieved", anySetIsPr);
+
+            result.add(addedEx);
+        }
+
+        return result;
     }
 
     /**
