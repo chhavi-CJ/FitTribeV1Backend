@@ -941,6 +941,31 @@ public class SessionController {
         return ResponseEntity.ok(ApiResponse.success(Map.of("status", "ok")));
     }
 
+    // ── PATCH /sessions/{id}/exercises ────────────────────────────────
+    // Persist exercises array during active session. Accepts full exercises
+    // JSON as body, writes to session.exercises JSONB. Called by frontend on
+    // every state-changing action (log-set, swap, delete, add) with debounce.
+    @PatchMapping("/{id}/exercises")
+    @Transactional
+    public ResponseEntity<ApiResponse<Map<String, String>>> persistExercises(
+            @PathVariable UUID id,
+            @RequestBody List<Map<String, Object>> exercises,
+            Authentication auth) {
+
+        UUID userId = userId(auth);
+        WorkoutSession session = requireOwnedInProgress(id, userId);
+
+        try {
+            session.setExercises(objectMapper.writeValueAsString(exercises));
+        } catch (Exception e) {
+            log.error("Failed to serialize exercises for session {}", id, e);
+            throw new RuntimeException("Could not persist exercises", e);
+        }
+        sessionRepo.save(session);
+
+        return ResponseEntity.ok(ApiResponse.success(Map.of("status", "ok")));
+    }
+
     // ── GET /sessions/{id}/sets ───────────────────────────────────────
     @GetMapping("/{id}/sets")
     public ResponseEntity<ApiResponse<List<SetLog>>> getSets(
@@ -1689,21 +1714,6 @@ public class SessionController {
      */
     private TodaySessionResponse buildTodayResponse(WorkoutSession session, UUID userId,
                                                      Map<UUID, Boolean> isPrOverrides) {
-        // TEMP DEBUG: Log session state at entry to diagnose reconstruction issue
-        log.info("DEBUG buildTodayResponse ENTRY sessionId={} status={}",
-                session.getId(), session.getStatus());
-        log.info("DEBUG buildTodayResponse exercises={} plannedExercises={}",
-                (session.getExercises() != null && !session.getExercises().isBlank())
-                    ? "length:" + session.getExercises().length()
-                    : "NULL/EMPTY",
-                (session.getPlannedExercises() != null && !session.getPlannedExercises().isBlank())
-                    ? "length:" + session.getPlannedExercises().length()
-                    : "NULL/EMPTY");
-
-        // TEMP debug: confirms 3-arg overload is reached and shows what state
-        // the per-set isPr resolver will see. Remove after isPr trophies bug fix.
-        log.info("DEBUG buildTodayResponse sessionId={} prDetectionCompletedAt={} overrides.size={}",
-                session.getId(), session.getPrDetectionCompletedAt(), isPrOverrides.size());
 
         // For COMPLETED sessions, set_logs is wiped by the post-finish pipeline
         // (Option Y cleanup) and totalSets is always non-null in the entity, so
@@ -1742,8 +1752,6 @@ public class SessionController {
             String raw = session.getPlannedExercises();
             if (raw != null && !raw.isBlank()) {
                 // TEMP DEBUG: Log the shape of raw plannedExercises to debug parsing errors
-                String preview = raw.length() > 200 ? raw.substring(0, 200) : raw;
-                log.info("DEBUG plannedExercises raw (first 200 chars): {}", preview);
                 plannedExercises = objectMapper.readValue(raw, new TypeReference<>() {});
             } else {
                 plannedExercises = null;
@@ -1796,12 +1804,6 @@ public class SessionController {
                         .filter(pe -> !"FIRST_EVER".equals(pe.getPrCategory()))
                         .map(pe -> pe.getSetId())
                         .collect(java.util.stream.Collectors.toSet());
-
-                // TEMP debug: shows how many active non-FIRST_EVER PRs the
-                // per-set loop will use as authoritative set-id matches.
-                // Remove after isPr trophies bug fix.
-                log.info("DEBUG buildTodayResponse sessionId={} prSetIds.size={} prSetIds={}",
-                        session.getId(), prSetIds.size(), prSetIds);
 
                 // Whether the async PR detection cascade has finished writing
                 // pr_events for this session. Read once outside the loop —
@@ -1887,26 +1889,15 @@ public class SessionController {
                 }
             } else if ("IN_PROGRESS".equals(session.getStatus())) {
                 // For IN_PROGRESS sessions with no persisted exercises JSONB,
-                // reconstruct from set_logs + plannedExercises.
-                log.info("DEBUG RECONSTRUCTION TRIGGERED sessionId={} exercises is null/empty",
-                        session.getId());
+                // reconstruct from set_logs + plannedExercises as fallback.
                 List<SetLog> sessionLogs = setLogRepo.findBySessionId(session.getId());
-                log.info("DEBUG RECONSTRUCTION sessionLogs.size={} plannedExercises={}",
-                        sessionLogs.size(),
-                        (session.getPlannedExercises() != null && !session.getPlannedExercises().isBlank())
-                            ? "present"
-                            : "NULL/EMPTY");
                 exercises = reconstructExercisesFromSetLogs(
                         session.getId(),
                         session.getPlannedExercises(),
                         sessionLogs,
                         userId,
                         isPrOverrides);
-                log.info("DEBUG RECONSTRUCTION COMPLETE sessionId={} reconstructed {} exercises",
-                        session.getId(), exercises.size());
             } else {
-                log.info("DEBUG RECONSTRUCTION SKIPPED sessionId={} status={} (not IN_PROGRESS)",
-                        session.getId(), session.getStatus());
                 exercises = List.of();
             }
         } catch (Exception e) {
@@ -1916,10 +1907,6 @@ public class SessionController {
         }
 
         boolean prDetectionComplete = session.getPrDetectionCompletedAt() != null;
-
-        // TEMP DEBUG: Final state before building response
-        log.info("DEBUG buildTodayResponse EXIT sessionId={} final exercises.size={}",
-                session.getId(), exercises.size());
 
         return new TodaySessionResponse(
                 session.getId(),
