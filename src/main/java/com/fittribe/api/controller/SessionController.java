@@ -1689,6 +1689,17 @@ public class SessionController {
      */
     private TodaySessionResponse buildTodayResponse(WorkoutSession session, UUID userId,
                                                      Map<UUID, Boolean> isPrOverrides) {
+        // TEMP DEBUG: Log session state at entry to diagnose reconstruction issue
+        log.info("DEBUG buildTodayResponse ENTRY sessionId={} status={}",
+                session.getId(), session.getStatus());
+        log.info("DEBUG buildTodayResponse exercises={} plannedExercises={}",
+                (session.getExercises() != null && !session.getExercises().isBlank())
+                    ? "length:" + session.getExercises().length()
+                    : "NULL/EMPTY",
+                (session.getPlannedExercises() != null && !session.getPlannedExercises().isBlank())
+                    ? "length:" + session.getPlannedExercises().length()
+                    : "NULL/EMPTY");
+
         // TEMP debug: confirms 3-arg overload is reached and shows what state
         // the per-set isPr resolver will see. Remove after isPr trophies bug fix.
         log.info("DEBUG buildTodayResponse sessionId={} prDetectionCompletedAt={} overrides.size={}",
@@ -1870,16 +1881,25 @@ public class SessionController {
             } else if ("IN_PROGRESS".equals(session.getStatus())) {
                 // For IN_PROGRESS sessions with no persisted exercises JSONB,
                 // reconstruct from set_logs + plannedExercises.
+                log.info("DEBUG RECONSTRUCTION TRIGGERED sessionId={} exercises is null/empty",
+                        session.getId());
                 List<SetLog> sessionLogs = setLogRepo.findBySessionId(session.getId());
+                log.info("DEBUG RECONSTRUCTION sessionLogs.size={} plannedExercises={}",
+                        sessionLogs.size(),
+                        (session.getPlannedExercises() != null && !session.getPlannedExercises().isBlank())
+                            ? "present"
+                            : "NULL/EMPTY");
                 exercises = reconstructExercisesFromSetLogs(
                         session.getId(),
                         session.getPlannedExercises(),
                         sessionLogs,
                         userId,
                         isPrOverrides);
-                log.debug("Reconstructed {} exercises from set_logs for IN_PROGRESS session {}",
-                        exercises.size(), session.getId());
+                log.info("DEBUG RECONSTRUCTION COMPLETE sessionId={} reconstructed {} exercises",
+                        session.getId(), exercises.size());
             } else {
+                log.info("DEBUG RECONSTRUCTION SKIPPED sessionId={} status={} (not IN_PROGRESS)",
+                        session.getId(), session.getStatus());
                 exercises = List.of();
             }
         } catch (Exception e) {
@@ -1888,6 +1908,10 @@ public class SessionController {
         }
 
         boolean prDetectionComplete = session.getPrDetectionCompletedAt() != null;
+
+        // TEMP DEBUG: Final state before building response
+        log.info("DEBUG buildTodayResponse EXIT sessionId={} final exercises.size={}",
+                session.getId(), exercises.size());
 
         return new TodaySessionResponse(
                 session.getId(),
