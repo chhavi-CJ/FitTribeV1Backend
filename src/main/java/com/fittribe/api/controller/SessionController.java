@@ -1740,10 +1740,17 @@ public class SessionController {
         List<Map<String, Object>> plannedExercises;
         try {
             String raw = session.getPlannedExercises();
-            plannedExercises = (raw != null && !raw.isBlank())
-                    ? objectMapper.readValue(raw, new TypeReference<>() {})
-                    : null;
+            if (raw != null && !raw.isBlank()) {
+                // TEMP DEBUG: Log the shape of raw plannedExercises to debug parsing errors
+                String preview = raw.length() > 200 ? raw.substring(0, 200) : raw;
+                log.info("DEBUG plannedExercises raw (first 200 chars): {}", preview);
+                plannedExercises = objectMapper.readValue(raw, new TypeReference<>() {});
+            } else {
+                plannedExercises = null;
+            }
         } catch (Exception e) {
+            log.error("PLANNEDEXERCISES PARSE FAILED sessionId={} - Exception: {}",
+                    session.getId(), e.getMessage(), e);
             plannedExercises = null;
         }
 
@@ -1903,7 +1910,8 @@ public class SessionController {
                 exercises = List.of();
             }
         } catch (Exception e) {
-            log.warn("Failed to parse exercises JSONB for session={}", session.getId(), e);
+            log.error("RECONSTRUCTION FAILED sessionId={} - Exception: {}",
+                    session.getId(), e.getMessage(), e);
             exercises = List.of();
         }
 
