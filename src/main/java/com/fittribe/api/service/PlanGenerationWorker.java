@@ -139,6 +139,19 @@ public class PlanGenerationWorker {
                 copy.put("equipment", entity != null ? entity.getEquipment() : null);
                 copy.put("isBodyweight", entity != null && entity.isBodyweight());
                 copy.put("swapAlternatives", planService.getSwapsFromDb(exId, muscleGrp, allExerciseIdsInPlan));
+
+                // Post-process: round suggestedKg to nearest 0.5kg to eliminate pound-conversion artifacts
+                Object kg = copy.get("suggestedKg");
+                if (kg instanceof Number) {
+                    double val = ((Number) kg).doubleValue();
+                    if (val <= 0) {
+                        copy.put("suggestedKg", null);
+                    } else {
+                        // Round to nearest 0.5kg (covers all real gym increments: 2.5, 5, 7.5, 10... for barbell/cable and 2, 4, 6, 8... for dumbbell)
+                        copy.put("suggestedKg", Math.round(val * 2.0) / 2.0);
+                    }
+                }
+
                 enriched.add(copy);
             }
 

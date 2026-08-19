@@ -206,7 +206,7 @@ public final class AiPrompts {
             "ADVANCED male:   barbell 80-140kg, dumbbell 24-40kg, machine 70-120kg\n" +
             "Round all weights to nearest real gym increment:\n" +
             "- Barbell: nearest 2.5kg (e.g. 20, 22.5, 25)\n" +
-            "- Dumbbell: nearest 2kg (e.g. 6, 8, 10)\n" +
+            "- Dumbbell: nearest 2kg (e.g. 4, 6, 8, 10, 12). NEVER suggest odd decimals like 2.2, 4.4, 6.6 — these are pound conversions and don't exist on any rack.\n" +
             "- Machine: nearest 5kg (e.g. 20, 25, 30)\n" +
             "- Bodyweight exercises (push-ups, pull-ups, dips, plank, etc.): suggestedKg must be null — do NOT use 0 or 0.0\n" +
             "For week 1-2 beginners: suggest conservative weights, coachTip MUST mention form over weight.\n" +
@@ -381,7 +381,7 @@ public final class AiPrompts {
 
             "Round all weights to nearest real gym increment:\n" +
             "- Barbell: nearest 2.5kg (e.g. 20, 22.5, 25)\n" +
-            "- Dumbbell: nearest 2kg (e.g. 4, 6, 8)\n" +
+            "- Dumbbell: nearest 2kg (e.g. 4, 6, 8, 10, 12). NEVER suggest odd decimals like 2.2, 4.4, 6.6 — these are pound conversions and don't exist on any rack.\n" +
             "- Machine: nearest 5kg (e.g. 10, 15, 20)\n" +
             "- Cable: nearest 2.5kg (e.g. 2.5, 5, 7.5)\n" +
 
