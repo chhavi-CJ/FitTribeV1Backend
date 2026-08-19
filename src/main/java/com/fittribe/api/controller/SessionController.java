@@ -2009,6 +2009,14 @@ public class SessionController {
             // Build sets array: logged sets (done:true) + remaining suggested (done:false)
             List<Map<String, Object>> setsArray = new ArrayList<>();
             Object setsRaw = enrichedEx.get("sets");
+
+            // DEBUG: Log the type and first 100 chars of sets for the first exercise
+            if (planned.indexOf(plannedEx) == 0) {
+                String setsPreview = setsRaw != null ? setsRaw.toString().substring(0, Math.min(100, setsRaw.toString().length())) : "null";
+                log.info("DEBUG reconstructExercises: setsRaw type={} value={}",
+                        setsRaw != null ? setsRaw.getClass().getSimpleName() : "null", setsPreview);
+            }
+
             List<Map<String, Object>> suggestedSets = null;
             if (setsRaw instanceof List<?> setsList) {
                 suggestedSets = new ArrayList<>();
@@ -2021,28 +2029,28 @@ public class SessionController {
                 }
             }
 
-            if (suggestedSets != null && !suggestedSets.isEmpty()) {
-                // Create logged sets from set_logs
-                for (SetLog log : logsForEx) {
-                    Map<String, Object> loggedSet = new LinkedHashMap<>();
-                    loggedSet.put("setId", log.getId().toString());
-                    loggedSet.put("setNumber", log.getSetNumber());
-                    loggedSet.put("weightKg", log.getWeightKg());
-                    loggedSet.put("reps", log.getReps());
-                    loggedSet.put("done", true);
+            // ALWAYS merge logged sets from set_logs (done=true)
+            for (SetLog log : logsForEx) {
+                Map<String, Object> loggedSet = new LinkedHashMap<>();
+                loggedSet.put("setId", log.getId().toString());
+                loggedSet.put("setNumber", log.getSetNumber());
+                loggedSet.put("weightKg", log.getWeightKg());
+                loggedSet.put("reps", log.getReps());
+                loggedSet.put("done", true);
 
-                    // Resolve isPr
-                    boolean isPr = false;
-                    if (log.getId() != null && isPrOverrides.containsKey(log.getId())) {
-                        isPr = Boolean.TRUE.equals(isPrOverrides.get(log.getId()));
-                    } else if (log.getId() != null && prSetIds.contains(log.getId())) {
-                        isPr = true;
-                    }
-                    loggedSet.put("isPr", isPr);
-                    setsArray.add(loggedSet);
+                // Resolve isPr
+                boolean isPr = false;
+                if (log.getId() != null && isPrOverrides.containsKey(log.getId())) {
+                    isPr = Boolean.TRUE.equals(isPrOverrides.get(log.getId()));
+                } else if (log.getId() != null && prSetIds.contains(log.getId())) {
+                    isPr = true;
                 }
+                loggedSet.put("isPr", isPr);
+                setsArray.add(loggedSet);
+            }
 
-                // Add remaining suggested sets as unlogged
+            // Add remaining suggested sets as unlogged (done=false), if available
+            if (suggestedSets != null && !suggestedSets.isEmpty()) {
                 for (Map<String, Object> suggestedSet : suggestedSets) {
                     Object setNumRaw = suggestedSet.get("setNumber");
                     if (setNumRaw == null || !(setNumRaw instanceof Number)) continue; // Skip if setNumber invalid
