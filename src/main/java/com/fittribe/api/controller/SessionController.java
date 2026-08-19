@@ -2008,11 +2008,20 @@ public class SessionController {
 
             // Build sets array: logged sets (done:true) + remaining suggested (done:false)
             List<Map<String, Object>> setsArray = new ArrayList<>();
-            @SuppressWarnings("unchecked")
-            List<Map<String, Object>> suggestedSets =
-                    (List<Map<String, Object>>) enrichedEx.get("sets");
+            Object setsRaw = enrichedEx.get("sets");
+            List<Map<String, Object>> suggestedSets = null;
+            if (setsRaw instanceof List<?> setsList) {
+                suggestedSets = new ArrayList<>();
+                for (Object setObj : setsList) {
+                    if (setObj instanceof Map<?, ?> setMap) {
+                        @SuppressWarnings("unchecked")
+                        Map<String, Object> map = (Map<String, Object>) setMap;
+                        suggestedSets.add(map);
+                    }
+                }
+            }
 
-            if (suggestedSets != null) {
+            if (suggestedSets != null && !suggestedSets.isEmpty()) {
                 // Create logged sets from set_logs
                 for (SetLog log : logsForEx) {
                     Map<String, Object> loggedSet = new LinkedHashMap<>();
@@ -2035,7 +2044,9 @@ public class SessionController {
 
                 // Add remaining suggested sets as unlogged
                 for (Map<String, Object> suggestedSet : suggestedSets) {
-                    int suggestedSetNum = ((Number) suggestedSet.get("setNumber")).intValue();
+                    Object setNumRaw = suggestedSet.get("setNumber");
+                    if (setNumRaw == null || !(setNumRaw instanceof Number)) continue; // Skip if setNumber invalid
+                    int suggestedSetNum = ((Number) setNumRaw).intValue();
                     // Skip if this set was already logged
                     boolean alreadyLogged = logsForEx.stream()
                             .anyMatch(log -> suggestedSetNum == log.getSetNumber());
@@ -2064,7 +2075,12 @@ public class SessionController {
         // 2. Append mid-session additions (logged but not in plan) in order of first set_log
         List<String> midSessionExIds = logsByExercise.keySet().stream()
                 .filter(exId -> !plannedExIds.contains(exId))
-                .sorted(Comparator.comparing(exerciseFirstLogTime::get))
+                .sorted((exId1, exId2) -> {
+                    Instant t1 = exerciseFirstLogTime.get(exId1);
+                    Instant t2 = exerciseFirstLogTime.get(exId2);
+                    if (t1 == null || t2 == null) return 0; // Safety: avoid NPE on null times
+                    return t1.compareTo(t2);
+                })
                 .toList();
 
         for (String exId : midSessionExIds) {
