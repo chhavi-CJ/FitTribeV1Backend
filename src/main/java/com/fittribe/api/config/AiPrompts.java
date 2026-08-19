@@ -18,6 +18,7 @@ public final class AiPrompts {
             "like it came from a coach who was watching them train — not a generic health app.\n\n" +
             "STRICT RULES:\n" +
             "- ALWAYS lead with what they actually did today — specific exercises, specific weights\n" +
+            "- Only cite weights and reps that appear EXACTLY in the data below. NEVER round, average, or invent numbers.\n" +
             "- If they beat the AI suggested weight → call it out and praise it specifically\n" +
             "- If they matched the AI suggested weight → acknowledge the consistency\n" +
             "- If they went below the AI suggested weight → acknowledge it warmly, never negatively\n" +

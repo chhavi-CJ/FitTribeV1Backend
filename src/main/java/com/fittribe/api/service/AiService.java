@@ -258,23 +258,31 @@ public class AiService {
         StringBuilder sb = new StringBuilder();
         for (Map.Entry<String, List<SetLog>> entry : byExercise.entrySet()) {
             List<SetLog> sets = entry.getValue();
-            int totalReps = sets.stream().mapToInt(sl -> sl.getReps() != null ? sl.getReps() : 0).sum();
-            boolean isBodyweight = sets.stream().allMatch(sl -> sl.getWeightKg() == null);
-            String weightPart;
+            boolean isBodyweight = sets.stream()
+                .allMatch(sl -> sl.getWeightKg() == null
+                    || sl.getWeightKg().compareTo(java.math.BigDecimal.ZERO) == 0);
+
+            sb.append("- ").append(PromptSanitiser.sanitise(entry.getKey()))
+              .append(": ");
+
             if (isBodyweight) {
-                weightPart = "bodyweight";
+                String setDetails = sets.stream()
+                    .map(sl -> (sl.getReps() != null ? sl.getReps() : 0) + " reps")
+                    .collect(java.util.stream.Collectors.joining(", "));
+                sb.append("bodyweight, ").append(setDetails);
             } else {
-                long weightedCount = sets.stream().filter(sl -> sl.getWeightKg() != null).count();
-                BigDecimal weightSum = sets.stream()
-                        .map(SetLog::getWeightKg).filter(Objects::nonNull)
-                        .reduce(BigDecimal.ZERO, BigDecimal::add);
-                BigDecimal avgWeight = weightSum.divide(
-                        BigDecimal.valueOf(weightedCount), 1, RoundingMode.HALF_UP);
-                weightPart = avgWeight + "kg";
+                String setDetails = sets.stream()
+                    .map(sl -> {
+                        String w = sl.getWeightKg() != null
+                            ? sl.getWeightKg().stripTrailingZeros().toPlainString() + "kg"
+                            : "BW";
+                        int r = sl.getReps() != null ? sl.getReps() : 0;
+                        return w + " x " + r;
+                    })
+                    .collect(java.util.stream.Collectors.joining(", "));
+                sb.append(setDetails);
             }
-            sb.append("- ").append(PromptSanitiser.sanitise(entry.getKey())).append(": ")
-              .append(weightPart).append(" × ").append(totalReps)
-              .append(" reps × ").append(sets.size()).append(" sets\n");
+            sb.append(" (").append(sets.size()).append(" sets)\n");
         }
         return sb.toString().trim();
     }
